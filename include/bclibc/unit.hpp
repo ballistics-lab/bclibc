@@ -1,6 +1,50 @@
 #ifndef BCLIBC_UNIT_HPP
 #define BCLIBC_UNIT_HPP
 
+/**
+ * @file unit.hpp
+ * @brief Type-safe, header-only physical unit system for ballistic calculations.
+ *
+ * Provides compile-time unit safety via `Dimension<DimTag, Unit>` — a single template
+ * that covers all physical dimensions. Values are stored internally in a fixed base unit
+ * (e.g. inches for Distance, m/s for Velocity, °F for Temperature) and converted on demand.
+ *
+ * **Supported dimensions and their base (raw) units:**
+ * | Alias         | Base unit   | Unit tags                                                         |
+ * |---------------|-------------|-------------------------------------------------------------------|
+ * | Angular       | radian      | Radian, Degree, MOA, Mil, MRad, Thousandth, InchesPer100Yd, CmPer100m, OClock |
+ * | Distance      | inch        | Inch, Foot, Yard, Mile, NauticalMile, Millimeter, Centimeter, Meter, Kilometer, Line |
+ * | Energy        | foot-pound  | FootPound, Joule                                                  |
+ * | Pressure      | mmHg        | MmHg, InHg, Bar, hPa, PSI                                        |
+ * | Temperature   | °Fahrenheit | Fahrenheit, Celsius, Kelvin, Rankin                               |
+ * | Velocity      | m/s         | MPS, KMH, FPS, MPH, KT                                           |
+ * | Weight        | grain       | Grain, Ounce, Gram, Pound, Kilogram, Newton                       |
+ * | Time          | second      | Second, Minute, Millisecond, Microsecond, Nanosecond, Picosecond  |
+ *
+ * **Quick start:**
+ * @code
+ * using namespace bclibc;
+ *
+ * Distance<Meter>      d(100.0);            // 100 m
+ * Distance<Yard>       dy = d.to<Yard>();   // → 109.361 yd
+ * double               ft = d.to<Foot>().value(); // → 328.084
+ *
+ * Velocity<FPS>        v(2800.0);
+ * double               mps = v.to<MPS>().value(); // → 853.44
+ *
+ * Temperature<Celsius> t(20.0);
+ * double               k = t.to<Kelvin>().value(); // → 293.15
+ *
+ * // Arithmetic (same dimension, any units)
+ * Distance<Meter> sum = d + Distance<Yard>(50.0).to<Meter>();
+ * Distance<Meter> scaled = d * 2.0;
+ *
+ * // Runtime conversion
+ * double val = convert_linear(100.0, BCLIBC_Unit::Meter, BCLIBC_Unit::Foot); // 328.084
+ * double tmp = convert_temperature(100.0, BCLIBC_Unit::Celsius, BCLIBC_Unit::Fahrenheit); // 212.0
+ * @endcode
+ */
+
 #include <type_traits>
 #include <cmath>
 #include <iostream>
@@ -17,6 +61,21 @@ namespace detail
 
 // ================= UNIT ENUM =================
 
+/**
+ * @brief Enum of all supported unit identifiers.
+ *
+ * Values match py-ballisticcalc `Unit` enum exactly, enabling round-trip
+ * interoperability with the Python library over FFI.
+ *
+ * @code
+ * BCLIBC_Unit u = BCLIBC_Unit::Meter;
+ * double f = unit_factor(u);  // factor for linear conversion
+ *
+ * // Compile-time enum → type bridge:
+ * using T = unit_from_enum<BCLIBC_Unit::Kilometer>::type; // → Kilometer tag
+ * Distance<T> d(5.0);  // Distance<Kilometer>
+ * @endcode
+ */
 enum class BCLIBC_Unit : int
 {
     // Angular [0–8]
@@ -83,24 +142,32 @@ enum class BCLIBC_Unit : int
     Picosecond     = 85,
 };
 
-// Compatibility alias
+/// @brief Compatibility alias for code that previously used BCLIBC_DistanceUnit.
 using BCLIBC_DistanceUnit = BCLIBC_Unit;
 
 // ================= UNIT TAG BASE =================
-//
-// Linear units inherit UnitTag<Derived> and define `factor`.
-// Default to_raw / from_raw implement the linear mapping:
-//   raw = value * factor
-//   value = raw / factor
-//
-// Temperature tags do NOT inherit UnitTag — they override to_raw / from_raw
-// with affine conversions (raw unit = Fahrenheit).
-//
-// Every tag must expose:
-//   static constexpr BCLIBC_Unit id
-//   static constexpr double to_raw(double v)
-//   static constexpr double from_raw(double r)
 
+/**
+ * @brief CRTP base for linear unit tags.
+ *
+ * `Derived` must define:
+ * - `static constexpr double factor` — scaling factor: raw = value × factor
+ * - `static constexpr BCLIBC_Unit id` — enum identifier
+ *
+ * Provides default `to_raw` / `from_raw` via the factor:
+ * @code
+ * static constexpr double to_raw(double v)   { return v * Derived::factor; }
+ * static constexpr double from_raw(double r) { return r / Derived::factor; }
+ * @endcode
+ *
+ * Temperature tags do **not** inherit `UnitTag` — they define affine
+ * `to_raw` / `from_raw` directly (raw unit = °Fahrenheit).
+ *
+ * Every tag (linear or affine) must expose:
+ * - `static constexpr BCLIBC_Unit id`
+ * - `static constexpr double to_raw(double v)`
+ * - `static constexpr double from_raw(double r)`
+ */
 template<typename Derived>
 struct UnitTag
 {
@@ -174,10 +241,25 @@ struct Microsecond    : UnitTag<Microsecond>    { static constexpr double factor
 struct Nanosecond     : UnitTag<Nanosecond>     { static constexpr double factor = 1.0 / 1000000000.0;                static constexpr auto id = BCLIBC_Unit::Nanosecond; };
 struct Picosecond     : UnitTag<Picosecond>     { static constexpr double factor = 1.0 / 1000000000000.0;             static constexpr auto id = BCLIBC_Unit::Picosecond; };
 
-// ---- Temperature tags (raw = Fahrenheit; affine conversions) ----
-// Note: arithmetic between two Temperature<> instances sums raw °F values,
-// which is meaningful only as a coincidence — use for conversion, not math.
+// ---- Temperature tags (raw = °Fahrenheit; affine conversions) ----
 
+/**
+ * @brief Temperature unit tags use affine (offset + scale) conversions.
+ *
+ * Unlike linear tags, these do **not** inherit `UnitTag` and have no `factor`.
+ * `to_raw(v)` converts a value in the tag's unit to °Fahrenheit (raw).
+ * `from_raw(r)` converts °Fahrenheit back to the tag's unit.
+ *
+ * @warning Arithmetic between two `Temperature<>` objects adds their raw °F values.
+ *          This is only physically meaningful for the Fahrenheit and Rankin scales.
+ *          For other scales use `to<>()` for conversion only.
+ *
+ * @code
+ * Temperature<Celsius> tc(20.0);
+ * double k = tc.to<Kelvin>().value();   // 293.15 K  ✓
+ * double f = tc.to<Fahrenheit>().value(); // 68.0 °F ✓
+ * @endcode
+ */
 struct Fahrenheit
 {
     static constexpr BCLIBC_Unit id = BCLIBC_Unit::Fahrenheit;
@@ -185,6 +267,7 @@ struct Fahrenheit
     static constexpr double from_raw(double r) { return r; }
 };
 
+/// @copydoc Fahrenheit
 struct Celsius
 {
     static constexpr BCLIBC_Unit id = BCLIBC_Unit::Celsius;
@@ -192,6 +275,7 @@ struct Celsius
     static constexpr double from_raw(double r) { return (r - 32.0) * 5.0 / 9.0; }
 };
 
+/// @copydoc Fahrenheit
 struct Kelvin
 {
     static constexpr BCLIBC_Unit id = BCLIBC_Unit::Kelvin;
@@ -199,6 +283,7 @@ struct Kelvin
     static constexpr double from_raw(double r) { return (r - 32.0) * 5.0 / 9.0 + 273.15; }
 };
 
+/// @copydoc Fahrenheit
 struct Rankin
 {
     static constexpr BCLIBC_Unit id = BCLIBC_Unit::Rankin;
@@ -208,6 +293,9 @@ struct Rankin
 
 // ================= DIMENSION PHANTOM TAGS =================
 
+/// @brief Phantom tags that distinguish dimension types at compile time.
+/// `Distance<Meter>` and `Velocity<Meter>` are distinct types even though
+/// both use the `Meter` unit tag.
 struct AngularDimTag     {};
 struct DistanceDimTag    {};
 struct EnergyDimTag      {};
@@ -218,15 +306,75 @@ struct WeightDimTag      {};
 struct TimeDimTag        {};
 
 // ================= UNIFIED DIMENSION =================
-//
-// _raw is stored in the dimension's base unit via Unit::to_raw.
-// Conversion between units goes through _raw — no intermediate step needed.
-//
-// Unit requirements:
-//   static constexpr BCLIBC_Unit id
-//   static constexpr double to_raw(double v)
-//   static constexpr double from_raw(double r)
 
+/**
+ * @brief Core type-safe measurement class.
+ *
+ * Stores a value in the dimension's base unit (`_raw`) via `Unit::to_raw`.
+ * All arithmetic and comparisons operate on raw values, ensuring correctness
+ * across mixed units within the same dimension.
+ *
+ * `DimTag` is a phantom type that prevents cross-dimension assignment:
+ * `Distance<Meter>` and `Velocity<Meter>` are unrelated types.
+ *
+ * `Unit` must expose:
+ * - `static constexpr BCLIBC_Unit id`
+ * - `static constexpr double to_raw(double v)`
+ * - `static constexpr double from_raw(double r)`
+ *
+ * Use the dimension aliases (`Distance`, `Velocity`, etc.) instead of
+ * instantiating `Dimension` directly.
+ *
+ * @tparam DimTag  Phantom tag identifying the physical dimension.
+ * @tparam Unit    Unit tag (e.g. `Meter`, `FPS`, `Celsius`).
+ *
+ * @code
+ * using namespace bclibc;
+ *
+ * // --- Creation ---
+ * Distance<Meter>  d(100.0);         // 100 m, stored as 3937.0 inches internally
+ * Velocity<FPS>    v(2800.0);        // 2800 ft/s, stored as 853.44 m/s internally
+ * Weight<Grain>    w(175.0);
+ *
+ * // --- Conversion ---
+ * Distance<Yard>   dy  = d.to<Yard>();          // 109.361 yd
+ * double           ft  = d.to<Foot>().value();  // 328.084
+ * double           mps = v.to<MPS>().value();   // 853.44
+ *
+ * // --- value() vs raw() ---
+ * d.value();  // 100.0  (in meters, the declared unit)
+ * d.raw();    // 3937.0 (always in inches, the Distance base unit)
+ *
+ * // --- Arithmetic (mixed units OK within same dimension) ---
+ * Distance<Meter> sum  = d + Distance<Yard>(50.0);  // adds via raw inches
+ * Distance<Meter> half = d / 2.0;
+ * Distance<Meter> big  = 3.0 * d;
+ * double ratio         = d / Distance<Foot>(328.084); // dimensionless
+ *
+ * // --- Comparison ---
+ * Distance<Meter>(1.0) == Distance<Yard>(1.0936133); // true
+ * Distance<Meter>(1.0) <  Distance<Kilometer>(1.0);  // true
+ *
+ * // --- Cross-dimension safety (compile error) ---
+ * // Distance<Meter> x = Velocity<MPS>(1.0);  // error: incompatible DimTag
+ *
+ * // --- As struct fields ---
+ * struct Bullet {
+ *     Weight<Grain>  weight;
+ *     Velocity<FPS>  muzzle_velocity;
+ * };
+ * Bullet b{ Weight<Grain>(175.0), Velocity<FPS>(2800.0) };
+ * double kg = b.weight.to<Kilogram>().value(); // 0.01134
+ *
+ * // --- Generic field accepting any unit ---
+ * struct Target {
+ *     Distance<Meter> range;
+ *     template<typename U>
+ *     explicit Target(Distance<U> r) : range(r.to<Meter>()) {}
+ * };
+ * Target t(Distance<Yard>(500.0));
+ * @endcode
+ */
 template<typename DimTag, typename Unit>
 class Dimension
 {
@@ -236,19 +384,31 @@ class Dimension
     constexpr Dimension(raw_tag, double raw) : _raw(raw) {}
 
 public:
+    /// The unit tag type this instance was constructed with.
     using unit = Unit;
 
+    /// Construct from a value in `Unit`'s scale.
     constexpr explicit Dimension(double v)
         : _raw(Unit::to_raw(v)) {}
 
+    /// Construct directly from a raw (base-unit) value — bypasses `to_raw`.
     constexpr static Dimension from_raw(double raw)
     {
         return Dimension(raw_tag{}, raw);
     }
 
+    /// Raw value in the dimension's base unit (e.g. inches for Distance).
     constexpr double raw()   const { return _raw; }
+
+    /// Value in the unit this object was declared with.
     constexpr double value() const { return Unit::from_raw(_raw); }
 
+    /// Convert to a different unit within the same dimension.
+    /// @code
+    /// Distance<Meter> d(100.0);
+    /// auto yd = d.to<Yard>();   // Distance<Yard>(109.361)
+    /// auto ft = d.to<Foot>();   // Distance<Foot>(328.084)
+    /// @endcode
     template<typename OtherUnit>
     constexpr Dimension<DimTag, OtherUnit> to() const
     {
@@ -257,23 +417,32 @@ public:
 
     // ===== Arithmetic =====
 
+    /// Add two measurements of the same dimension (any units). Result is in `Unit`.
     template<typename U2>
     constexpr Dimension operator+(const Dimension<DimTag, U2>& o) const
     {
         return from_raw(_raw + o.raw());
     }
 
+    /// Subtract two measurements of the same dimension (any units). Result is in `Unit`.
     template<typename U2>
     constexpr Dimension operator-(const Dimension<DimTag, U2>& o) const
     {
         return from_raw(_raw - o.raw());
     }
 
+    /// Scale by a dimensionless scalar.
     constexpr Dimension operator*(double s) const { return from_raw(_raw * s); }
+    /// Divide by a dimensionless scalar.
     constexpr Dimension operator/(double s) const { return from_raw(_raw / s); }
 
+    /// `scalar * dimension` convenience form.
     friend constexpr Dimension operator*(double s, const Dimension& d) { return d * s; }
 
+    /// Divide two measurements of the same dimension — returns a dimensionless ratio.
+    /// @code
+    /// double r = Distance<Meter>(200.0) / Distance<Meter>(100.0); // 2.0
+    /// @endcode
     template<typename U2>
     constexpr double operator/(const Dimension<DimTag, U2>& o) const
     {
@@ -282,6 +451,7 @@ public:
 
     // ===== Comparison =====
 
+    /// Equality with 1e-12 raw-unit tolerance.
     template<typename U2>
     bool operator==(const Dimension<DimTag, U2>& o) const
     {
@@ -303,6 +473,7 @@ public:
     template<typename U2>
     constexpr bool operator>=(const Dimension<DimTag, U2>& o) const { return _raw >= o.raw(); }
 
+    /// Prints `value()` (in the declared unit).
     friend std::ostream& operator<<(std::ostream& os, const Dimension& d)
     {
         return os << d.value();
@@ -311,6 +482,21 @@ public:
 
 // ================= TYPE ALIASES =================
 
+/**
+ * @name Dimension aliases
+ * Convenience aliases over `Dimension<DimTag, Unit>`.
+ * @{
+ * @code
+ * Angular<Degree>      a(45.0);
+ * Distance<Meter>      d(100.0);
+ * Energy<Joule>        e(3500.0);
+ * Pressure<InHg>       p(29.92);
+ * Temperature<Celsius> t(15.0);
+ * Velocity<MPS>        v(900.0);
+ * Weight<Gram>         w(11.34);
+ * Time<Millisecond>    tm(500.0);
+ * @endcode
+ */
 template<typename Unit> using Angular     = Dimension<AngularDimTag,     Unit>;
 template<typename Unit> using Distance    = Dimension<DistanceDimTag,    Unit>;
 template<typename Unit> using Energy      = Dimension<EnergyDimTag,      Unit>;
@@ -319,9 +505,20 @@ template<typename Unit> using Temperature = Dimension<TemperatureDimTag, Unit>;
 template<typename Unit> using Velocity    = Dimension<VelocityDimTag,    Unit>;
 template<typename Unit> using Weight      = Dimension<WeightDimTag,      Unit>;
 template<typename Unit> using Time        = Dimension<TimeDimTag,        Unit>;
+/** @} */
 
 // ================= FACTORY HELPERS =================
 
+/**
+ * @name Factory helpers
+ * Alternative to the constructor when the unit must be inferred from context.
+ * @{
+ * @code
+ * auto d = make_distance<Yard>(100.0);   // Distance<Yard>
+ * auto v = make_velocity<MPS>(340.0);    // Velocity<MPS>
+ * auto t = make_temperature<Kelvin>(293.15); // Temperature<Kelvin>
+ * @endcode
+ */
 template<typename Unit> constexpr Angular<Unit>     make_angular(double v)     { return Angular<Unit>(v); }
 template<typename Unit> constexpr Distance<Unit>    make_distance(double v)    { return Distance<Unit>(v); }
 template<typename Unit> constexpr Energy<Unit>      make_energy(double v)      { return Energy<Unit>(v); }
@@ -330,9 +527,22 @@ template<typename Unit> constexpr Temperature<Unit> make_temperature(double v) {
 template<typename Unit> constexpr Velocity<Unit>    make_velocity(double v)    { return Velocity<Unit>(v); }
 template<typename Unit> constexpr Weight<Unit>      make_weight(double v)      { return Weight<Unit>(v); }
 template<typename Unit> constexpr Time<Unit>        make_time(double v)        { return Time<Unit>(v); }
+/** @} */
 
 // ================= ENUM ↔ TYPE BRIDGE =================
 
+/**
+ * @brief Compile-time mapping from `BCLIBC_Unit` enum value to a unit tag type.
+ *
+ * @code
+ * using T = unit_from_enum<BCLIBC_Unit::Meter>::type;   // → Meter
+ * Distance<T> d(42.0);  // Distance<Meter>
+ *
+ * // Useful in generic FFI wrappers:
+ * template<BCLIBC_Unit U>
+ * auto wrap(double v) { return Distance<typename unit_from_enum<U>::type>(v); }
+ * @endcode
+ */
 template<BCLIBC_Unit U>
 struct unit_from_enum;
 
@@ -401,8 +611,17 @@ template<> struct unit_from_enum<BCLIBC_Unit::Picosecond>     { using type = Pic
 
 // ================= RUNTIME CONVERSION =================
 
-// Returns the linear `factor` for non-temperature units (raw = value * factor).
-// Returns 0.0 for temperature units — use convert_temperature() instead.
+/**
+ * @brief Returns the linear scaling `factor` for a given unit (raw = value × factor).
+ *
+ * Temperature units are not linear — returns `0.0` for them.
+ * Use `convert_temperature()` for temperature at runtime.
+ *
+ * @code
+ * double f = unit_factor(BCLIBC_Unit::Meter);  // 1000/25.4 ≈ 39.37
+ * double f2 = unit_factor(BCLIBC_Unit::Celsius); // 0.0 — not linear
+ * @endcode
+ */
 inline double unit_factor(BCLIBC_Unit u)
 {
     switch (u)
@@ -461,13 +680,37 @@ inline double unit_factor(BCLIBC_Unit u)
     }
 }
 
-// Runtime conversion for all linear dimensions (Angular, Distance, Energy, Pressure, Velocity, Weight, Time).
+/**
+ * @brief Runtime conversion for all **linear** dimensions.
+ *
+ * Equivalent to the compile-time `d.to<OtherUnit>().value()` but for
+ * units known only at runtime (e.g. from user config or FFI).
+ *
+ * Do **not** use for Temperature — call `convert_temperature()` instead.
+ *
+ * @code
+ * double ft  = convert_linear(100.0, BCLIBC_Unit::Meter, BCLIBC_Unit::Foot);  // 328.084
+ * double moa = convert_linear(1.0,   BCLIBC_Unit::Mil,   BCLIBC_Unit::MOA);   // 3.438
+ * double fps = convert_linear(900.0, BCLIBC_Unit::MPS,   BCLIBC_Unit::FPS);   // 2952.76
+ * @endcode
+ */
 inline double convert_linear(double v, BCLIBC_Unit from, BCLIBC_Unit to)
 {
     return v * unit_factor(from) / unit_factor(to);
 }
 
-// Runtime conversion for Temperature (affine — not interchangeable with convert_linear).
+/**
+ * @brief Runtime conversion for **Temperature** (affine — offset + scale).
+ *
+ * Cannot use `convert_linear()` for temperature because conversions have
+ * an additive offset (e.g. 0 °C ≠ 0 °F).
+ *
+ * @code
+ * double f = convert_temperature(100.0, BCLIBC_Unit::Celsius,    BCLIBC_Unit::Fahrenheit); // 212.0
+ * double k = convert_temperature(100.0, BCLIBC_Unit::Celsius,    BCLIBC_Unit::Kelvin);     // 373.15
+ * double c = convert_temperature(98.6,  BCLIBC_Unit::Fahrenheit, BCLIBC_Unit::Celsius);    // 37.0
+ * @endcode
+ */
 inline double convert_temperature(double v, BCLIBC_Unit from, BCLIBC_Unit to)
 {
     double raw_f;
