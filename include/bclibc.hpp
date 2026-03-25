@@ -12,5 +12,6 @@
 #include "bclibc/engine.hpp"
 #include "bclibc/rk4.hpp"
 #include "bclibc/euler.hpp"
+#include "bclibc/unit.hpp"
 
 #endif // BCLIBC_HPP
