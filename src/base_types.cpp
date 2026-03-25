@@ -247,6 +247,73 @@ namespace bclibc
     };
 
     /**
+     * @brief Universal PCHIP core calculation.
+     * Takes vectors X та Y, returns BCLIBC_Curve.
+     */
+    BCLIBC_Curve build_pchip_curve_from_arrays(const std::vector<double> &x, const std::vector<double> &y)
+    {
+        size_t n = x.size();
+        if (n < 2)
+            throw std::invalid_argument("PCHIP requires at least 2 points");
+
+        size_t nm1 = n - 1;
+        std::vector<double> h(nm1), d(nm1), m(n);
+
+        // 1. Steps
+        for (size_t i = 0; i < nm1; ++i)
+        {
+            h[i] = x[i + 1] - x[i];
+            d[i] = (y[i + 1] - y[i]) / h[i];
+        }
+
+        // 2. Calculate slopes
+        if (n == 2)
+        {
+            m[0] = m[1] = d[0];
+        }
+        else
+        {
+            for (size_t i = 1; i < n - 1; ++i)
+            {
+                if (d[i - 1] * d[i] <= 0.0)
+                    m[i] = 0.0;
+                else
+                {
+                    double w1 = 2.0 * h[i] + h[i - 1];
+                    double w2 = h[i] + 2.0 * h[i - 1];
+                    m[i] = (w1 + w2) / (w1 / d[i - 1] + w2 / d[i]);
+                }
+            }
+
+            auto calc_endpoint = [&](size_t i0, size_t i1, size_t d0, size_t d1)
+            {
+                double res = ((2.0 * h[i0] + h[i1]) * d[d0] - h[i0] * d[d1]) / (h[i0] + h[i1]);
+                if (res * d[d0] <= 0.0)
+                    return 0.0;
+                if (d[d0] * d[d1] < 0.0 && std::fabs(res) > 3.0 * std::fabs(d[d0]))
+                    return 3.0 * d[d0];
+                return res;
+            };
+            m[0] = calc_endpoint(0, 1, 0, 1);
+            m[n - 1] = calc_endpoint(n - 2, n - 3, n - 2, n - 3);
+        }
+
+        // 3. Horner's method coeffs
+        BCLIBC_Curve curve(nm1);
+        for (size_t i = 0; i < nm1; ++i)
+        {
+            double H = h[i], mi = m[i], mip1 = m[i + 1];
+            double A = (y[i + 1] - y[i] - mi * H) / (H * H);
+            double B = (mip1 - mi) / H;
+            curve[i].a = (B - 2.0 * A) / H;
+            curve[i].b = 3.0 * A - B;
+            curve[i].c = mi;
+            curve[i].d = y[i];
+        }
+        return curve;
+    };
+
+    /**
      * @brief Interpolates a value from a Mach list and curve using PCHIP cubic spline method.
      *
      * This function performs optimized interpolation of ballistic coefficients or drag values
@@ -261,9 +328,9 @@ namespace bclibc
      * 3. Performs segment search using optimal algorithm based on data size
      * 4. Evaluates cubic polynomial for the located segment
      *
-     * @param mach_list_ptr Reference to the Mach number breakpoints (x-coordinates of spline nodes).
+     * @param mach_list Reference to the Mach number breakpoints (x-coordinates of spline nodes).
      *                      Must be monotonically increasing.
-     * @param curve_ptr Reference to the PCHIP cubic polynomial coefficients for each segment.
+     * @param curve Reference to the PCHIP cubic polynomial coefficients for each segment.
      *                  Each segment is defined by coefficients (a, b, c, d) representing:
      *                  y(x) = a*(x-x_i)³ + b*(x-x_i)² + c*(x-x_i) + d
      * @param mach The Mach number at which to interpolate the value.
@@ -278,14 +345,14 @@ namespace bclibc
      *       - The threshold of 15 is empirically determined for typical ballistic curves
      */
     static inline double calculate_by_curve_and_mach_list(
-        const BCLIBC_MachList &mach_list_ptr,
-        const BCLIBC_Curve &curve_ptr,
+        const BCLIBC_MachList &mach_list,
+        const BCLIBC_Curve &curve,
         double mach)
     {
         // === Data Validation and Caching ===
         // Cache sizes to avoid repeated method calls
-        const size_t nm1_size_t = curve_ptr.size();   // Number of cubic segments (n-1)
-        const size_t n_size_t = mach_list_ptr.size(); // Number of Mach breakpoints (n)
+        const size_t nm1_size_t = curve.size();   // Number of cubic segments (n-1)
+        const size_t n_size_t = mach_list.size(); // Number of Mach breakpoints (n)
 
         // Validate data consistency
         // For a valid PCHIP spline: n_segments = n_points - 1
@@ -300,8 +367,8 @@ namespace bclibc
 
         // Cache raw pointers for faster array access
         // Direct pointer access avoids bounds checking and iterator overhead
-        const double *xs = mach_list_ptr.data();
-        const BCLIBC_CurvePoint *segments = curve_ptr.data();
+        const double *xs = mach_list.data();
+        const BCLIBC_CurvePoint *segments = curve.data();
 
         int i; // Index of the segment containing the interpolation point
 
