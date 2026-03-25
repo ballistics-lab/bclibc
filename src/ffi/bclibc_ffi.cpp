@@ -33,16 +33,12 @@ using namespace bclibc;
 static constexpr double APEX_IS_MAX_RANGE_RADIANS = 0.0003;
 static constexpr double ALLOWED_ZERO_ERROR_FEET = 1e-2;
 
-// ============================================================================
-// PCHIP curve builder (ported 1-to-1 from wasm/bindings.cpp curveFromVal)
-// ============================================================================
-
 static BCLIBC_Curve buildCurve(const BCDragPoint *dt, int n)
 {
     if (n < 2)
         throw std::invalid_argument("Drag table requires at least 2 points");
 
-    int nm1 = n - 1;
+    // 1. Prepare data (X and Y)
     std::vector<double> x(n), y(n);
     for (int i = 0; i < n; ++i)
     {
@@ -50,64 +46,8 @@ static BCLIBC_Curve buildCurve(const BCDragPoint *dt, int n)
         y[i] = dt[i].CD;
     }
 
-    std::vector<double> h(nm1), d(nm1), m(n);
-    for (int i = 0; i < nm1; ++i)
-    {
-        h[i] = x[i + 1] - x[i];
-        d[i] = (y[i + 1] - y[i]) / h[i];
-    }
-
-    if (n == 2)
-    {
-        m[0] = m[1] = d[0];
-    }
-    else
-    {
-        // Interior slopes – Fritsch–Carlson
-        for (int i = 1; i < n - 1; ++i)
-        {
-            if (d[i - 1] == 0.0 || d[i] == 0.0 || d[i - 1] * d[i] < 0.0)
-            {
-                m[i] = 0.0;
-            }
-            else
-            {
-                double w1 = 2.0 * h[i] + h[i - 1];
-                double w2 = h[i] + 2.0 * h[i - 1];
-                m[i] = (w1 + w2) / (w1 / d[i - 1] + w2 / d[i]);
-            }
-        }
-        // Left endpoint
-        double m0 = ((2.0 * h[0] + h[1]) * d[0] - h[0] * d[1]) / (h[0] + h[1]);
-        if (m0 * d[0] <= 0.0)
-            m0 = 0.0;
-        else if (d[0] * d[1] < 0.0 && std::fabs(m0) > 3.0 * std::fabs(d[0]))
-            m0 = 3.0 * d[0];
-        m[0] = m0;
-        // Right endpoint
-        double mn = ((2.0 * h[n - 2] + h[n - 3]) * d[n - 2] - h[n - 2] * d[n - 3]) / (h[n - 2] + h[n - 3]);
-        if (mn * d[n - 2] <= 0.0)
-            mn = 0.0;
-        else if (d[n - 2] * d[n - 3] < 0.0 && std::fabs(mn) > 3.0 * std::fabs(d[n - 2]))
-            mn = 3.0 * d[n - 2];
-        m[n - 1] = mn;
-    }
-
-    BCLIBC_Curve curve(nm1);
-    for (int i = 0; i < nm1; ++i)
-    {
-        double H = h[i];
-        double yi = y[i];
-        double mi = m[i];
-        double mip1 = m[i + 1];
-        double A = (y[i + 1] - yi - mi * H) / (H * H);
-        double B = (mip1 - mi) / H;
-        curve[i].a = (B - 2.0 * A) / H;
-        curve[i].b = 3.0 * A - B;
-        curve[i].c = mi;
-        curve[i].d = yi;
-    }
-    return curve;
+    // 2. Call universal build func
+    return build_pchip_curve_from_arrays(x, y);
 }
 
 static BCLIBC_MachList buildMachList(const BCDragPoint *dt, int n)

@@ -402,6 +402,12 @@ namespace bclibc
     };
 
     /**
+     * @brief Universal PCHIP core calculation.
+     * Takes vectors X та Y, returns BCLIBC_Curve.
+     */
+    BCLIBC_Curve build_pchip_curve_from_arrays(const std::vector<double> &x, const std::vector<double> &y);
+
+    /**
      * @brief Calculates the angular correction needed to hit a target.
      *
      * Computes the angle (in radians) to correct a shot based on the linear offset
