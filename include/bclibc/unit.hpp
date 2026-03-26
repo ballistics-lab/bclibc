@@ -55,10 +55,12 @@ namespace bclibc
 
     // ================= MATH CONSTANT =================
 
-    namespace detail
+    namespace unit_constants
     {
         static constexpr double pi = 3.14159265358979323846;
-    } // namespace detail
+        static constexpr double tolerance = 1e-12;
+        static constexpr double zeroDivTol = 1e-18;
+    } // namespace unit_constants
 
     // ================= UNIT ENUM =================
 
@@ -187,17 +189,17 @@ namespace bclibc
     };
     struct BCLIBC_Degree : BCLIBC_UnitTag<BCLIBC_Degree>
     {
-        static constexpr double factor = detail::pi / 180.0;
+        static constexpr double factor = unit_constants::pi / 180.0;
         static constexpr auto id = BCLIBC_Unit::Degree;
     };
     struct BCLIBC_MOA : BCLIBC_UnitTag<BCLIBC_MOA>
     {
-        static constexpr double factor = detail::pi / (60.0 * 180.0);
+        static constexpr double factor = unit_constants::pi / (60.0 * 180.0);
         static constexpr auto id = BCLIBC_Unit::MOA;
     };
     struct BCLIBC_Mil : BCLIBC_UnitTag<BCLIBC_Mil>
     {
-        static constexpr double factor = detail::pi / 3200.0;
+        static constexpr double factor = unit_constants::pi / 3200.0;
         static constexpr auto id = BCLIBC_Unit::Mil;
     };
     struct BCLIBC_MRad : BCLIBC_UnitTag<BCLIBC_MRad>
@@ -207,7 +209,7 @@ namespace bclibc
     };
     struct BCLIBC_Thousandth : BCLIBC_UnitTag<BCLIBC_Thousandth>
     {
-        static constexpr double factor = detail::pi / 3000.0;
+        static constexpr double factor = unit_constants::pi / 3000.0;
         static constexpr auto id = BCLIBC_Unit::Thousandth;
     };
     struct BCLIBC_InchesPer100Yd : BCLIBC_UnitTag<BCLIBC_InchesPer100Yd>
@@ -222,7 +224,7 @@ namespace bclibc
     };
     struct BCLIBC_OClock : BCLIBC_UnitTag<BCLIBC_OClock>
     {
-        static constexpr double factor = detail::pi / 6.0;
+        static constexpr double factor = unit_constants::pi / 6.0;
         static constexpr auto id = BCLIBC_Unit::OClock;
     };
 
@@ -606,10 +608,17 @@ namespace bclibc
             return BCLIBC_Dimension<DimTag, OtherUnit>::from_raw(_raw);
         }
 
+        /// Get value in the specified unit without creating a new object.
+        /// @code
+        /// double meters = d.getIn<BCLIBC_Meter>();   // 100.0
+        /// double yards  = d.getIn<BCLIBC_Yard>();    // 109.361
+        /// @endcode
+        template <typename OtherUnit>
+        constexpr double getIn() const { return to<OtherUnit>().value(); }
+
         // ===== Arithmetic =====
 
         /// Negate in the same dimension (any units). Result is in `Unit`.
-        template <typename U2>
         constexpr BCLIBC_Dimension operator-() const
         {
             return from_raw(-_raw);
@@ -622,6 +631,14 @@ namespace bclibc
             return from_raw(_raw + o.raw());
         }
 
+        /// Add-assign another measurement (any units).
+        template <typename U2>
+        constexpr BCLIBC_Dimension &operator+=(const BCLIBC_Dimension<DimTag, U2> &o)
+        {
+            _raw += o.raw();
+            return *this;
+        }
+
         /// Subtract two measurements of the same dimension (any units). Result is in `Unit`.
         template <typename U2>
         constexpr BCLIBC_Dimension operator-(const BCLIBC_Dimension<DimTag, U2> &o) const
@@ -629,13 +646,37 @@ namespace bclibc
             return from_raw(_raw - o.raw());
         }
 
+        /// Subtract-assign another measurement (any units).
+        template <typename U2>
+        constexpr BCLIBC_Dimension &operator-=(const BCLIBC_Dimension<DimTag, U2> &o)
+        {
+            _raw -= o.raw();
+            return *this;
+        }
+
         /// Scale by a dimensionless scalar.
         constexpr BCLIBC_Dimension operator*(double s) const { return from_raw(_raw * s); }
+
+        /// Scale-assign by a dimensionless scalar.
+        constexpr BCLIBC_Dimension &operator*=(double s)
+        {
+            _raw *= s;
+            return *this;
+        }
+
         /// Divide by a dimensionless scalar.
         constexpr BCLIBC_Dimension operator/(double s) const
         {
-            assert(s != 0.0 && "BCLIBC_Dimension: division by zero scalar!");
+            assert(std::abs(s) > unit_constants::zeroDivTol && "BCLIBC_Dimension: division by zero scalar!");
             return from_raw(_raw / s);
+        }
+
+        /// Divide-assign by a dimensionless scalar.
+        constexpr BCLIBC_Dimension &operator/=(double s)
+        {
+            assert(std::abs(s) > unit_constants::zeroDivTol && "BCLIBC_Dimension: division by zero scalar!");
+            _raw /= s;
+            return *this;
         }
 
         /// `scalar * dimension` convenience form.
@@ -648,17 +689,17 @@ namespace bclibc
         template <typename U2>
         constexpr double operator/(const BCLIBC_Dimension<DimTag, U2> &o) const
         {
-            assert(std::abs(o.raw()) > 1e-18 && "Division by zero dimension!");
+            assert(std::abs(o.raw()) > unit_constants::zeroDivTol && "Division by zero dimension!");
             return _raw / o.raw();
         }
 
         // ===== Comparison =====
 
-        /// Equality with 1e-12 raw-unit tolerance.
+        /// Equality with raw-unit tolerance.
         template <typename U2>
         bool operator==(const BCLIBC_Dimension<DimTag, U2> &o) const
         {
-            return std::abs(_raw - o.raw()) < 1e-12;
+            return std::abs(_raw - o.raw()) < unit_constants::tolerance;
         }
 
         template <typename U2>
@@ -1168,7 +1209,7 @@ namespace bclibc
         default:
         {
             double to_factor = BCLIBC_unit_factor(to);
-            if (std::abs(to_factor) < 1e-18)
+            if (std::abs(to_factor) < unit_constants::zeroDivTol)
             {
                 assert(false && "Unit factor cannot be zero!");
                 return NAN;
