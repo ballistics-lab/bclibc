@@ -417,6 +417,13 @@ public:
 
     // ===== Arithmetic =====
 
+    /// Negate in the same dimension (any units). Result is in `Unit`.
+    template<typename U2>
+    constexpr Dimension operator-() const
+    {
+        return from_raw(-_raw);
+    }
+
     /// Add two measurements of the same dimension (any units). Result is in `Unit`.
     template<typename U2>
     constexpr Dimension operator+(const Dimension<DimTag, U2>& o) const
