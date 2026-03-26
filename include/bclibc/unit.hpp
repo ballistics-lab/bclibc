@@ -1182,44 +1182,6 @@ namespace bclibc
     }
 
     /**
-     * @brief Runtime conversion for all dimensions.
-     *
-     * Equivalent to the compile-time `d.to<BCLIBC_OtherUnit>().value()` but for
-     * units known only at runtime (e.g. from user config or FFI).
-     *
-     * @code
-     * double ft  = BCLIBC_convert(100.0, BCLIBC_Unit::Meter, BCLIBC_Unit::Foot);  // 328.084
-     * double moa = BCLIBC_convert(1.0,   BCLIBC_Unit::Mil,   BCLIBC_Unit::MOA);   // 3.438
-     * double fps = BCLIBC_convert(900.0, BCLIBC_Unit::MPS,   BCLIBC_Unit::FPS);   // 2952.76
-     * @endcode
-     */
-    inline double BCLIBC_convert(double v, BCLIBC_Unit from, BCLIBC_Unit to)
-    {
-        if (BCLIBC_get_dimension_id(from) != BCLIBC_get_dimension_id(to))
-        {
-            assert(from == to && "Units must belong to the same dimension!");
-            return NAN;
-        }
-
-        int dim = BCLIBC_get_dimension_id(from);
-        switch (dim)
-        {
-        case 5:
-            return BCLIBC_convert_temperature(v, from, to);
-        default:
-        {
-            double to_factor = BCLIBC_unit_factor(to);
-            if (std::abs(to_factor) < unit_constants::zeroDivTol)
-            {
-                assert(false && "Unit factor cannot be zero!");
-                return NAN;
-            }
-            return v * BCLIBC_unit_factor(from) / to_factor;
-        }
-        }
-    }
-
-    /**
      * @brief Runtime conversion for **BCLIBC_Temperature** (affine — offset + scale).
      *
      * @code
@@ -1261,6 +1223,44 @@ namespace bclibc
             return BCLIBC_Rankin::from_raw(raw_f);
         default:
             return raw_f;
+        }
+    }
+
+    /**
+     * @brief Runtime conversion for all dimensions.
+     *
+     * Equivalent to the compile-time `d.to<BCLIBC_OtherUnit>().value()` but for
+     * units known only at runtime (e.g. from user config or FFI).
+     *
+     * @code
+     * double ft  = BCLIBC_convert(100.0, BCLIBC_Unit::Meter, BCLIBC_Unit::Foot);  // 328.084
+     * double moa = BCLIBC_convert(1.0,   BCLIBC_Unit::Mil,   BCLIBC_Unit::MOA);   // 3.438
+     * double fps = BCLIBC_convert(900.0, BCLIBC_Unit::MPS,   BCLIBC_Unit::FPS);   // 2952.76
+     * @endcode
+     */
+    inline double BCLIBC_convert(double v, BCLIBC_Unit from, BCLIBC_Unit to)
+    {
+        if (BCLIBC_get_dimension_id(from) != BCLIBC_get_dimension_id(to))
+        {
+            assert(from == to && "Units must belong to the same dimension!");
+            return NAN;
+        }
+
+        int dim = BCLIBC_get_dimension_id(from);
+        switch (dim)
+        {
+        case 5:
+            return BCLIBC_convert_temperature(v, from, to);
+        default:
+        {
+            double to_factor = BCLIBC_unit_factor(to);
+            if (std::abs(to_factor) < unit_constants::zeroDivTol)
+            {
+                assert(false && "Unit factor cannot be zero!");
+                return NAN;
+            }
+            return v * BCLIBC_unit_factor(from) / to_factor;
+        }
         }
     }
 
