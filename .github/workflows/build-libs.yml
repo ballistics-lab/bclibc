@@ -38,7 +38,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
           fetch-depth: 0
@@ -74,7 +74,7 @@ jobs:
 
       - name: Upload artifacts
         if: inputs.upload_artifacts == true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bclibc-linux-${{ env.BUILD_TYPE }}
           path: artifacts/linux/
@@ -88,7 +88,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
           fetch-depth: 0
@@ -122,7 +122,7 @@ jobs:
 
       - name: Upload artifacts
         if: inputs.upload_artifacts == true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bclibc-macos-${{ env.BUILD_TYPE }}
           path: artifacts/macos/
@@ -136,7 +136,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
           fetch-depth: 0
@@ -211,7 +211,7 @@ jobs:
 
       - name: Upload artifacts
         if: inputs.upload_artifacts == true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bclibc-windows-${{ env.BUILD_TYPE }}
           path: artifacts/windows/
@@ -253,7 +253,7 @@ jobs:
           cd ..
 
       - name: Upload release package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bclibc-${{ env.BUILD_TYPE }}-all-platforms
           path: bclibc-${{ env.BUILD_TYPE }}.zip
