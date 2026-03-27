@@ -39,17 +39,134 @@ jobs:
             make -j$(nproc)
           fi
 
-      - name: Check artifacts
+      - name: Prepare artifacts (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cd build
+          cp libbclibc_ffi.so ../artifacts/
+          cp libbclibc_core.a ../artifacts/
+          cp generated/bclibc/version.h ../artifacts/
+          cd ..
+          echo "VERSION=$(grep BCLIBC_VERSION artifacts/version.h | cut -d'"' -f2)" >> $GITHUB_ENV
+
+      - name: Prepare artifacts (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cd build
+          cp libbclibc_ffi.dylib ../artifacts/
+          cp libbclibc_core.a ../artifacts/
+          cp generated/bclibc/version.h ../artifacts/
+          cd ..
+          echo "VERSION=$(grep BCLIBC_VERSION artifacts/version.h | cut -d'"' -f2)" >> $GITHUB_ENV
+
+      - name: Prepare artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path artifacts -Force
+          $config = "${{ matrix.build_type }}"
+          
+          # Copy DLL
+          Copy-Item "build/bin/$config/bclibc_ffi.dll" "artifacts/"
+          
+          # Copy LIB file
+          Copy-Item "build/lib/$config/bclibc_core.lib" "artifacts/"
+          
+          # Copy version header
+          Copy-Item "build/generated/bclibc/version.h" "artifacts/"
+          
+          # Copy PDB if exists (Debug build)
+          if (Test-Path "build/bin/$config/bclibc_ffi.pdb") {
+            Copy-Item "build/bin/$config/bclibc_ffi.pdb" "artifacts/"
+          }
+          
+          # Get version
+          $version = (Select-String -Path "artifacts/version.h" -Pattern 'BCLIBC_VERSION "([^"]+)"').Matches.Groups[1].Value
+          echo "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Upload artifacts (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bclibc-linux-${{ matrix.build_type }}-${{ github.run_id }}
+          path: artifacts/
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Upload artifacts (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bclibc-macos-${{ matrix.build_type }}-${{ github.run_id }}
+          path: artifacts/
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Upload artifacts (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bclibc-windows-${{ matrix.build_type }}-${{ github.run_id }}
+          path: artifacts/
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Check artifacts (Linux)
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           cd build
-          if [[ "${{ runner.os }}" == "Linux" ]]; then
-            [ -f libbclibc_ffi.so ] && [ -f libbclibc_core.a ]
-          elif [[ "${{ runner.os }}" == "macOS" ]]; then
-            [ -f libbclibc_ffi.dylib ] && [ -f libbclibc_core.a ]
+          if [ -f "libbclibc_ffi.so" ] && [ -f "libbclibc_core.a" ]; then
+            echo "✅ Linux artifacts found"
+            ls -la libbclibc_ffi.so libbclibc_core.a
           else
-            [ -f bin/${{ matrix.build_type }}/bclibc_ffi.dll ] && [ -f lib/${{ matrix.build_type }}/bclibc_core.lib ]
+            echo "❌ Linux artifacts missing!"
+            ls -la
+            exit 1
           fi
+
+      - name: Check artifacts (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          cd build
+          if [ -f "libbclibc_ffi.dylib" ] && [ -f "libbclibc_core.a" ]; then
+            echo "✅ macOS artifacts found"
+            ls -la libbclibc_ffi.dylib libbclibc_core.a
+          else
+            echo "❌ macOS artifacts missing!"
+            ls -la
+            exit 1
+          fi
+
+      - name: Check artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cd build
+          $config = "${{ matrix.build_type }}"
+
+          # Check DLL
+          $dllPath = "bin/$config/bclibc_ffi.dll"
+          $libPath = "lib/$config/bclibc_core.lib"
+
+          Write-Host "Looking for: $dllPath"
+          Write-Host "Looking for: $libPath"
+
+          if ((Test-Path $dllPath) -and (Test-Path $libPath)) {
+            Write-Host "✅ Windows artifacts found" -ForegroundColor Green
+            Get-ChildItem $dllPath
+            Get-ChildItem $libPath
+          } else {
+            Write-Host "❌ Windows artifacts missing!" -ForegroundColor Red
+            Write-Host "Directory structure:"
+            Get-ChildItem -Recurse | Select-Object FullName
+            exit 1
+          }
 
       - name: Run pre-commit check (Linux/macOS)
         if: runner.os != 'Windows'
@@ -57,3 +174,45 @@ jobs:
         run: |
           chmod +x pre-commit-check.sh
           ./pre-commit-check.sh
+
+  summary:
+    name: Build Summary
+    runs-on: ubuntu-latest
+    needs: check
+    if: always()
+    
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## 📦 Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Platform | Build Type | Status | Artifacts |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|------------|--------|-----------|" >> $GITHUB_STEP_SUMMARY
+          
+          # Linux
+          if [ "${{ needs.check.result }}" == "success" ]; then
+            echo "| Linux | Release | ✅ Success | [Download](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
+            echo "| Linux | Debug | ✅ Success | [Download](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Linux | Release/Debug | ❌ Failed | - |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # macOS
+          if [ "${{ needs.check.result }}" == "success" ]; then
+            echo "| macOS | Release | ✅ Success | [Download](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
+            echo "| macOS | Debug | ✅ Success | [Download](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| macOS | Release/Debug | ❌ Failed | - |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Windows
+          if [ "${{ needs.check.result }}" == "success" ]; then
+            echo "| Windows | Release | ✅ Success | [Download](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
+            echo "| Windows | Debug | ✅ Success | [Download](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Windows | Release/Debug | ❌ Failed | - |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📁 Artifacts retention: **1 day**" >> $GITHUB_STEP_SUMMARY
+          echo "Artifacts will be available for download for 24 hours after the build." >> $GITHUB_STEP_SUMMARY
