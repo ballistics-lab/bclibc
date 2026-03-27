@@ -9,7 +9,10 @@ on:
 jobs:
   build-and-release:
     name: Build and Release
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     permissions:
       contents: write
       packages: write
@@ -27,47 +30,50 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Setup build matrix
-        id: setup_matrix
+      - name: Configure CMake
+        shell: bash
         run: |
-          echo "matrix={\"platform\":[\"ubuntu-latest\",\"macos-latest\",\"windows-latest\"]}" >> $GITHUB_OUTPUT
-
-      - name: Build Linux
-        if: runner.os == 'Linux'
-        run: |
-          mkdir -p build && cd build
-          cmake -DCMAKE_BUILD_TYPE=Release ..
-          make -j$(nproc)
-          cd ..
-          mkdir -p artifacts/linux
-          cp build/libbclibc_ffi.so artifacts/linux/
-          cp build/libbclibc_core.a artifacts/linux/
-
-      - name: Build macOS
-        if: runner.os == 'macOS'
-        run: |
-          mkdir -p build && cd build
-          cmake -DCMAKE_BUILD_TYPE=Release ..
-          make -j$(sysctl -n hw.ncpu)
-          cd ..
-          mkdir -p artifacts/macos
-          cp build/libbclibc_ffi.dylib artifacts/macos/
-          cp build/libbclibc_core.a artifacts/macos/
-
-      - name: Build Windows
-        if: runner.os == 'Windows'
-        run: |
-          New-Item -ItemType Directory -Path build -Force
+          mkdir -p build
           cd build
-          cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release ..
-          cmake --build . --config Release
-          cd ..
-          New-Item -ItemType Directory -Path artifacts/windows -Force
-          Copy-Item "build/bin/Release/bclibc_ffi.dll" "artifacts/windows/"
-          Copy-Item "build/lib/Release/bclibc_core.lib" "artifacts/windows/"
+          cmake -DCMAKE_BUILD_TYPE=Release ..
 
-      - name: Upload to Release
-        uses: softprops/action-gh-release@v1
+      - name: Build (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cd build
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            make -j$(sysctl -n hw.ncpu)
+          else
+            make -j$(nproc)
+          fi
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cd build
+          cmake --build . --config Release
+
+      - name: Prepare artifacts
+        shell: bash
+        run: |
+          mkdir -p artifacts/${{ runner.os }}
+          cd build
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            cp libbclibc_ffi.so ../artifacts/Linux/
+            cp libbclibc_core.a ../artifacts/Linux/
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            cp libbclibc_ffi.dylib ../artifacts/macOS/
+            cp libbclibc_core.a ../artifacts/macOS/
+          elif [[ "${{ runner.os }}" == "Windows" ]]; then
+            cp bin/Release/bclibc_ffi.dll ../artifacts/Windows/
+            cp lib/Release/bclibc_core.lib ../artifacts/Windows/
+          fi
+          cp generated/bclibc/version.h ../artifacts/${{ runner.os }}/
+
+      - name: Upload artifacts to release
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: Release ${{ steps.get_version.outputs.version }}

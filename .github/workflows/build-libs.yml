@@ -41,7 +41,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          fetch-depth: 0 # For git describe to work
+          fetch-depth: 0
 
       - name: Install dependencies
         run: |
@@ -64,14 +64,16 @@ jobs:
           mkdir -p artifacts/linux
           cp build/libbclibc_ffi.so artifacts/linux/
           cp build/libbclibc_core.a artifacts/linux/
-          # Copy version info
           cp build/generated/bclibc/version.h artifacts/linux/
-          # Create symlink for versioned library
           if [ -f build/libbclibc_ffi.so.* ]; then
             cp build/libbclibc_ffi.so.* artifacts/linux/
           fi
+          # Get version for summary
+          VERSION=$(grep 'BCLIBC_VERSION' artifacts/linux/version.h | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
 
       - name: Upload artifacts
+        if: inputs.upload_artifacts == true
         uses: actions/upload-artifact@v4
         with:
           name: bclibc-linux-${{ env.BUILD_TYPE }}
@@ -112,12 +114,14 @@ jobs:
           cp build/libbclibc_ffi.dylib artifacts/macos/
           cp build/libbclibc_core.a artifacts/macos/
           cp build/generated/bclibc/version.h artifacts/macos/
-          # Copy versioned library if exists
           if ls build/libbclibc_ffi.*.dylib 2>/dev/null; then
             cp build/libbclibc_ffi.*.dylib artifacts/macos/
           fi
+          VERSION=$(grep 'BCLIBC_VERSION' artifacts/macos/version.h | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
 
       - name: Upload artifacts
+        if: inputs.upload_artifacts == true
         uses: actions/upload-artifact@v4
         with:
           name: bclibc-macos-${{ env.BUILD_TYPE }}
@@ -138,35 +142,75 @@ jobs:
           fetch-depth: 0
 
       - name: Configure CMake
+        shell: pwsh
         run: |
           New-Item -ItemType Directory -Path build -Force
           cd build
           cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} ..
 
       - name: Build
+        shell: pwsh
         run: |
           cd build
           cmake --build . --config ${{ env.BUILD_TYPE }}
 
       - name: Prepare artifacts
+        shell: pwsh
         run: |
           New-Item -ItemType Directory -Path artifacts/windows -Force
+          $config = "${{ env.BUILD_TYPE }}"
 
           # Copy DLL
-          Copy-Item "build/bin/${{ env.BUILD_TYPE }}/bclibc_ffi.dll" "artifacts/windows/"
+          $dllPath = "build/bin/$config/bclibc_ffi.dll"
+          if (Test-Path $dllPath) {
+            Copy-Item $dllPath "artifacts/windows/"
+          } else {
+            Write-Host "⚠️ DLL not found at expected location, searching..."
+            $foundDll = Get-ChildItem -Path build -Recurse -Filter "bclibc_ffi.dll" | Select-Object -First 1
+            if ($foundDll) {
+              Copy-Item $foundDll.FullName "artifacts/windows/"
+              Write-Host "Found DLL at: $($foundDll.FullName)"
+            } else {
+              Write-Host "❌ DLL not found!"
+              exit 1
+            }
+          }
 
           # Copy LIB file
-          Copy-Item "build/lib/${{ env.BUILD_TYPE }}/bclibc_core.lib" "artifacts/windows/"
+          $libPath = "build/lib/$config/bclibc_core.lib"
+          if (Test-Path $libPath) {
+            Copy-Item $libPath "artifacts/windows/"
+          } else {
+            Write-Host "⚠️ LIB not found at expected location, searching..."
+            $foundLib = Get-ChildItem -Path build -Recurse -Filter "bclibc_core.lib" | Select-Object -First 1
+            if ($foundLib) {
+              Copy-Item $foundLib.FullName "artifacts/windows/"
+              Write-Host "Found LIB at: $($foundLib.FullName)"
+            } else {
+              Write-Host "❌ LIB not found!"
+              exit 1
+            }
+          }
 
           # Copy PDB if exists (Debug build)
-          if (Test-Path "build/bin/${{ env.BUILD_TYPE }}/bclibc_ffi.pdb") {
-            Copy-Item "build/bin/${{ env.BUILD_TYPE }}/bclibc_ffi.pdb" "artifacts/windows/"
+          $pdbPath = "build/bin/$config/bclibc_ffi.pdb"
+          if (Test-Path $pdbPath) {
+            Copy-Item $pdbPath "artifacts/windows/"
           }
 
           # Copy version header
-          Copy-Item "build/generated/bclibc/version.h" "artifacts/windows/"
+          $versionPath = "build/generated/bclibc/version.h"
+          if (Test-Path $versionPath) {
+            Copy-Item $versionPath "artifacts/windows/"
+            $content = Get-Content $versionPath -Raw
+            if ($content -match 'BCLIBC_VERSION "([^"]+)"') {
+              $version = $matches[1]
+              echo "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            }
+          }
 
       - name: Upload artifacts
+        if: inputs.upload_artifacts == true
         uses: actions/upload-artifact@v4
         with:
           name: bclibc-windows-${{ env.BUILD_TYPE }}
@@ -178,7 +222,7 @@ jobs:
     name: Create Release Package
     runs-on: ubuntu-latest
     needs: [build-linux, build-macos, build-windows]
-    if: always() && (needs.build-linux.result == 'success' || needs.build-macos.result == 'success' || needs.build-windows.result == 'success')
+    if: always() && inputs.upload_artifacts == true
 
     steps:
       - name: Download all artifacts
@@ -198,7 +242,12 @@ jobs:
             fi
           done
 
-          # Create zip archive
+          # Create zip archive with version info
+          if [ -f "release-package/linux/version.h" ]; then
+            VERSION=$(grep 'BCLIBC_VERSION' release-package/linux/version.h | head -1 | sed 's/.*"\(.*\)".*/\1/')
+            echo "VERSION=$VERSION" >> $GITHUB_ENV
+          fi
+
           cd release-package
           zip -r "../bclibc-${{ env.BUILD_TYPE }}.zip" .
           cd ..
