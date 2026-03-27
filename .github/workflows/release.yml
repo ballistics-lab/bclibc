@@ -1,0 +1,84 @@
+name: Release on Tag
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build-and-release:
+    name: Build and Release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Configure CMake
+        shell: bash
+        run: |
+          mkdir -p build
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=Release ..
+
+      - name: Build (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cd build
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            make -j$(sysctl -n hw.ncpu)
+          else
+            make -j$(nproc)
+          fi
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cd build
+          cmake --build . --config Release
+
+      - name: Prepare artifacts
+        shell: bash
+        run: |
+          mkdir -p artifacts/${{ runner.os }}
+          cd build
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            cp libbclibc_ffi.so ../artifacts/Linux/
+            cp libbclibc_core.a ../artifacts/Linux/
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            cp libbclibc_ffi.dylib ../artifacts/macOS/
+            cp libbclibc_core.a ../artifacts/macOS/
+          elif [[ "${{ runner.os }}" == "Windows" ]]; then
+            cp bin/Release/bclibc_ffi.dll ../artifacts/Windows/
+            cp lib/Release/bclibc_core.lib ../artifacts/Windows/
+          fi
+          cp generated/bclibc/version.h ../artifacts/${{ runner.os }}/
+
+      - name: Upload artifacts to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ steps.get_version.outputs.version }}
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/**/*
+          generate_release_notes: true
