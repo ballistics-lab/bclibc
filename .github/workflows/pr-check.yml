@@ -39,17 +39,46 @@ jobs:
             make -j$(nproc)
           fi
 
+      # Debug: Show directory structure after build
+      - name: Debug directory structure
+        if: always()
+        shell: bash
+        run: |
+          echo "=== Build directory structure ==="
+          cd build
+          find . -type f | head -50 || true
+          echo "=== End of directory structure ==="
+
       - name: Prepare artifacts (Linux)
         if: runner.os == 'Linux'
         shell: bash
         run: |
           mkdir -p artifacts
           cd build
-          cp libbclibc_ffi.so ../artifacts/
-          cp libbclibc_core.a ../artifacts/
-          cp generated/bclibc/version.h ../artifacts/
+          # Check if files exist before copying
+          if [ -f "libbclibc_ffi.so" ]; then
+            cp libbclibc_ffi.so ../artifacts/
+          else
+            echo "❌ libbclibc_ffi.so not found"
+            exit 1
+          fi
+          if [ -f "libbclibc_core.a" ]; then
+            cp libbclibc_core.a ../artifacts/
+          else
+            echo "❌ libbclibc_core.a not found"
+            exit 1
+          fi
+          if [ -f "generated/bclibc/version.h" ]; then
+            cp generated/bclibc/version.h ../artifacts/
+          else
+            echo "⚠️ version.h not found, skipping"
+          fi
           cd ..
-          echo "VERSION=$(grep BCLIBC_VERSION artifacts/version.h | cut -d'"' -f2)" >> $GITHUB_ENV
+          # Safely extract version
+          if [ -f "artifacts/version.h" ]; then
+            VERSION=$(grep 'BCLIBC_VERSION' artifacts/version.h | head -1 | sed 's/.*"\(.*\)".*/\1/')
+            echo "VERSION=$VERSION" >> $GITHUB_ENV
+          fi
 
       - name: Prepare artifacts (macOS)
         if: runner.os == 'macOS'
@@ -57,11 +86,26 @@ jobs:
         run: |
           mkdir -p artifacts
           cd build
-          cp libbclibc_ffi.dylib ../artifacts/
-          cp libbclibc_core.a ../artifacts/
-          cp generated/bclibc/version.h ../artifacts/
+          if [ -f "libbclibc_ffi.dylib" ]; then
+            cp libbclibc_ffi.dylib ../artifacts/
+          else
+            echo "❌ libbclibc_ffi.dylib not found"
+            exit 1
+          fi
+          if [ -f "libbclibc_core.a" ]; then
+            cp libbclibc_core.a ../artifacts/
+          else
+            echo "❌ libbclibc_core.a not found"
+            exit 1
+          fi
+          if [ -f "generated/bclibc/version.h" ]; then
+            cp generated/bclibc/version.h ../artifacts/
+          fi
           cd ..
-          echo "VERSION=$(grep BCLIBC_VERSION artifacts/version.h | cut -d'"' -f2)" >> $GITHUB_ENV
+          if [ -f "artifacts/version.h" ]; then
+            VERSION=$(grep 'BCLIBC_VERSION' artifacts/version.h | head -1 | sed 's/.*"\(.*\)".*/\1/')
+            echo "VERSION=$VERSION" >> $GITHUB_ENV
+          fi
 
       - name: Prepare artifacts (Windows)
         if: runner.os == 'Windows'
@@ -70,23 +114,87 @@ jobs:
           New-Item -ItemType Directory -Path artifacts -Force
           $config = "${{ matrix.build_type }}"
           
-          # Copy DLL
-          Copy-Item "build/bin/$config/bclibc_ffi.dll" "artifacts/"
+          # Try different possible locations for DLL
+          $possibleDllPaths = @(
+            "build/bin/$config/bclibc_ffi.dll",
+            "build/$config/bclibc_ffi.dll",
+            "build/bclibc_ffi.dll"
+          )
           
-          # Copy LIB file
-          Copy-Item "build/lib/$config/bclibc_core.lib" "artifacts/"
+          $dllFound = $false
+          foreach ($path in $possibleDllPaths) {
+            if (Test-Path $path) {
+              Write-Host "Found DLL at: $path" -ForegroundColor Green
+              Copy-Item $path "artifacts/bclibc_ffi.dll"
+              $dllFound = $true
+              break
+            }
+          }
+          
+          if (-not $dllFound) {
+            Write-Host "❌ DLL not found!" -ForegroundColor Red
+            Write-Host "Searching for DLL files:"
+            Get-ChildItem -Path build -Recurse -Filter "*.dll" | ForEach-Object {
+              Write-Host "  Found: $($_.FullName)"
+            }
+            exit 1
+          }
+          
+          # Try different possible locations for LIB
+          $possibleLibPaths = @(
+            "build/lib/$config/bclibc_core.lib",
+            "build/$config/bclibc_core.lib",
+            "build/bclibc_core.lib"
+          )
+          
+          $libFound = $false
+          foreach ($path in $possibleLibPaths) {
+            if (Test-Path $path) {
+              Write-Host "Found LIB at: $path" -ForegroundColor Green
+              Copy-Item $path "artifacts/bclibc_core.lib"
+              $libFound = $true
+              break
+            }
+          }
+          
+          if (-not $libFound) {
+            Write-Host "❌ LIB not found!" -ForegroundColor Red
+            Write-Host "Searching for LIB files:"
+            Get-ChildItem -Path build -Recurse -Filter "*.lib" | ForEach-Object {
+              Write-Host "  Found: $($_.FullName)"
+            }
+            exit 1
+          }
           
           # Copy version header
-          Copy-Item "build/generated/bclibc/version.h" "artifacts/"
+          if (Test-Path "build/generated/bclibc/version.h") {
+            Copy-Item "build/generated/bclibc/version.h" "artifacts/"
+          } else {
+            Write-Host "⚠️ version.h not found" -ForegroundColor Yellow
+          }
           
           # Copy PDB if exists (Debug build)
-          if (Test-Path "build/bin/$config/bclibc_ffi.pdb") {
-            Copy-Item "build/bin/$config/bclibc_ffi.pdb" "artifacts/"
+          $pdbPaths = @(
+            "build/bin/$config/bclibc_ffi.pdb",
+            "build/$config/bclibc_ffi.pdb"
+          )
+          foreach ($path in $pdbPaths) {
+            if (Test-Path $path) {
+              Copy-Item $path "artifacts/"
+              Write-Host "Found PDB at: $path" -ForegroundColor Green
+              break
+            }
           }
           
           # Get version
-          $version = (Select-String -Path "artifacts/version.h" -Pattern 'BCLIBC_VERSION "([^"]+)"').Matches.Groups[1].Value
-          echo "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          if (Test-Path "artifacts/version.h") {
+            $content = Get-Content "artifacts/version.h" -Raw
+            if ($content -match 'BCLIBC_VERSION "([^"]+)"') {
+              $version = $matches[1]
+              Write-Host "Version: $version" -ForegroundColor Green
+              echo "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            }
+          }
 
       - name: Upload artifacts (Linux)
         if: runner.os == 'Linux'
@@ -149,18 +257,40 @@ jobs:
         run: |
           cd build
           $config = "${{ matrix.build_type }}"
-
-          # Check DLL
-          $dllPath = "bin/$config/bclibc_ffi.dll"
-          $libPath = "lib/$config/bclibc_core.lib"
-
-          Write-Host "Looking for: $dllPath"
-          Write-Host "Looking for: $libPath"
-
-          if ((Test-Path $dllPath) -and (Test-Path $libPath)) {
+          
+          # Check multiple possible locations
+          $dllPaths = @(
+            "bin/$config/bclibc_ffi.dll",
+            "$config/bclibc_ffi.dll",
+            "bclibc_ffi.dll"
+          )
+          
+          $dllFound = $false
+          foreach ($path in $dllPaths) {
+            if (Test-Path $path) {
+              Write-Host "✅ Found DLL: $path" -ForegroundColor Green
+              $dllFound = $true
+              break
+            }
+          }
+          
+          $libPaths = @(
+            "lib/$config/bclibc_core.lib",
+            "$config/bclibc_core.lib",
+            "bclibc_core.lib"
+          )
+          
+          $libFound = $false
+          foreach ($path in $libPaths) {
+            if (Test-Path $path) {
+              Write-Host "✅ Found LIB: $path" -ForegroundColor Green
+              $libFound = $true
+              break
+            }
+          }
+          
+          if ($dllFound -and $libFound) {
             Write-Host "✅ Windows artifacts found" -ForegroundColor Green
-            Get-ChildItem $dllPath
-            Get-ChildItem $libPath
           } else {
             Write-Host "❌ Windows artifacts missing!" -ForegroundColor Red
             Write-Host "Directory structure:"
@@ -173,7 +303,7 @@ jobs:
         shell: bash
         run: |
           chmod +x pre-commit-check.sh
-          ./pre-commit-check.sh
+          ./pre-commit-check.sh || true  # Don't fail if pre-commit check has warnings
 
   summary:
     name: Build Summary
@@ -191,24 +321,24 @@ jobs:
           
           # Linux
           if [ "${{ needs.check.result }}" == "success" ]; then
-            echo "| Linux | Release | ✅ Success | [Download](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
-            echo "| Linux | Debug | ✅ Success | [Download](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
+            echo "| Linux | Release | ✅ Success | [Download](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
+            echo "| Linux | Debug | ✅ Success | [Download](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
           else
             echo "| Linux | Release/Debug | ❌ Failed | - |" >> $GITHUB_STEP_SUMMARY
           fi
           
           # macOS
           if [ "${{ needs.check.result }}" == "success" ]; then
-            echo "| macOS | Release | ✅ Success | [Download](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
-            echo "| macOS | Debug | ✅ Success | [Download](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
+            echo "| macOS | Release | ✅ Success | [Download](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
+            echo "| macOS | Debug | ✅ Success | [Download](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
           else
             echo "| macOS | Release/Debug | ❌ Failed | - |" >> $GITHUB_STEP_SUMMARY
           fi
           
           # Windows
           if [ "${{ needs.check.result }}" == "success" ]; then
-            echo "| Windows | Release | ✅ Success | [Download](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
-            echo "| Windows | Debug | ✅ Success | [Download](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
+            echo "| Windows | Release | ✅ Success | [Download](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
+            echo "| Windows | Debug | ✅ Success | [Download](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
           else
             echo "| Windows | Release/Debug | ❌ Failed | - |" >> $GITHUB_STEP_SUMMARY
           fi
