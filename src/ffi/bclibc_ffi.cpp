@@ -26,6 +26,16 @@
 
 using namespace bclibc;
 
+#ifdef _WIN32
+    #ifdef BCLIBC_FFI_EXPORT
+        #define BCLIBC_API __declspec(dllexport)
+    #else
+        #define BCLIBC_API __declspec(dllimport)
+    #endif
+#else
+    #define BCLIBC_API __attribute__((visibility("default")))
+#endif
+
 // ============================================================================
 // Internal constants (same as WASM bindings)
 // ============================================================================

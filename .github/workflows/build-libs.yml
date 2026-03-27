@@ -1,0 +1,212 @@
+name: Build bclibc Libraries
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: "Build type"
+        required: true
+        default: "Release"
+        type: choice
+        options:
+          - Release
+          - Debug
+      platforms:
+        description: "Platforms to build"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - linux
+          - windows
+          - macos
+      upload_artifacts:
+        description: "Upload artifacts"
+        required: true
+        default: true
+        type: boolean
+
+env:
+  BUILD_TYPE: ${{ inputs.build_type || 'Release' }}
+
+jobs:
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-latest
+    if: inputs.platforms == 'all' || inputs.platforms == 'linux'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0 # For git describe to work
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake
+
+      - name: Configure CMake
+        run: |
+          mkdir -p build
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} ..
+
+      - name: Build
+        run: |
+          cd build
+          make -j$(nproc)
+
+      - name: Prepare artifacts
+        run: |
+          mkdir -p artifacts/linux
+          cp build/libbclibc_ffi.so artifacts/linux/
+          cp build/libbclibc_core.a artifacts/linux/
+          # Copy version info
+          cp build/generated/bclibc/version.h artifacts/linux/
+          # Create symlink for versioned library
+          if [ -f build/libbclibc_ffi.so.* ]; then
+            cp build/libbclibc_ffi.so.* artifacts/linux/
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bclibc-linux-${{ env.BUILD_TYPE }}
+          path: artifacts/linux/
+          retention-days: 7
+          if-no-files-found: error
+
+  build-macos:
+    name: Build macOS
+    runs-on: macos-latest
+    if: inputs.platforms == 'all' || inputs.platforms == 'macos'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          brew install cmake
+
+      - name: Configure CMake
+        run: |
+          mkdir -p build
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} ..
+
+      - name: Build
+        run: |
+          cd build
+          make -j$(sysctl -n hw.ncpu)
+
+      - name: Prepare artifacts
+        run: |
+          mkdir -p artifacts/macos
+          cp build/libbclibc_ffi.dylib artifacts/macos/
+          cp build/libbclibc_core.a artifacts/macos/
+          cp build/generated/bclibc/version.h artifacts/macos/
+          # Copy versioned library if exists
+          if ls build/libbclibc_ffi.*.dylib 2>/dev/null; then
+            cp build/libbclibc_ffi.*.dylib artifacts/macos/
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bclibc-macos-${{ env.BUILD_TYPE }}
+          path: artifacts/macos/
+          retention-days: 7
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    if: inputs.platforms == 'all' || inputs.platforms == 'windows'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Configure CMake
+        run: |
+          New-Item -ItemType Directory -Path build -Force
+          cd build
+          cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} ..
+
+      - name: Build
+        run: |
+          cd build
+          cmake --build . --config ${{ env.BUILD_TYPE }}
+
+      - name: Prepare artifacts
+        run: |
+          New-Item -ItemType Directory -Path artifacts/windows -Force
+
+          # Copy DLL
+          Copy-Item "build/bin/${{ env.BUILD_TYPE }}/bclibc_ffi.dll" "artifacts/windows/"
+
+          # Copy LIB file
+          Copy-Item "build/lib/${{ env.BUILD_TYPE }}/bclibc_core.lib" "artifacts/windows/"
+
+          # Copy PDB if exists (Debug build)
+          if (Test-Path "build/bin/${{ env.BUILD_TYPE }}/bclibc_ffi.pdb") {
+            Copy-Item "build/bin/${{ env.BUILD_TYPE }}/bclibc_ffi.pdb" "artifacts/windows/"
+          }
+
+          # Copy version header
+          Copy-Item "build/generated/bclibc/version.h" "artifacts/windows/"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bclibc-windows-${{ env.BUILD_TYPE }}
+          path: artifacts/windows/
+          retention-days: 7
+          if-no-files-found: error
+
+  create-release:
+    name: Create Release Package
+    runs-on: ubuntu-latest
+    needs: [build-linux, build-macos, build-windows]
+    if: always() && (needs.build-linux.result == 'success' || needs.build-macos.result == 'success' || needs.build-windows.result == 'success')
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release package
+        run: |
+          mkdir -p release-package
+
+          # Structure the release package
+          for platform in linux macos windows; do
+            if [ -d "artifacts/bclibc-$platform-${{ env.BUILD_TYPE }}" ]; then
+              mkdir -p "release-package/$platform"
+              cp -r "artifacts/bclibc-$platform-${{ env.BUILD_TYPE }}"/* "release-package/$platform/"
+            fi
+          done
+
+          # Create zip archive
+          cd release-package
+          zip -r "../bclibc-${{ env.BUILD_TYPE }}.zip" .
+          cd ..
+
+      - name: Upload release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: bclibc-${{ env.BUILD_TYPE }}-all-platforms
+          path: bclibc-${{ env.BUILD_TYPE }}.zip
+          retention-days: 30
+          if-no-files-found: error

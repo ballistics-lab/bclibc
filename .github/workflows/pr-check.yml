@@ -1,0 +1,59 @@
+name: PR Check
+
+on:
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Check Build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        build_type: [Debug, Release]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Configure CMake
+        shell: bash
+        run: |
+          mkdir -p build
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} ..
+
+      - name: Build
+        shell: bash
+        run: |
+          cd build
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cmake --build . --config ${{ matrix.build_type }}
+          else
+            make -j$(nproc)
+          fi
+
+      - name: Check artifacts
+        shell: bash
+        run: |
+          cd build
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            [ -f libbclibc_ffi.so ] && [ -f libbclibc_core.a ]
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            [ -f libbclibc_ffi.dylib ] && [ -f libbclibc_core.a ]
+          else
+            [ -f bin/${{ matrix.build_type }}/bclibc_ffi.dll ] && [ -f lib/${{ matrix.build_type }}/bclibc_core.lib ]
+          fi
+
+      - name: Run pre-commit check (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          chmod +x pre-commit-check.sh
+          ./pre-commit-check.sh
