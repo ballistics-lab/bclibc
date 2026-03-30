@@ -56,6 +56,11 @@ jobs:
       contents: write
 
     steps:
+      - name: Delete existing release if present
+        run: gh release delete ${{ github.ref_name }} --yes || true
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Download all artifacts
         uses: actions/download-artifact@v8
         with:
