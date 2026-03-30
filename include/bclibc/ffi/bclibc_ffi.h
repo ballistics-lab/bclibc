@@ -14,6 +14,19 @@
 #include <stdint.h>
 #include <stddef.h>
 
+// ============================================================================
+// Symbol visibility
+// ============================================================================
+#ifdef _WIN32
+#ifdef BCLIBC_FFI_EXPORT
+#define BCLIBC_API __declspec(dllexport)
+#else
+#define BCLIBC_API __declspec(dllimport)
+#endif
+#else
+#define BCLIBC_API __attribute__((visibility("default")))
+#endif
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -22,7 +35,7 @@ extern "C"
     /**
      * @brief Returns the library version string.
      */
-    const char *BCLIBCFFI_get_version();
+    BCLIBC_API const char *BCLIBCFFI_get_version();
 
     // ============================================================================
     // Error codes
@@ -244,7 +257,7 @@ extern "C"
      * Find the apex (highest point) of the trajectory.
      * @return BCLIBCFFI_OK on success, error code otherwise (fills *err).
      */
-    int32_t BCLIBCFFI_find_apex(
+    BCLIBC_API int32_t BCLIBCFFI_find_apex(
         const BCShotProps *props,
         BCTrajectoryData *out,
         BCLIBCFFIError *err);
@@ -254,7 +267,7 @@ extern "C"
      * @param low_angle_deg   Lower search bound (degrees).
      * @param high_angle_deg  Upper search bound (degrees).
      */
-    int32_t BCLIBCFFI_find_max_range(
+    BCLIBC_API int32_t BCLIBCFFI_find_max_range(
         const BCShotProps *props,
         double low_angle_deg,
         double high_angle_deg,
@@ -266,7 +279,7 @@ extern "C"
      * @param distance_ft     Slant distance to target (ft).
      * @param out_angle_rad   Output: barrel elevation (radians).
      */
-    int32_t BCLIBCFFI_find_zero_angle(
+    BCLIBC_API int32_t BCLIBCFFI_find_zero_angle(
         const BCShotProps *props,
         double distance_ft,
         double *out_angle_rad,
@@ -278,7 +291,7 @@ extern "C"
      * On success *out_records points to a heap-allocated BCTrajectoryData array
      * of length *out_count.  Call BCLIBCFFI_free_trajectory() to release it.
      */
-    int32_t BCLIBCFFI_integrate(
+    BCLIBC_API int32_t BCLIBCFFI_integrate(
         const BCShotProps *props,
         const BCTrajectoryRequest *request,
         BCTrajectoryData **out_records,
@@ -287,7 +300,7 @@ extern "C"
         BCLIBCFFIError *err);
 
     /** Free a trajectory array allocated by BCLIBCFFI_integrate(). */
-    void BCLIBCFFI_free_trajectory(BCTrajectoryData *records);
+    BCLIBC_API void BCLIBCFFI_free_trajectory(BCTrajectoryData *records);
 
     /**
      * Integrate and interpolate the single point where a key field reaches
@@ -295,7 +308,7 @@ extern "C"
      * @param key          BCBaseTrajInterpKey
      * @param target_value Value the key field must reach.
      */
-    int32_t BCLIBCFFI_integrate_at(
+    BCLIBC_API int32_t BCLIBCFFI_integrate_at(
         const BCShotProps *props,
         int32_t key,
         double target_value,
@@ -307,13 +320,13 @@ extern "C"
     // ============================================================================
 
     /** Angular correction (radians) to hit target at distance with given offset. */
-    double BCLIBCFFI_get_correction(double distance_ft, double offset_ft);
+    BCLIBC_API double BCLIBCFFI_get_correction(double distance_ft, double offset_ft);
 
     /** Kinetic energy (ft-lb) from bullet weight (grains) and velocity (fps). */
-    double BCLIBCFFI_calculate_energy(double bullet_weight_grain, double velocity_fps);
+    BCLIBC_API double BCLIBCFFI_calculate_energy(double bullet_weight_grain, double velocity_fps);
 
     /** Optimal Game Weight from bullet weight (grains) and velocity (fps). */
-    double BCLIBCFFI_calculate_ogw(double bullet_weight_grain, double velocity_fps);
+    BCLIBC_API double BCLIBCFFI_calculate_ogw(double bullet_weight_grain, double velocity_fps);
 
 #ifdef __cplusplus
 } // extern "C"
