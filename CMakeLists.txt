@@ -79,7 +79,10 @@ add_library(bclibc_core STATIC ${BCLIBC_SOURCES})
 target_include_directories(bclibc_core PUBLIC "${BCLIBC_INCLUDE_DIR}")
 target_include_directories(bclibc_core PRIVATE "${BCLIBC_SRC_DIR}")
 
-set_target_properties(bclibc_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+set_target_properties(bclibc_core PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+)
 
 # ============================================================================
 # 2. Target: FFI wrapper (Shared Library)
