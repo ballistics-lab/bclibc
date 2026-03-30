@@ -27,235 +27,96 @@ on:
         default: true
         type: boolean
 
-env:
-  BUILD_TYPE: ${{ inputs.build_type || 'Release' }}
-
 jobs:
-  build-linux:
-    name: Build Linux
-    runs-on: ubuntu-latest
+  build-linux-x86_64:
     if: inputs.platforms == 'all' || inputs.platforms == 'linux'
+    uses: ./.github/workflows/build-lib.yml
+    with:
+      os: ubuntu-latest
+      arch: x86_64
+      build_type: ${{ inputs.build_type }}
+      retention_days: 7
+      upload_artifact: ${{ inputs.upload_artifacts }}
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          submodules: recursive
-          fetch-depth: 0
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake
-
-      - name: Configure CMake
-        run: |
-          mkdir -p build
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} ..
-
-      - name: Build
-        run: |
-          cd build
-          make -j$(nproc)
-
-      - name: Prepare artifacts
-        run: |
-          mkdir -p artifacts/linux
-          cp build/libbclibc_ffi.so artifacts/linux/
-          cp build/libbclibc_core.a artifacts/linux/
-          cp build/generated/bclibc/version.h artifacts/linux/
-          if [ -f build/libbclibc_ffi.so.* ]; then
-            cp build/libbclibc_ffi.so.* artifacts/linux/
-          fi
-          # Get version for summary
-          VERSION=$(grep 'BCLIBC_VERSION' artifacts/linux/version.h | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-
-      - name: Upload artifacts
-        if: inputs.upload_artifacts == true
-        uses: actions/upload-artifact@v7
-        with:
-          name: bclibc-linux-${{ env.BUILD_TYPE }}
-          path: artifacts/linux/
-          retention-days: 7
-          if-no-files-found: error
+  build-linux-arm64:
+    if: inputs.platforms == 'all' || inputs.platforms == 'linux'
+    uses: ./.github/workflows/build-lib.yml
+    with:
+      os: ubuntu-24.04-arm
+      arch: arm64
+      build_type: ${{ inputs.build_type }}
+      retention_days: 7
+      upload_artifact: ${{ inputs.upload_artifacts }}
 
   build-macos:
-    name: Build macOS
-    runs-on: macos-latest
     if: inputs.platforms == 'all' || inputs.platforms == 'macos'
+    uses: ./.github/workflows/build-lib.yml
+    with:
+      os: macos-latest
+      arch: universal
+      build_type: ${{ inputs.build_type }}
+      retention_days: 7
+      upload_artifact: ${{ inputs.upload_artifacts }}
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          submodules: recursive
-          fetch-depth: 0
-
-      - name: Install dependencies
-        run: |
-          brew install cmake
-
-      - name: Configure CMake
-        run: |
-          mkdir -p build
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} ..
-
-      - name: Build
-        run: |
-          cd build
-          make -j$(sysctl -n hw.ncpu)
-
-      - name: Prepare artifacts
-        run: |
-          mkdir -p artifacts/macos
-          cp build/libbclibc_ffi.dylib artifacts/macos/
-          cp build/libbclibc_core.a artifacts/macos/
-          cp build/generated/bclibc/version.h artifacts/macos/
-          if ls build/libbclibc_ffi.*.dylib 2>/dev/null; then
-            cp build/libbclibc_ffi.*.dylib artifacts/macos/
-          fi
-          VERSION=$(grep 'BCLIBC_VERSION' artifacts/macos/version.h | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-
-      - name: Upload artifacts
-        if: inputs.upload_artifacts == true
-        uses: actions/upload-artifact@v7
-        with:
-          name: bclibc-macos-${{ env.BUILD_TYPE }}
-          path: artifacts/macos/
-          retention-days: 7
-          if-no-files-found: error
-
-  build-windows:
-    name: Build Windows
-    runs-on: windows-latest
+  build-windows-x86_64:
     if: inputs.platforms == 'all' || inputs.platforms == 'windows'
+    uses: ./.github/workflows/build-lib.yml
+    with:
+      os: windows-latest
+      arch: x86_64
+      build_type: ${{ inputs.build_type }}
+      retention_days: 7
+      upload_artifact: ${{ inputs.upload_artifacts }}
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          submodules: recursive
-          fetch-depth: 0
-
-      - name: Configure CMake
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path build -Force
-          cd build
-          cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} ..
-
-      - name: Build
-        shell: pwsh
-        run: |
-          cd build
-          cmake --build . --config ${{ env.BUILD_TYPE }}
-
-      - name: Prepare artifacts
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path artifacts/windows -Force
-          $config = "${{ env.BUILD_TYPE }}"
-
-          # Copy DLL
-          $dllPath = "build/bin/$config/bclibc_ffi.dll"
-          if (Test-Path $dllPath) {
-            Copy-Item $dllPath "artifacts/windows/"
-          } else {
-            Write-Host "⚠️ DLL not found at expected location, searching..."
-            $foundDll = Get-ChildItem -Path build -Recurse -Filter "bclibc_ffi.dll" | Select-Object -First 1
-            if ($foundDll) {
-              Copy-Item $foundDll.FullName "artifacts/windows/"
-              Write-Host "Found DLL at: $($foundDll.FullName)"
-            } else {
-              Write-Host "❌ DLL not found!"
-              exit 1
-            }
-          }
-
-          # Copy LIB file
-          $libPath = "build/lib/$config/bclibc_core.lib"
-          if (Test-Path $libPath) {
-            Copy-Item $libPath "artifacts/windows/"
-          } else {
-            Write-Host "⚠️ LIB not found at expected location, searching..."
-            $foundLib = Get-ChildItem -Path build -Recurse -Filter "bclibc_core.lib" | Select-Object -First 1
-            if ($foundLib) {
-              Copy-Item $foundLib.FullName "artifacts/windows/"
-              Write-Host "Found LIB at: $($foundLib.FullName)"
-            } else {
-              Write-Host "❌ LIB not found!"
-              exit 1
-            }
-          }
-
-          # Copy PDB if exists (Debug build)
-          $pdbPath = "build/bin/$config/bclibc_ffi.pdb"
-          if (Test-Path $pdbPath) {
-            Copy-Item $pdbPath "artifacts/windows/"
-          }
-
-          # Copy version header
-          $versionPath = "build/generated/bclibc/version.h"
-          if (Test-Path $versionPath) {
-            Copy-Item $versionPath "artifacts/windows/"
-            $content = Get-Content $versionPath -Raw
-            if ($content -match 'BCLIBC_VERSION "([^"]+)"') {
-              $version = $matches[1]
-              echo "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            }
-          }
-
-      - name: Upload artifacts
-        if: inputs.upload_artifacts == true
-        uses: actions/upload-artifact@v7
-        with:
-          name: bclibc-windows-${{ env.BUILD_TYPE }}
-          path: artifacts/windows/
-          retention-days: 7
-          if-no-files-found: error
+  build-windows-arm64:
+    if: inputs.platforms == 'all' || inputs.platforms == 'windows'
+    uses: ./.github/workflows/build-lib.yml
+    with:
+      os: windows-latest
+      arch: arm64
+      build_type: ${{ inputs.build_type }}
+      retention_days: 7
+      upload_artifact: ${{ inputs.upload_artifacts }}
 
   create-release:
     name: Create Release Package
     runs-on: ubuntu-latest
-    needs: [build-linux, build-macos, build-windows]
+    needs:
+      - build-linux-x86_64
+      - build-linux-arm64
+      - build-macos
+      - build-windows-x86_64
+      - build-windows-arm64
     if: always() && inputs.upload_artifacts == true
 
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
       - name: Create release package
         run: |
           mkdir -p release-package
-
-          # Structure the release package
-          for platform in linux macos windows; do
-            if [ -d "artifacts/bclibc-$platform-${{ env.BUILD_TYPE }}" ]; then
-              mkdir -p "release-package/$platform"
-              cp -r "artifacts/bclibc-$platform-${{ env.BUILD_TYPE }}"/* "release-package/$platform/"
-            fi
+          for platform_dir in artifacts/*/; do
+            platform=$(basename "$platform_dir")
+            mkdir -p "release-package/$platform"
+            cp -r "$platform_dir"* "release-package/$platform/"
           done
 
-          # Create zip archive with version info
-          if [ -f "release-package/linux/version.h" ]; then
-            VERSION=$(grep 'BCLIBC_VERSION' release-package/linux/version.h | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          VERSION_FILE=$(find artifacts -name "version.h" -type f | head -1)
+          if [ -n "$VERSION_FILE" ]; then
+            VERSION=$(grep 'BCLIBC_VERSION' "$VERSION_FILE" | head -1 | sed 's/.*"\(.*\)".*/\1/')
             echo "VERSION=$VERSION" >> $GITHUB_ENV
           fi
 
           cd release-package
-          zip -r "../bclibc-${{ env.BUILD_TYPE }}.zip" .
-          cd ..
+          zip -r "../bclibc-${{ inputs.build_type }}.zip" .
 
       - name: Upload release package
         uses: actions/upload-artifact@v7
         with:
-          name: bclibc-${{ env.BUILD_TYPE }}-all-platforms
-          path: bclibc-${{ env.BUILD_TYPE }}.zip
+          name: bclibc-${{ inputs.build_type }}-all-platforms
+          path: bclibc-${{ inputs.build_type }}.zip
           retention-days: 30
           if-no-files-found: error

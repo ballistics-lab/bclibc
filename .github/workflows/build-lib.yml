@@ -1,0 +1,167 @@
+name: Build Library (Reusable)
+
+on:
+  workflow_dispatch:
+    inputs:
+      os:
+        description: GitHub Actions runner
+        required: true
+        type: choice
+        options:
+          - ubuntu-latest
+          - ubuntu-24.04-arm
+          - macos-latest
+          - windows-latest
+      arch:
+        description: Target architecture
+        required: true
+        type: choice
+        options:
+          - x86_64
+          - arm64
+          - universal
+      build_type:
+        description: CMake build type
+        required: true
+        default: Release
+        type: choice
+        options:
+          - Release
+          - Debug
+      upload_artifact:
+        description: Upload artifacts
+        required: false
+        type: boolean
+        default: true
+
+  workflow_call:
+    inputs:
+      os:
+        description: GitHub Actions runner (e.g. ubuntu-latest, windows-latest)
+        required: true
+        type: string
+      arch:
+        description: Target architecture (x86_64, arm64, universal)
+        required: true
+        type: string
+      build_type:
+        description: CMake build type
+        required: false
+        type: string
+        default: Release
+      artifact_name:
+        description: Override artifact name (default auto-computed)
+        required: false
+        type: string
+        default: ""
+      retention_days:
+        description: Artifact retention in days
+        required: false
+        type: number
+        default: 7
+      upload_artifact:
+        description: Whether to upload artifacts
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      artifact_name:
+        description: Name of the uploaded artifact
+        value: ${{ jobs.build.outputs.artifact_name }}
+
+jobs:
+  build:
+    runs-on: ${{ inputs.os }}
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.artifact_name }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Compute artifact name
+        id: meta
+        shell: bash
+        run: |
+          NAME="${{ inputs.artifact_name }}"
+          if [[ -z "$NAME" ]]; then
+            NAME="bclibc-${{ runner.os }}-${{ inputs.arch }}-${{ inputs.build_type }}"
+          fi
+          echo "artifact_name=$NAME" >> $GITHUB_OUTPUT
+
+      - name: Configure CMake
+        shell: bash
+        run: |
+          mkdir -p build
+          cd build
+          if [[ "${{ runner.os }}" == "macOS" && "${{ inputs.arch }}" == "universal" ]]; then
+            cmake -DCMAKE_BUILD_TYPE=${{ inputs.build_type }} "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" ..
+          elif [[ "${{ runner.os }}" == "Windows" && "${{ inputs.arch }}" == "arm64" ]]; then
+            cmake -G "Visual Studio 17 2022" -A ARM64 -DCMAKE_BUILD_TYPE=${{ inputs.build_type }} ..
+          elif [[ "${{ runner.os }}" == "Windows" ]]; then
+            cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=${{ inputs.build_type }} ..
+          else
+            cmake -DCMAKE_BUILD_TYPE=${{ inputs.build_type }} ..
+          fi
+
+      - name: Build (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cd build
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            make -j$(sysctl -n hw.ncpu)
+          else
+            make -j$(nproc)
+          fi
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cd build
+          cmake --build . --config ${{ inputs.build_type }}
+
+      - name: Prepare artifacts (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cd build
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            cp libbclibc_ffi.so ../artifacts/
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            cp libbclibc_ffi.dylib ../artifacts/
+          fi
+          cp lib/libbclibc_core.a ../artifacts/
+          cp generated/bclibc/version.h ../artifacts/
+
+      - name: Prepare artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path artifacts -Force
+
+          $dllPath = "build/bin/${{ inputs.build_type }}/bclibc_ffi.dll"
+          if (Test-Path $dllPath) {
+            Copy-Item $dllPath "artifacts/"
+          } else {
+            $foundDll = Get-ChildItem -Path build -Recurse -Filter "bclibc_ffi.dll" | Select-Object -First 1
+            if ($foundDll) { Copy-Item $foundDll.FullName "artifacts/" }
+            else { Write-Error "bclibc_ffi.dll not found"; exit 1 }
+          }
+
+          Copy-Item "build/lib/${{ inputs.build_type }}/bclibc_core.lib" "artifacts/"
+          Copy-Item "build/generated/bclibc/version.h" "artifacts/"
+
+      - name: Upload artifacts
+        if: inputs.upload_artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.meta.outputs.artifact_name }}
+          path: artifacts/
+          retention-days: ${{ inputs.retention_days || 7 }}
+          if-no-files-found: error
