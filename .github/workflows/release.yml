@@ -67,6 +67,14 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
+      - name: Package artifacts into zips
+        run: |
+          mkdir -p release-files
+          for dir in artifacts/*/; do
+            name=$(basename "$dir")
+            zip -j "release-files/${name}.zip" "$dir"*
+          done
+
       - name: Upload artifacts to release
         uses: softprops/action-gh-release@v2
         with:
@@ -74,5 +82,5 @@ jobs:
           name: Release ${{ steps.get_version.outputs.version }}
           draft: false
           prerelease: false
-          files: artifacts/**/*
+          files: release-files/*.zip
           generate_release_notes: true
