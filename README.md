@@ -1,89 +1,158 @@
-# BCLIBC: Pure C++ Ballistic Solver Engine
+# bclibc — C++ Ballistic Solver Engine
 
-A high-performance ballistic trajectory solver featuring RK4 integration and Ridder's method for zero-finding. This project is structured as a modular C++ core with a dedicated C-compatible FFI (Foreign Function Interface) layer for seamless integration with Dart/Flutter, Python, or Rust.
-
----
-
-## 🛠 Dependencies
-
-To build the project, you need:
-
-- CMake (3.13 or higher)
-- GCC (C++17 support required) or Clang
-- Make (Build automation utility)
+High-performance ballistic trajectory solver with RK4 and Euler integration, Ridder's method for zero-finding, and a stable C FFI layer for use from Dart/Flutter, Python, Rust, or any language with C bindings.
 
 ---
 
-## 🏗 Library Architecture
+## Architecture
 
-The build process generates two distinct artifacts in the `build/` directory:
+Two build artifacts:
 
-- **libbclibc_core.a** — Static Core Library  
-  Contains pure C++ logic, classes, and physics. Use this for C++ projects and unit testing.
-
-- **libbclibc_ffi.so** — Shared FFI Library  
-  A dynamic library with a stable C-API (prefixed with `BCLIBCFFI_`). Optimized for external language bindings.
+| Artifact | Type | Purpose |
+|---|---|---|
+| `libbclibc_core.a` / `bclibc_core.lib` | Static | Pure C++ engine logic. Use for C++ projects and unit tests. |
+| `libbclibc_ffi.so` / `libbclibc_ffi.dylib` / `bclibc_ffi.dll` | Shared | Stable C API (`BCLIBCFFI_*`). Use for FFI bindings. |
 
 ---
 
-## 🚀 Building the Project
+## Dependencies
 
-### 1. Using Makefile (Recommended for Development)
+- CMake 3.13+
+- C++17 compiler: GCC, Clang, or MSVC
+- Make (Linux/macOS) or Visual Studio 2022 (Windows)
 
-The root `Makefile` provides shorthand commands for common tasks:
+---
+
+## Building
+
+### Linux / macOS
 
 ```bash
-make        # Build everything (Core + FFI)
-make core   # Build only the static core library
-make ffi    # Build only the shared FFI library
-make clean  # Remove the build directory
-```
-
----
-
-### 2. Using the Build Script (CI/CD)
-
-For automated environments or clean builds:
-
-```bash
-chmod +x build.sh
 ./build.sh
 ```
 
----
-
-## 🧪 Verifying FFI Exports
-
-To ensure the symbol visibility script (`.version`) is working correctly and only the intended API is exposed, run:
+Or via Make:
 
 ```bash
-nm -D build/libbclibc_ffi.so | grep " T "
+make          # Build everything (Core + FFI)
+make core     # Static core only
+make ffi      # Shared FFI only
+make clean    # Remove build/
 ```
 
-You should only see symbols prefixed with `BCLIBCFFI_`.
+### Windows
+
+PowerShell:
+```powershell
+.\build.ps1              # Release (default)
+.\build.ps1 -Configuration Debug
+```
+
+CMD:
+```bat
+build.bat Release
+build.bat Debug
+```
+
+### Manual CMake
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
+
+Windows:
+```powershell
+cmake -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Release
+```
 
 ---
 
-## 📚 Integration with Dart/Flutter
+## Output locations
 
-* Copy `libbclibc_ffi.so` to your Flutter project's native assets folder
-* Use `dart:ffi` to load the library
-* *(Recommended)* Use the `ffigen` package with the header `include/bclibc/ffi/bclibc_ffi.h` to automatically generate Dart bindings
+| Platform | DLL/SO | Static |
+|---|---|---|
+| Linux | `build/libbclibc_ffi.so` | `build/libbclibc_core.a` |
+| macOS | `build/libbclibc_ffi.dylib` | `build/libbclibc_core.a` |
+| Windows | `build/bin/Release/bclibc_ffi.dll` | `build/lib/Release/bclibc_core.lib` |
 
 ---
 
-## 📁 Project Structure
+## FFI API
 
-```plaintext
+The public C API is declared in `include/bclibc/ffi/bclibc_ffi.h`. All symbols are prefixed with `BCLIBCFFI_`.
+
+| Function | Description |
+|---|---|
+| `BCLIBCFFI_get_version()` | Library version string |
+| `BCLIBCFFI_find_apex()` | Highest point of trajectory |
+| `BCLIBCFFI_find_max_range()` | Maximum range and angle |
+| `BCLIBCFFI_find_zero_angle()` | Barrel elevation to zero at distance |
+| `BCLIBCFFI_integrate()` | Full trajectory, filtered by step/flags |
+| `BCLIBCFFI_integrate_at()` | Single interpolated point at key value |
+| `BCLIBCFFI_free_trajectory()` | Free memory from `BCLIBCFFI_integrate` |
+| `BCLIBCFFI_get_correction()` | Angular correction for offset at distance |
+| `BCLIBCFFI_calculate_energy()` | Kinetic energy (ft-lb) |
+| `BCLIBCFFI_calculate_ogw()` | Optimal Game Weight |
+
+### Symbol visibility
+
+On Windows, the DLL exports are controlled via `__declspec(dllexport)` (defined automatically when building the library). On Linux, a version script (`src/ffi/bclibc_ffi.version`) restricts the export table to `BCLIBCFFI_*` symbols only.
+
+Verify exports:
+```bash
+# Linux
+nm -D build/libbclibc_ffi.so | grep " T "
+
+# macOS
+nm -g build/libbclibc_ffi.dylib | grep " T "
+
+# Windows
+dumpbin /exports build\bin\Release\bclibc_ffi.dll
+```
+
+---
+
+## Dart / Flutter integration
+
+1. Copy the platform library to your Flutter project's native assets folder
+2. Load with `dart:ffi`
+3. Generate Dart bindings automatically using [`ffigen`](https://pub.dev/packages/ffigen) with the header:
+   ```yaml
+   headers:
+     entry-points:
+       - include/bclibc/ffi/bclibc_ffi.h
+   ```
+
+---
+
+## CI / CD
+
+| Workflow | Trigger | Description |
+|---|---|---|
+| `pr-check.yml` | PR to `main`/`develop` | Builds on Linux, macOS, Windows × Debug/Release |
+| `build-libs.yml` | Manual | Build specific platform and upload artifacts |
+| `release.yml` | Push tag `v*` | Builds all platforms and creates GitHub Release |
+
+---
+
+## Pre-commit check
+
+Runs a clean build and validates artifacts, version metadata, and symbol visibility:
+
+```bash
+chmod +x pre-commit-check.sh
+./pre-commit-check.sh
+```
+
+---
+
+## Project structure
+
+```
 .
-├── build/                     # Build artifacts (CMake output)
-│   ├── libbclibc_core.a      # Static core library
-│   ├── libbclibc_ffi.so      # Shared FFI library
-│   ├── CMakeCache.txt
-│   ├── Makefile
-│   └── CMakeFiles/           # Internal CMake build files
-│
-├── include/                  # Public headers
+├── include/
 │   ├── bclibc.hpp
 │   └── bclibc/
 │       ├── base_types.hpp
@@ -98,9 +167,9 @@ You should only see symbols prefixed with `BCLIBCFFI_`.
 │       ├── traj_filter.hpp
 │       ├── v3d.hpp
 │       └── ffi/
-│           └── bclibc_ffi.h  # C-compatible FFI API
+│           └── bclibc_ffi.h       # Public C FFI API
 │
-├── src/                      # Implementation files
+├── src/
 │   ├── base_types.cpp
 │   ├── engine.cpp
 │   ├── euler.cpp
@@ -110,13 +179,20 @@ You should only see symbols prefixed with `BCLIBCFFI_`.
 │   ├── traj_filter.cpp
 │   └── ffi/
 │       ├── bclibc_ffi.cpp
-│       └── bclibc_ffi.version  # Symbol visibility control
+│       └── bclibc_ffi.version     # Linux symbol visibility script
 │
-├── CMakeLists.txt           # CMake configuration
-├── Makefile                 # Dev shortcuts
-├── build.sh                 # CI/CD build script
+├── .github/workflows/
+│   ├── build-libs.yml
+│   ├── pr-check.yml
+│   └── release.yml
+│
+├── CMakeLists.txt
+├── Makefile
+├── build.sh                       # Linux/macOS build script
+├── build.ps1                      # Windows PowerShell build script
+├── build.bat                      # Windows CMD build script
+├── clean.ps1                      # Windows clean script
+├── pre-commit-check.sh
 ├── version.h.in
-├── README.md
 └── LICENSE
 ```
-

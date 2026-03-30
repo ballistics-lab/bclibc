@@ -1,0 +1,39 @@
+# bclibc-config.cmake.in
+set(BCLIBC_FOUND TRUE)
+set(BCLIBC_VERSION "@BCLIBC_VERSION@")
+
+# Include directories
+set(BCLIBC_INCLUDE_DIRS "@BCLIBC_INCLUDE_DIR@")
+
+# Libraries (platform specific)
+if(WIN32)
+    set(BCLIBC_FFI_LIBRARY "@CMAKE_BINARY_DIR@/bin/@CMAKE_BUILD_TYPE@/bclibc_ffi.dll")
+    set(BCLIBC_CORE_LIBRARY "@CMAKE_BINARY_DIR@/lib/@CMAKE_BUILD_TYPE@/bclibc_core.lib")
+    set(BCLIBC_LIBRARIES ${BCLIBC_FFI_LIBRARY} ${BCLIBC_CORE_LIBRARY})
+elseif(APPLE)
+    set(BCLIBC_FFI_LIBRARY "@CMAKE_BINARY_DIR@/libbclibc_ffi.dylib")
+    set(BCLIBC_CORE_LIBRARY "@CMAKE_BINARY_DIR@/libbclibc_core.a")
+    set(BCLIBC_LIBRARIES ${BCLIBC_FFI_LIBRARY} ${BCLIBC_CORE_LIBRARY})
+else()
+    set(BCLIBC_FFI_LIBRARY "@CMAKE_BINARY_DIR@/libbclibc_ffi.so")
+    set(BCLIBC_CORE_LIBRARY "@CMAKE_BINARY_DIR@/libbclibc_core.a")
+    set(BCLIBC_LIBRARIES ${BCLIBC_FFI_LIBRARY} ${BCLIBC_CORE_LIBRARY})
+endif()
+
+# Add the target if needed
+if(NOT TARGET bclibc::ffi)
+    add_library(bclibc::ffi SHARED IMPORTED)
+    set_target_properties(bclibc::ffi PROPERTIES
+        IMPORTED_LOCATION "${BCLIBC_FFI_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "@BCLIBC_INCLUDE_DIR@"
+    )
+endif()
+
+# Also add core library target for convenience
+if(NOT TARGET bclibc::core)
+    add_library(bclibc::core STATIC IMPORTED)
+    set_target_properties(bclibc::core PROPERTIES
+        IMPORTED_LOCATION "${BCLIBC_CORE_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "@BCLIBC_INCLUDE_DIR@"
+    )
+endif()

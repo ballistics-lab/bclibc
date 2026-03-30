@@ -5,6 +5,17 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ============================================================================
+# Platform detection
+# ============================================================================
+if(WIN32)
+    set(WINDOWS_BUILD TRUE)
+elseif(APPLE)
+    set(MACOS_BUILD TRUE)
+else()
+    set(LINUX_BUILD TRUE)
+endif()
+
+# ============================================================================
 # Dynamic Versioning from Git
 # ============================================================================
 find_package(Git QUIET)
@@ -77,31 +88,105 @@ add_library(bclibc_ffi SHARED "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp")
 
 # Add generated folder to include paths for FFI
 target_include_directories(bclibc_ffi PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_include_directories(bclibc_ffi PRIVATE "${BCLIBC_INCLUDE_DIR}")
 
-# Set version properties for the .so file
-# Use numeric components for SOVERSION to ensure valid symlinks
-set_target_properties(bclibc_ffi PROPERTIES 
-    VERSION ${BCLIBC_VERSION_MAJOR}.${BCLIBC_VERSION_MINOR}.${BCLIBC_VERSION_PATCH}
-    SOVERSION ${BCLIBC_VERSION_MAJOR}
-)
+# Platform-specific settings for FFI library
+if(WINDOWS_BUILD)
+    # Windows specific settings
+    set_target_properties(bclibc_ffi PROPERTIES
+        PREFIX ""  # No "lib" prefix on Windows
+        SUFFIX ".dll"
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+        ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    )
+    
+    # Export symbols for Windows
+    target_compile_definitions(bclibc_ffi PRIVATE
+        BCLIBC_FFI_EXPORT
+        _WINDLL
+        NOMINMAX
+    )
+    
+    # Disable specific MSVC warnings
+    if(MSVC)
+        target_compile_options(bclibc_ffi PRIVATE 
+            /W4
+            /wd"4251"  # Disable dll interface warning
+            /wd"4275"  # Disable non dll-interface class warning
+        )
+    endif()
+elseif(MACOS_BUILD)
+    set_target_properties(bclibc_ffi PROPERTIES
+        PREFIX "lib"
+        SUFFIX ".dylib"
+        INSTALL_NAME_DIR "@rpath"
+    )
+    
+    # Set version properties for macOS
+    set_target_properties(bclibc_ffi PROPERTIES 
+        VERSION ${BCLIBC_VERSION_MAJOR}.${BCLIBC_VERSION_MINOR}.${BCLIBC_VERSION_PATCH}
+        SOVERSION ${BCLIBC_VERSION_MAJOR}
+    )
+else()
+    # Linux/Unix settings
+    set_target_properties(bclibc_ffi PROPERTIES 
+        PREFIX "lib"
+        SUFFIX ".so"
+        VERSION ${BCLIBC_VERSION_MAJOR}.${BCLIBC_VERSION_MINOR}.${BCLIBC_VERSION_PATCH}
+        SOVERSION ${BCLIBC_VERSION_MAJOR}
+    )
+endif()
 
 # Link FFI with the core
 target_link_libraries(bclibc_ffi PRIVATE bclibc_core)
 
-# Optimizations
+# ============================================================================
+# Compiler optimizations and flags
+# ============================================================================
 foreach(target bclibc_core bclibc_ffi)
-    target_compile_options(${target} PRIVATE
-        "$<$<NOT:$<CONFIG:Debug>>:-O3;-ffast-math>"
-        "$<$<CONFIG:Debug>:-O0;-g>"
-    )
+    if(MSVC)
+        # MSVC specific flags
+        target_compile_options(${target} PRIVATE
+            "$<$<CONFIG:Release>:/O2>"
+            "$<$<CONFIG:Debug>:/Od>"
+            "$<$<CONFIG:Debug>:/Zi>"
+            /EHsc
+            /std:c++17
+        )
+    else()
+        # GCC/Clang flags
+        target_compile_options(${target} PRIVATE
+            "$<$<NOT:$<CONFIG:Debug>>:-O3;-ffast-math>"
+            "$<$<CONFIG:Debug>:-O0;-g>"
+        )
+    endif()
 endforeach()
 
 # ============================================================================
-# Symbol Export Control (Only for FFI)
+# Symbol Export Control (Only for FFI) - Unix/Linux only
 # ============================================================================
-if(UNIX AND NOT APPLE)
+if(LINUX_BUILD AND NOT CMAKE_BUILD_TYPE MATCHES "Debug")
     set(VERSION_SCRIPT "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.version")
-    if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
+    if(EXISTS ${VERSION_SCRIPT})
         target_link_options(bclibc_ffi PRIVATE "-Wl,--version-script=${VERSION_SCRIPT}")
     endif()
 endif()
+
+# ============================================================================
+# Export headers and libraries for Flutter
+# ============================================================================
+# This makes it easier for the main CMakeLists.txt to find the library
+if(WINDOWS_BUILD)
+    # Export include directory
+    set(BCLIBC_INCLUDE_DIRS "${BCLIBC_INCLUDE_DIR}" PARENT_SCOPE)
+    set(BCLIBC_LIBRARY_DIR "${CMAKE_BINARY_DIR}/bin" PARENT_SCOPE)
+    
+    # Create a config file for easier finding
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/bclibc-config.cmake.in"
+        "${CMAKE_BINARY_DIR}/bclibc-config.cmake"
+        @ONLY
+    )
+endif()
+

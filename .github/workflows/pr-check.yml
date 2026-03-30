@@ -1,0 +1,176 @@
+name: PR Check
+
+on:
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Check Build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        build_type: [Debug, Release]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Configure CMake
+        shell: bash
+        run: |
+          mkdir -p build
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} ..
+
+      - name: Build
+        shell: bash
+        run: |
+          cd build
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cmake --build . --config ${{ matrix.build_type }}
+          else
+            make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
+          fi
+
+      - name: Prepare artifacts (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cd build
+          cp libbclibc_ffi.so ../artifacts/
+          cp libbclibc_core.a ../artifacts/
+          [ -f "generated/bclibc/version.h" ] && cp generated/bclibc/version.h ../artifacts/
+          cd ..
+          if [ -f "artifacts/version.h" ]; then
+            VERSION=$(grep 'BCLIBC_VERSION' artifacts/version.h | head -1 | sed 's/.*"\(.*\)".*/\1/')
+            echo "VERSION=$VERSION" >> $GITHUB_ENV
+          fi
+
+      - name: Prepare artifacts (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cd build
+          cp libbclibc_ffi.dylib ../artifacts/
+          cp libbclibc_core.a ../artifacts/
+          [ -f "generated/bclibc/version.h" ] && cp generated/bclibc/version.h ../artifacts/
+          cd ..
+          if [ -f "artifacts/version.h" ]; then
+            VERSION=$(grep 'BCLIBC_VERSION' artifacts/version.h | head -1 | sed 's/.*"\(.*\)".*/\1/')
+            echo "VERSION=$VERSION" >> $GITHUB_ENV
+          fi
+
+      - name: Prepare artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path artifacts -Force
+          $config = "${{ matrix.build_type }}"
+
+          # Find and copy DLL
+          $dll = Get-ChildItem -Path build -Recurse -Filter "bclibc_ffi.dll" | Select-Object -First 1
+          if ($dll) {
+            Copy-Item $dll.FullName "artifacts/"
+            Write-Host "✅ DLL found: $($dll.FullName)"
+          } else {
+            Write-Host "❌ DLL not found!"
+            exit 1
+          }
+
+          # Find and copy LIB
+          $lib = Get-ChildItem -Path build -Recurse -Filter "bclibc_core.lib" | Select-Object -First 1
+          if ($lib) {
+            Copy-Item $lib.FullName "artifacts/"
+            Write-Host "✅ LIB found: $($lib.FullName)"
+          } else {
+            Write-Host "❌ LIB not found!"
+            exit 1
+          }
+
+          # Copy version header
+          $versionFile = Get-ChildItem -Path build -Recurse -Filter "version.h" | Select-Object -First 1
+          if ($versionFile) {
+            Copy-Item $versionFile.FullName "artifacts/"
+            $content = Get-Content $versionFile.FullName -Raw
+            if ($content -match 'BCLIBC_VERSION "([^"]+)"') {
+              $version = $matches[1]
+              echo "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            }
+          }
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: bclibc-${{ runner.os }}-${{ matrix.build_type }}-${{ github.run_id }}
+          path: artifacts/
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Check artifacts (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          cd build
+          [ -f "libbclibc_ffi.so" ] && [ -f "libbclibc_core.a" ] && echo "✅ Linux artifacts found" || exit 1
+
+      - name: Check artifacts (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          cd build
+          [ -f "libbclibc_ffi.dylib" ] && [ -f "libbclibc_core.a" ] && echo "✅ macOS artifacts found" || exit 1
+
+      - name: Check artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem -Path build -Recurse -Filter "bclibc_ffi.dll" | Select-Object -First 1
+          $lib = Get-ChildItem -Path build -Recurse -Filter "bclibc_core.lib" | Select-Object -First 1
+          if ($dll -and $lib) {
+            Write-Host "✅ Windows artifacts found" -ForegroundColor Green
+          } else {
+            Write-Host "❌ Windows artifacts missing!" -ForegroundColor Red
+            exit 1
+          }
+
+      - name: Run pre-commit check (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          chmod +x pre-commit-check.sh
+          ./pre-commit-check.sh || true
+
+  summary:
+    name: Build Summary
+    runs-on: ubuntu-latest
+    needs: check
+    if: always()
+
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## 📦 Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Platform | Build Type | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|------------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.check.result }}" == "success" ]; then
+            echo "| Linux | Release/Debug | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+            echo "| macOS | Release/Debug | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+            echo "| Windows | Release/Debug | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| All | All | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📁 Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "Artifacts are available for download below for 24 hours." >> $GITHUB_STEP_SUMMARY

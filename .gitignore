@@ -1,6 +1,10 @@
+# Build directories
 build/
 bin/
 lib/
+build_check/
+build_*/
+cmake-build-*/
 
 *.o
 *.a
@@ -14,3 +18,41 @@ lib/
 *~
 
 .DS_Store
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# Generated files
+generated/
+version.h
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Windows specific
+*.exe
+*.dll
+*.lib
+*.pdb
+*.ilk
+*.exp
+*.log
+
+# Linux/macOS specific
+*.so
+*.so.*
+*.dylib
+*.a
+*.o
+*.out
+
+# Debug symbols
+*.dSYM/
+*.dSYM.zip
