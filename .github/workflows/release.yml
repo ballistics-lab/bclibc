@@ -8,11 +8,26 @@ on:
 
 jobs:
   build-and-release:
-    name: Build and Release
+    name: Build ${{ matrix.platform }} ${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            platform: Linux
+            arch: x86_64
+          - os: ubuntu-24.04-arm
+            platform: Linux
+            arch: arm64
+          - os: macos-latest
+            platform: macOS
+            arch: universal
+          - os: windows-latest
+            platform: Windows
+            arch: x86_64
+          - os: windows-latest
+            platform: Windows
+            arch: arm64
     permissions:
       contents: write
       packages: write
@@ -36,7 +51,15 @@ jobs:
         run: |
           mkdir -p build
           cd build
-          cmake -DCMAKE_BUILD_TYPE=Release ..
+          if [[ "${{ matrix.platform }}" == "macOS" ]]; then
+            cmake -DCMAKE_BUILD_TYPE=Release "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" ..
+          elif [[ "${{ matrix.platform }}" == "Windows" && "${{ matrix.arch }}" == "arm64" ]]; then
+            cmake -G "Visual Studio 17 2022" -A ARM64 -DCMAKE_BUILD_TYPE=Release ..
+          elif [[ "${{ matrix.platform }}" == "Windows" ]]; then
+            cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release ..
+          else
+            cmake -DCMAKE_BUILD_TYPE=Release ..
+          fi
 
       - name: Build (Linux/macOS)
         if: runner.os != 'Windows'
@@ -56,24 +79,45 @@ jobs:
           cd build
           cmake --build . --config Release
 
-      - name: Prepare artifacts
+      - name: Prepare artifacts (Linux/macOS)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
-          mkdir -p artifacts/${{ runner.os }}
+          ARTIFACT_DIR="artifacts/${{ matrix.platform }}-${{ matrix.arch }}"
+          mkdir -p "$ARTIFACT_DIR"
           cd build
-          if [[ "${{ runner.os }}" == "Linux" ]]; then
-            cp libbclibc_ffi.so ../artifacts/Linux/
-            cp libbclibc_core.a ../artifacts/Linux/
-          elif [[ "${{ runner.os }}" == "macOS" ]]; then
-            cp libbclibc_ffi.dylib ../artifacts/macOS/
-            cp libbclibc_core.a ../artifacts/macOS/
-          elif [[ "${{ runner.os }}" == "Windows" ]]; then
-            cp bin/Release/bclibc_ffi.dll ../artifacts/Windows/
-            cp lib/Release/bclibc_core.lib ../artifacts/Windows/
+          if [[ "${{ matrix.platform }}" == "Linux" ]]; then
+            cp libbclibc_ffi.so "../$ARTIFACT_DIR/"
+          elif [[ "${{ matrix.platform }}" == "macOS" ]]; then
+            cp libbclibc_ffi.dylib "../$ARTIFACT_DIR/"
           fi
-          cp generated/bclibc/version.h ../artifacts/${{ runner.os }}/
+          cp lib/libbclibc_core.a "../$ARTIFACT_DIR/"
+          cp generated/bclibc/version.h "../$ARTIFACT_DIR/"
+
+      - name: Prepare artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $artifactDir = "artifacts/${{ matrix.platform }}-${{ matrix.arch }}"
+          New-Item -ItemType Directory -Path $artifactDir -Force
+
+          # Copy DLL
+          $dllPath = "build/bin/Release/bclibc_ffi.dll"
+          if (Test-Path $dllPath) {
+            Copy-Item $dllPath "$artifactDir/"
+          } else {
+            $foundDll = Get-ChildItem -Path build -Recurse -Filter "bclibc_ffi.dll" | Select-Object -First 1
+            if ($foundDll) { Copy-Item $foundDll.FullName "$artifactDir/" }
+            else { Write-Error "bclibc_ffi.dll not found"; exit 1 }
+          }
+
+          # Copy static LIB
+          Copy-Item "build/lib/Release/bclibc_core.lib" "$artifactDir/"
+
+          Copy-Item "build/generated/bclibc/version.h" "$artifactDir/"
 
       - name: Upload artifacts to release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
