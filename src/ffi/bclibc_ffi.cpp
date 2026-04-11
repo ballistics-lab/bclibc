@@ -196,47 +196,63 @@ static void toC(const BCLIBC_BaseTrajData &s, BCBaseTrajData &d)
 }
 
 // ============================================================================
-// Exception catch blocks (macro mirrors WASM wrapExceptions)
+// Exception wrapper (replaces BCLIBCFFI_CATCH macro)
 // ============================================================================
 
-#define BCLIBCFFI_CATCH(err_ptr)                                   \
-    catch (const BCLIBC_OutOfRangeError &e)                        \
-    {                                                              \
-        setError(err_ptr, BCLIBCFFI_ERR_OUT_OF_RANGE, e.what());   \
-        if (err_ptr)                                               \
-        {                                                          \
-            (err_ptr)->f64_0 = e.requested_distance_ft;            \
-            (err_ptr)->f64_1 = e.max_range_ft;                     \
-            (err_ptr)->f64_2 = e.look_angle_rad;                   \
-        }                                                          \
-        return BCLIBCFFI_ERR_OUT_OF_RANGE;                         \
-    }                                                              \
-    catch (const BCLIBC_ZeroFindingError &e)                       \
-    {                                                              \
-        setError(err_ptr, BCLIBCFFI_ERR_ZERO_FINDING, e.what());   \
-        if (err_ptr)                                               \
-        {                                                          \
-            (err_ptr)->f64_0 = e.zero_finding_error;               \
-            (err_ptr)->f64_1 = e.last_barrel_elevation_rad;        \
-            (err_ptr)->i32_0 = e.iterations_count;                 \
-        }                                                          \
-        return BCLIBCFFI_ERR_ZERO_FINDING;                         \
-    }                                                              \
-    catch (const BCLIBC_InterceptionError &e)                      \
-    {                                                              \
-        setError(err_ptr, BCLIBCFFI_ERR_INTERCEPTION, e.what());   \
-        return BCLIBCFFI_ERR_INTERCEPTION;                         \
-    }                                                              \
-    catch (const BCLIBC_SolverRuntimeError &e)                     \
-    {                                                              \
-        setError(err_ptr, BCLIBCFFI_ERR_SOLVER_RUNTIME, e.what()); \
-        return BCLIBCFFI_ERR_SOLVER_RUNTIME;                       \
-    }                                                              \
-    catch (const std::exception &e)                                \
-    {                                                              \
-        setError(err_ptr, BCLIBCFFI_ERR_GENERIC, e.what());        \
-        return BCLIBCFFI_ERR_GENERIC;                              \
+// Catches all exception types including non-std (catch(...)) across the FFI boundary.
+// C++11 compatible: lambda with -> int32_t trailing return type.
+template <typename Func>
+static int32_t ffi_call(Func &&fn, BCLIBCFFIError *err) noexcept
+{
+    clearError(err);
+    try
+    {
+        return fn();
     }
+    catch (const BCLIBC_OutOfRangeError &e)
+    {
+        setError(err, BCLIBCFFI_ERR_OUT_OF_RANGE, e.what());
+        if (err)
+        {
+            err->f64_0 = e.requested_distance_ft;
+            err->f64_1 = e.max_range_ft;
+            err->f64_2 = e.look_angle_rad;
+        }
+        return BCLIBCFFI_ERR_OUT_OF_RANGE;
+    }
+    catch (const BCLIBC_ZeroFindingError &e)
+    {
+        setError(err, BCLIBCFFI_ERR_ZERO_FINDING, e.what());
+        if (err)
+        {
+            err->f64_0 = e.zero_finding_error;
+            err->f64_1 = e.last_barrel_elevation_rad;
+            err->i32_0 = e.iterations_count;
+        }
+        return BCLIBCFFI_ERR_ZERO_FINDING;
+    }
+    catch (const BCLIBC_InterceptionError &e)
+    {
+        setError(err, BCLIBCFFI_ERR_INTERCEPTION, e.what());
+        return BCLIBCFFI_ERR_INTERCEPTION;
+    }
+    catch (const BCLIBC_SolverRuntimeError &e)
+    {
+        setError(err, BCLIBCFFI_ERR_SOLVER_RUNTIME, e.what());
+        return BCLIBCFFI_ERR_SOLVER_RUNTIME;
+    }
+    catch (const std::exception &e)
+    {
+        setError(err, BCLIBCFFI_ERR_GENERIC, e.what());
+        return BCLIBCFFI_ERR_GENERIC;
+    }
+    catch (...)
+    {
+        setError(err, BCLIBCFFI_ERR_GENERIC,
+                 "Unknown non-std exception across FFI boundary");
+        return BCLIBCFFI_ERR_GENERIC;
+    }
+}
 
 // ============================================================================
 // Public C API
@@ -255,18 +271,15 @@ extern "C"
         BCTrajectoryData *out,
         BCLIBCFFIError *err)
     {
-        clearError(err);
-        try
+        return ffi_call([&]() -> int32_t
         {
             BCLIBC_BaseEngine eng;
             initEngine(eng, props);
             BCLIBC_BaseTrajData apex;
             eng.find_apex(apex);
-            BCLIBC_TrajectoryData td(eng.shot, apex, BCLIBC_TRAJ_FLAG_APEX);
-            toC(td, *out);
+            toC(BCLIBC_TrajectoryData(eng.shot, apex, BCLIBC_TRAJ_FLAG_APEX), *out);
             return BCLIBCFFI_OK;
-        }
-        BCLIBCFFI_CATCH(err)
+        }, err);
     }
 
     int32_t BCLIBCFFI_find_max_range(
@@ -276,8 +289,7 @@ extern "C"
         BCMaxRangeResult *out,
         BCLIBCFFIError *err)
     {
-        clearError(err);
-        try
+        return ffi_call([&]() -> int32_t
         {
             BCLIBC_BaseEngine eng;
             initEngine(eng, props);
@@ -286,8 +298,7 @@ extern "C"
             out->max_range_ft = r.max_range_ft;
             out->angle_at_max_rad = r.angle_at_max_rad;
             return BCLIBCFFI_OK;
-        }
-        BCLIBCFFI_CATCH(err)
+        }, err);
     }
 
     int32_t BCLIBCFFI_find_zero_angle(
@@ -296,16 +307,14 @@ extern "C"
         double *out_angle_rad,
         BCLIBCFFIError *err)
     {
-        clearError(err);
-        try
+        return ffi_call([&]() -> int32_t
         {
             BCLIBC_BaseEngine eng;
             initEngine(eng, props);
             *out_angle_rad = eng.zero_angle_with_fallback(
                 distance_ft, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
             return BCLIBCFFI_OK;
-        }
-        BCLIBCFFI_CATCH(err)
+        }, err);
     }
 
     int32_t BCLIBCFFI_integrate(
@@ -316,8 +325,7 @@ extern "C"
         int32_t *out_reason,
         BCLIBCFFIError *err)
     {
-        clearError(err);
-        try
+        return ffi_call([&]() -> int32_t
         {
             BCLIBC_BaseEngine eng;
             initEngine(eng, props);
@@ -345,16 +353,23 @@ extern "C"
                     setError(err, BCLIBCFFI_ERR_GENERIC, "Out of memory allocating trajectory");
                     return BCLIBCFFI_ERR_GENERIC;
                 }
-                for (int32_t i = 0; i < count; ++i)
-                    toC(records[i], arr[i]);
+                try
+                {
+                    for (int32_t i = 0; i < count; ++i)
+                        toC(records[i], arr[i]);
+                }
+                catch (...)
+                {
+                    std::free(arr);
+                    throw; // re-throw — outer ffi_call catches and returns ERR_GENERIC
+                }
             }
 
             *out_records = arr;
             *out_count = count;
             *out_reason = static_cast<int32_t>(reason);
             return BCLIBCFFI_OK;
-        }
-        BCLIBCFFI_CATCH(err)
+        }, err);
     }
 
     void BCLIBCFFI_free_trajectory(BCTrajectoryData *records)
@@ -369,8 +384,7 @@ extern "C"
         BCInterception *out,
         BCLIBCFFIError *err)
     {
-        clearError(err);
-        try
+        return ffi_call([&]() -> int32_t
         {
             BCLIBC_BaseEngine eng;
             initEngine(eng, props);
@@ -384,8 +398,7 @@ extern "C"
             toC(raw, out->raw_data);
             toC(full, out->full_data);
             return BCLIBCFFI_OK;
-        }
-        BCLIBCFFI_CATCH(err)
+        }, err);
     }
 
     double BCLIBCFFI_get_correction(double distance_ft, double offset_ft)

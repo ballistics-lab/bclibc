@@ -981,6 +981,10 @@ namespace bclibc
                 this->config.cMaxIterations,
                 (low_angle + high_angle) / 2.0);
         }
+
+        // converged == true but loop exited without an explicit return
+        // (e.g. via h < 1e-5 in a previous iteration); return best estimate.
+        return (low_angle + high_angle) / 2.0;
     };
 
     /**

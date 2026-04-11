@@ -139,7 +139,10 @@ namespace bclibc
     double BCLIBC_BaseTrajData::operator[](BCLIBC_BaseTrajData_InterpKey key_kind) const
     {
         // Bounds check
-        if ((int)key_kind < 0 || (int)key_kind > BCLIBC_TRAJECTORY_DATA_INTERP_KEY_ACTIVE_COUNT)
+        // BASE_TRAJ_SEQ_INTERP_KEY_ACTIVE_COUNT == 8 matches enum BCLIBC_BaseTrajData_InterpKey (0..7).
+        // Previous code used BCLIBC_TRAJECTORY_DATA_INTERP_KEY_ACTIVE_COUNT (15) which allowed
+        // keys 8-14 to pass the check and silently fall into the default branch returning 0.0.
+        if ((int)key_kind < 0 || (int)key_kind >= BASE_TRAJ_SEQ_INTERP_KEY_ACTIVE_COUNT)
         {
             return 0.0;
         }
@@ -418,14 +421,9 @@ namespace bclibc
             const ssize_t start_idx = this->find_start_index(start_from_time);
 
             // Try exact match at start
-            try
+            if (this->try_get_exact(start_idx, key_kind, key_value, out))
             {
-                this->try_get_exact(start_idx, key_kind, key_value, out);
                 return;
-            }
-            catch (const std::exception &)
-            {
-                // Not an exact match, continue to interpolation
             }
 
             // Find interpolation target
@@ -444,14 +442,9 @@ namespace bclibc
         }
 
         // Try exact match at target
-        try
+        if (this->try_get_exact(target_idx, key_kind, key_value, out))
         {
-            this->try_get_exact(target_idx, key_kind, key_value, out);
             return;
-        }
-        catch (const std::exception &)
-        {
-            // Not exact, proceed to interpolation
         }
 
         // Interpolate at center point
@@ -607,7 +600,7 @@ namespace bclibc
      * @note Primarily used internally by get_at() to optimize exact lookups.
      * @note Consider refactoring to return bool instead of throwing for cleaner API.
      */
-    void BCLIBC_BaseTrajSeq::try_get_exact(
+    bool BCLIBC_BaseTrajSeq::try_get_exact(
         ssize_t idx,
         BCLIBC_BaseTrajData_InterpKey key_kind,
         double key_value,
@@ -615,7 +608,7 @@ namespace bclibc
     {
         if (idx < 0 || idx >= static_cast<ssize_t>(this->buffer.size()))
         {
-            throw std::out_of_range("Index out of bounds");
+            return false;
         }
 
         constexpr double epsilon = 1e-9;
@@ -623,11 +616,11 @@ namespace bclibc
         if (this->is_close(this->buffer[idx][key_kind], key_value, epsilon))
         {
             BCLIBC_DEBUG("Exact match found at index %zd", idx);
-            out = (*this)[idx];
-            return;
+            out = this->buffer[static_cast<size_t>(idx)];
+            return true;
         }
 
-        throw std::runtime_error("Not an exact match");
+        return false;
     }
 
     /**
@@ -1052,8 +1045,9 @@ namespace bclibc
         BCLIBC_TrajFlag flag,
         BCLIBC_InterpMethod method)
     {
-        // Validate key
-        if ((int)key < 0 || (int)key > BCLIBC_TRAJECTORY_DATA_INTERP_KEY_ACTIVE_COUNT)
+        // Validate key. BCLIBC_TRAJECTORY_DATA_INTERP_KEY_ACTIVE_COUNT == 15 covers keys 0..14.
+        // FLAG (= 15) is not interpolatable, so use >= to exclude it.
+        if ((int)key < 0 || (int)key >= BCLIBC_TRAJECTORY_DATA_INTERP_KEY_ACTIVE_COUNT)
         {
             throw std::logic_error("Cannot interpolate by unsupported key");
         }
