@@ -11,6 +11,10 @@
 namespace bclibc
 {
 
+    // Logging macros are intentional: __FILE__, __LINE__, __func__ are only accessible
+    // via preprocessor macros in C++11/14/17. When migrating to C++20, replace with
+    // bclibc::log() using std::source_location.
+
     // Define Log Levels (matching Python's logging module for consistency)
     enum class BCLIBC_LogLevel
     {

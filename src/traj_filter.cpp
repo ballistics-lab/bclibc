@@ -53,10 +53,21 @@ namespace bclibc
             BCLIBC_DEBUG(
                 "Trajectory Filter Finalization check: prev_data.time=%.6f",
                 this->prev_data.time);
-            if (this->prev_data.time > this->get_record(-1).time)
+            try
             {
-                BCLIBC_TrajectoryData fin(this->props, this->prev_data);
-                this->append(fin);
+                // get_record(-1) throws std::out_of_range when records is empty.
+                // Explicit !empty() check handles the common case; try/catch is a
+                // safety net — destructors must never propagate exceptions.
+                if (!this->records.empty() &&
+                    this->prev_data.time > this->get_record(-1).time)
+                {
+                    BCLIBC_TrajectoryData fin(this->props, this->prev_data);
+                    this->append(fin);
+                }
+            }
+            catch (...)
+            {
+                BCLIBC_WARN("Exception suppressed in ~BCLIBC_TrajectoryDataFilter");
             }
         }
     };

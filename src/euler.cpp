@@ -81,6 +81,14 @@ namespace bclibc
 
         const double calc_step = eng.shot.calc_step;
 
+        if (calc_step <= 0.0)
+        {
+            BCLIBC_ERROR(
+                "Invalid calc_step=%.9f (must be > 0); integration aborted", calc_step);
+            reason = BCLIBC_TerminationReason::MINIMUM_VELOCITY_REACHED;
+            return;
+        }
+
         // Initialize working variables
         reason = BCLIBC_TerminationReason::NO_TERMINATE;
         double relative_speed;

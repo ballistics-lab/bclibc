@@ -531,7 +531,7 @@ namespace bclibc
          * @note Primarily used internally by get_at() to optimize exact lookups.
          * @note Consider refactoring to return bool instead of throwing for cleaner API.
          */
-        void try_get_exact(
+        bool try_get_exact(
             ssize_t idx,
             BCLIBC_BaseTrajData_InterpKey key_kind,
             double key_value,

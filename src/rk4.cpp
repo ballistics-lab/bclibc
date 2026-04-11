@@ -128,6 +128,14 @@ namespace bclibc
         velocity = eng.shot.muzzle_velocity;
         delta_time = eng.shot.calc_step;
 
+        if (delta_time <= 0.0)
+        {
+            BCLIBC_ERROR(
+                "Invalid calc_step=%.9f (must be > 0); integration aborted", delta_time);
+            reason = BCLIBC_TerminationReason::MINIMUM_VELOCITY_REACHED;
+            return;
+        }
+
         BCLIBC_DEBUG("Velocity=%f, Calc Step=%f\n", velocity, delta_time);
 
         // Set initial position accounting for sight height and cant angle

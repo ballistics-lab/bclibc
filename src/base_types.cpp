@@ -125,7 +125,21 @@ namespace bclibc
           wind_sock(wind_sock),
           filter_flags(filter_flags)
     {
-        this->update_stability_coefficient();
+        // update_stability_coefficient() can throw std::domain_error when
+        // twist/length/diameter/p0 are zero. Catch it here and set the coefficient
+        // to 0.0 — spin_drift() returns 0 in that case, so the trajectory
+        // calculation proceeds correctly without spin drift.
+        try
+        {
+            this->update_stability_coefficient();
+        }
+        catch (const std::domain_error &e)
+        {
+            BCLIBC_WARN(
+                "Stability coefficient calculation failed (%s); spin drift disabled",
+                e.what());
+            this->stability_coefficient = 0.0;
+        }
     };
 
     BCLIBC_ShotProps::~BCLIBC_ShotProps()
