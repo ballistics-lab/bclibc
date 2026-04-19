@@ -1,5 +1,5 @@
 @echo off
-REM build.bat - для Windows (CMD)
+REM build.bat - for Windows (CMD)
 
 setlocal enabledelayedexpansion
 set CONFIGURATION=%1
