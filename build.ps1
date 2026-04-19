@@ -1,4 +1,4 @@
-# build.ps1 - для Windows
+# build.ps1 - for Windows
 param(
     [ValidateSet("Release", "Debug")]
     [string]$Configuration = "Release"
