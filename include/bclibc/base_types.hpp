@@ -403,7 +403,7 @@ namespace bclibc
 
     /**
      * @brief Universal PCHIP core calculation.
-     * Takes vectors X та Y, returns BCLIBC_Curve.
+     * Takes vectors X and Y, returns BCLIBC_Curve.
      */
     BCLIBC_Curve build_pchip_curve_from_arrays(const std::vector<double> &x, const std::vector<double> &y);
 
