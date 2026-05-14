@@ -57,7 +57,7 @@ jobs:
       - name: Update bclibc.json
         run: |
           TAG=${{ github.ref_name }}
-          COMMIT=$(git rev-list -n1 "$TAG")
+          COMMIT=${{ github.sha }}
           jq --arg tag "$TAG" --arg commit "$COMMIT" \
             '(.sources[] | select(.type == "git")) |= (.tag = $tag | .commit = $commit)' \
             bclibc.json > bclibc.json.tmp && mv bclibc.json.tmp bclibc.json
