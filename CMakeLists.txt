@@ -5,6 +5,11 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ============================================================================
+# Options
+# ============================================================================
+option(BCLIBC_BUILD_TESTS "Build tests" OFF)
+
+# ============================================================================
 # Platform detection
 # ============================================================================
 if(WIN32)
@@ -29,7 +34,7 @@ set(BCLIBC_VERSION_STR "${BCLIBC_VERSION_MAJOR}.${BCLIBC_VERSION_MINOR}.${BCLIBC
 if(GIT_FOUND)
     # Get describe info. If no tags, it falls back to commit hash
     execute_process(
-        COMMAND ${GIT_EXECUTABLE} describe --tags --always --dirty
+        COMMAND ${GIT_EXECUTABLE} describe --tags --always
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         OUTPUT_VARIABLE GIT_TAG
         OUTPUT_STRIP_TRAILING_WHITESPACE
@@ -67,16 +72,25 @@ configure_file(
 set(BCLIBC_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include")
 set(BCLIBC_SRC_DIR     "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
-# Core only, ignore ffi directory
-file(GLOB_RECURSE BCLIBC_SOURCES "${BCLIBC_SRC_DIR}/*.cpp")
-list(FILTER BCLIBC_SOURCES EXCLUDE REGEX "src/ffi/.*")
+set(BCLIBC_SOURCES
+    "${BCLIBC_SRC_DIR}/base_types.cpp"
+    "${BCLIBC_SRC_DIR}/engine.cpp"
+    "${BCLIBC_SRC_DIR}/euler.cpp"
+    "${BCLIBC_SRC_DIR}/interp.cpp"
+    "${BCLIBC_SRC_DIR}/rk4.cpp"
+    "${BCLIBC_SRC_DIR}/traj_data.cpp"
+    "${BCLIBC_SRC_DIR}/traj_filter.cpp"
+)
 
 # ============================================================================
 # 1. Target: Pure core (Static Library)
 # ============================================================================
 add_library(bclibc_core STATIC ${BCLIBC_SOURCES})
 
-target_include_directories(bclibc_core PUBLIC "${BCLIBC_INCLUDE_DIR}")
+target_include_directories(bclibc_core PUBLIC
+    "$<BUILD_INTERFACE:${BCLIBC_INCLUDE_DIR}>"
+    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
+)
 target_include_directories(bclibc_core PRIVATE "${BCLIBC_SRC_DIR}")
 
 set_target_properties(bclibc_core PROPERTIES
@@ -176,20 +190,68 @@ if(LINUX_BUILD AND NOT CMAKE_BUILD_TYPE MATCHES "Debug")
     endif()
 endif()
 
+
 # ============================================================================
-# Export headers and libraries for Flutter
+# Installation rules
 # ============================================================================
-# This makes it easier for the main CMakeLists.txt to find the library
-if(WINDOWS_BUILD)
-    # Export include directory
-    set(BCLIBC_INCLUDE_DIRS "${BCLIBC_INCLUDE_DIR}" PARENT_SCOPE)
-    set(BCLIBC_LIBRARY_DIR "${CMAKE_BINARY_DIR}/bin" PARENT_SCOPE)
-    
-    # Create a config file for easier finding
-    configure_file(
-        "${CMAKE_CURRENT_SOURCE_DIR}/bclibc-config.cmake.in"
-        "${CMAKE_BINARY_DIR}/bclibc-config.cmake"
-        @ONLY
-    )
-endif()
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+install(TARGETS bclibc_core bclibc_ffi
+    EXPORT bclibc-targets
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/generated/bclibc/version.h"
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/bclibc
+)
+
+install(FILES "${BCLIBC_INCLUDE_DIR}/bclibc.hpp"
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+install(FILES
+    "${BCLIBC_INCLUDE_DIR}/bclibc/base_types.hpp"
+    "${BCLIBC_INCLUDE_DIR}/bclibc/engine.hpp"
+    "${BCLIBC_INCLUDE_DIR}/bclibc/euler.hpp"
+    "${BCLIBC_INCLUDE_DIR}/bclibc/exceptions.hpp"
+    "${BCLIBC_INCLUDE_DIR}/bclibc/interp.hpp"
+    "${BCLIBC_INCLUDE_DIR}/bclibc/log.hpp"
+    "${BCLIBC_INCLUDE_DIR}/bclibc/rk4.hpp"
+    "${BCLIBC_INCLUDE_DIR}/bclibc/scope_guard.hpp"
+    "${BCLIBC_INCLUDE_DIR}/bclibc/traj_data.hpp"
+    "${BCLIBC_INCLUDE_DIR}/bclibc/traj_filter.hpp"
+    "${BCLIBC_INCLUDE_DIR}/bclibc/v3d.hpp"
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/bclibc
+)
+
+install(FILES "${BCLIBC_INCLUDE_DIR}/bclibc/ffi/bclibc_ffi.h"
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/bclibc/ffi
+)
+
+install(EXPORT bclibc-targets
+    FILE bclibc-targets.cmake
+    NAMESPACE bclibc::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/bclibc
+)
+
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/bclibc-config-version.cmake"
+    VERSION ${BCLIBC_VERSION_MAJOR}.${BCLIBC_VERSION_MINOR}.${BCLIBC_VERSION_PATCH}
+    COMPATIBILITY SameMajorVersion
+)
+
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/bclibc-config.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/bclibc-config.cmake"
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/bclibc
+)
+
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/bclibc-config.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/bclibc-config-version.cmake"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/bclibc
+)
 
