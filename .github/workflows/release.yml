@@ -42,6 +42,34 @@ jobs:
       arch: arm64
       retention_days: 1
 
+  update-flatpak-module:
+    name: Update Flatpak Module
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update bclibc.json
+        run: |
+          TAG=${{ github.ref_name }}
+          COMMIT=$(git rev-list -n1 "$TAG")
+          jq --arg tag "$TAG" --arg commit "$COMMIT" \
+            '(.sources[] | select(.type == "git")) |= (.tag = $tag | .commit = $commit)' \
+            bclibc.json > bclibc.json.tmp && mv bclibc.json.tmp bclibc.json
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add bclibc.json
+          git diff --staged --quiet || git commit -m "chore: update Flatpak module to ${{ github.ref_name }} [skip ci]"
+          git push
+
   release:
     name: Create Release
     needs:
@@ -56,6 +84,9 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Delete existing release if present
         run: gh release delete ${{ github.ref_name }} --yes || true
         env:
@@ -71,6 +102,18 @@ jobs:
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Extract changelog section
+        id: changelog
+        run: |
+          VERSION=${{ steps.get_version.outputs.version }}
+          BODY=$(awk "/^## \[${VERSION}\]/{found=1; next} /^## \[/{found=0} found" CHANGELOG.md | sed '/^[[:space:]]*$/d' | head -50)
+          if [ -z "$BODY" ]; then
+            BODY="See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details."
+          fi
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "$BODY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Package artifacts into zips
         run: |
@@ -88,4 +131,4 @@ jobs:
           draft: false
           prerelease: false
           files: release-files/*.zip
-          generate_release_notes: true
+          body: ${{ steps.changelog.outputs.body }}
