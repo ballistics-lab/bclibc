@@ -193,65 +193,70 @@ endif()
 
 # ============================================================================
 # Installation rules
+# Only install when bclibc is the top-level project (e.g. Flatpak cmake-ninja
+# standalone build).  When used via add_subdirectory from a Flutter plugin the
+# parent build owns the install step and bclibc's package config files are not
+# needed — and running them breaks the Flutter cmake_install phase.
 # ============================================================================
-include(GNUInstallDirs)
-include(CMakePackageConfigHelpers)
+if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+  include(GNUInstallDirs)
+  include(CMakePackageConfigHelpers)
 
-install(TARGETS bclibc_core bclibc_ffi
-    EXPORT bclibc-targets
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-)
+  install(TARGETS bclibc_core bclibc_ffi
+      EXPORT bclibc-targets
+      LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+      RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+      ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  )
 
-install(FILES "${CMAKE_CURRENT_BINARY_DIR}/generated/bclibc/version.h"
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/bclibc
-)
+  install(FILES "${CMAKE_CURRENT_BINARY_DIR}/generated/bclibc/version.h"
+      DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/bclibc
+  )
 
-install(FILES "${BCLIBC_INCLUDE_DIR}/bclibc.hpp"
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-)
+  install(FILES "${BCLIBC_INCLUDE_DIR}/bclibc.hpp"
+      DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+  )
 
-install(FILES
-    "${BCLIBC_INCLUDE_DIR}/bclibc/base_types.hpp"
-    "${BCLIBC_INCLUDE_DIR}/bclibc/engine.hpp"
-    "${BCLIBC_INCLUDE_DIR}/bclibc/euler.hpp"
-    "${BCLIBC_INCLUDE_DIR}/bclibc/exceptions.hpp"
-    "${BCLIBC_INCLUDE_DIR}/bclibc/interp.hpp"
-    "${BCLIBC_INCLUDE_DIR}/bclibc/log.hpp"
-    "${BCLIBC_INCLUDE_DIR}/bclibc/rk4.hpp"
-    "${BCLIBC_INCLUDE_DIR}/bclibc/scope_guard.hpp"
-    "${BCLIBC_INCLUDE_DIR}/bclibc/traj_data.hpp"
-    "${BCLIBC_INCLUDE_DIR}/bclibc/traj_filter.hpp"
-    "${BCLIBC_INCLUDE_DIR}/bclibc/v3d.hpp"
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/bclibc
-)
+  install(FILES
+      "${BCLIBC_INCLUDE_DIR}/bclibc/base_types.hpp"
+      "${BCLIBC_INCLUDE_DIR}/bclibc/engine.hpp"
+      "${BCLIBC_INCLUDE_DIR}/bclibc/euler.hpp"
+      "${BCLIBC_INCLUDE_DIR}/bclibc/exceptions.hpp"
+      "${BCLIBC_INCLUDE_DIR}/bclibc/interp.hpp"
+      "${BCLIBC_INCLUDE_DIR}/bclibc/log.hpp"
+      "${BCLIBC_INCLUDE_DIR}/bclibc/rk4.hpp"
+      "${BCLIBC_INCLUDE_DIR}/bclibc/scope_guard.hpp"
+      "${BCLIBC_INCLUDE_DIR}/bclibc/traj_data.hpp"
+      "${BCLIBC_INCLUDE_DIR}/bclibc/traj_filter.hpp"
+      "${BCLIBC_INCLUDE_DIR}/bclibc/v3d.hpp"
+      DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/bclibc
+  )
 
-install(FILES "${BCLIBC_INCLUDE_DIR}/bclibc/ffi/bclibc_ffi.h"
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/bclibc/ffi
-)
+  install(FILES "${BCLIBC_INCLUDE_DIR}/bclibc/ffi/bclibc_ffi.h"
+      DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/bclibc/ffi
+  )
 
-install(EXPORT bclibc-targets
-    FILE bclibc-targets.cmake
-    NAMESPACE bclibc::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/bclibc
-)
+  install(EXPORT bclibc-targets
+      FILE bclibc-targets.cmake
+      NAMESPACE bclibc::
+      DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/bclibc
+  )
 
-write_basic_package_version_file(
-    "${CMAKE_CURRENT_BINARY_DIR}/bclibc-config-version.cmake"
-    VERSION ${BCLIBC_VERSION_MAJOR}.${BCLIBC_VERSION_MINOR}.${BCLIBC_VERSION_PATCH}
-    COMPATIBILITY SameMajorVersion
-)
+  write_basic_package_version_file(
+      "${CMAKE_CURRENT_BINARY_DIR}/bclibc-config-version.cmake"
+      VERSION ${BCLIBC_VERSION_MAJOR}.${BCLIBC_VERSION_MINOR}.${BCLIBC_VERSION_PATCH}
+      COMPATIBILITY SameMajorVersion
+  )
 
-configure_package_config_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/bclibc-config.cmake.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/bclibc-config.cmake"
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/bclibc
-)
+  configure_package_config_file(
+      "${CMAKE_CURRENT_SOURCE_DIR}/bclibc-config.cmake.in"
+      "${CMAKE_CURRENT_BINARY_DIR}/bclibc-config.cmake"
+      INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/bclibc
+  )
 
-install(FILES
-    "${CMAKE_CURRENT_BINARY_DIR}/bclibc-config.cmake"
-    "${CMAKE_CURRENT_BINARY_DIR}/bclibc-config-version.cmake"
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/bclibc
-)
-
+  install(FILES
+      "${CMAKE_CURRENT_BINARY_DIR}/bclibc-config.cmake"
+      "${CMAKE_CURRENT_BINARY_DIR}/bclibc-config-version.cmake"
+      DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/bclibc
+  )
+endif()
