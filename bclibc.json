@@ -9,8 +9,8 @@
     {
       "type": "git",
       "url": "https://github.com/ballistics-lab/bclibc.git",
-      "tag": "v1.0.5",
-      "commit": "7f4c53441636c5e178e9460b3d88611a2f26b862"
+      "tag": "v1.0.6",
+      "commit": "26cb17bca86a52d58a05dff07ddfb62ce98445e2"
     }
   ]
 }
