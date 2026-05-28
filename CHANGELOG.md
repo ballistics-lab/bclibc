@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-05-26
+
 ### Added
 - `BCLIBC_Coriolis::from_lat_az(lat_deg, muzzle_velocity_fps, az_deg = NaN)` — static factory; computes all trig pre-computation (sin/cos lat, sin/cos az, range/cross offsets) from geographic degrees; NaN lat → no Coriolis; NaN az → flat-fire drift only
 - `BCLIBC_Atmosphere::from_conditions(t_c, p_hpa, alt_ft, humidity = 0.0)` — static factory; CIPM-2007 moist-air density, Rankine Mach formula matching Python `machF()` exactly; p_hpa ≤ 0 → vacuum (zero density, no drag)
@@ -87,7 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.0.5...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/ballistics-lab/bclibc/compare/v1.0.5...v1.1.0
 [1.0.5]: https://github.com/ballistics-lab/bclibc/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/ballistics-lab/bclibc/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/ballistics-lab/bclibc/compare/v1.0.2...v1.0.3
