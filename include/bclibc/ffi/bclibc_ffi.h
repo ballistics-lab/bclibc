@@ -41,7 +41,7 @@ extern "C"
     // Error codes
     // ============================================================================
 
-    typedef enum BCLIBCFFIStatus
+    typedef enum BCLIBCFFI_Status
     {
         BCLIBCFFI_OK = 0,
         BCLIBCFFI_ERR_SOLVER_RUNTIME = 1,
@@ -49,71 +49,71 @@ extern "C"
         BCLIBCFFI_ERR_ZERO_FINDING = 3,
         BCLIBCFFI_ERR_INTERCEPTION = 4,
         BCLIBCFFI_ERR_GENERIC = 5,
-    } BCLIBCFFIStatus;
+    } BCLIBCFFI_Status;
 
     /** Error output struct – filled by every function on failure. */
-    typedef struct BCLIBCFFIError
+    typedef struct BCLIBCFFI_Error
     {
-        int32_t code;      /**< BCLIBCFFIStatus */
+        int32_t code;      /**< BCLIBCFFI_Status */
         char message[512]; /**< Null-terminated error message */
         /* Extra fields for typed errors */
         double f64_0;  /**< OutOfRange: requested_distance_ft / ZeroFinding: zero_finding_error */
         double f64_1;  /**< OutOfRange: max_range_ft          / ZeroFinding: last_barrel_elevation_rad */
         double f64_2;  /**< OutOfRange: look_angle_rad */
         int32_t i32_0; /**< ZeroFinding: iterations_count */
-    } BCLIBCFFIError;
+    } BCLIBCFFI_Error;
 
     // ============================================================================
     // Enums
     // ============================================================================
 
-    typedef enum BCTrajFlag
+    typedef enum BCLIBCFFI_TrajFlag
     {
-        BC_TRAJ_FLAG_NONE = 0,
-        BC_TRAJ_FLAG_ZERO_UP = 1,
-        BC_TRAJ_FLAG_ZERO_DOWN = 2,
-        BC_TRAJ_FLAG_ZERO = 3,
-        BC_TRAJ_FLAG_MACH = 4,
-        BC_TRAJ_FLAG_RANGE = 8,
-        BC_TRAJ_FLAG_APEX = 16,
-        BC_TRAJ_FLAG_ALL = 31,
-        BC_TRAJ_FLAG_MRT = 32,
-    } BCTrajFlag;
+        BCLIBCFFI_TRAJ_FLAG_NONE = 0,
+        BCLIBCFFI_TRAJ_FLAG_ZERO_UP = 1,
+        BCLIBCFFI_TRAJ_FLAG_ZERO_DOWN = 2,
+        BCLIBCFFI_TRAJ_FLAG_ZERO = 3,
+        BCLIBCFFI_TRAJ_FLAG_MACH = 4,
+        BCLIBCFFI_TRAJ_FLAG_RANGE = 8,
+        BCLIBCFFI_TRAJ_FLAG_APEX = 16,
+        BCLIBCFFI_TRAJ_FLAG_ALL = 31,
+        BCLIBCFFI_TRAJ_FLAG_MRT = 32,
+    } BCLIBCFFI_TrajFlag;
 
-    typedef enum BCTerminationReason
+    typedef enum BCLIBCFFI_TerminationReason
     {
-        BC_TERM_NO_TERMINATE = 0,
-        BC_TERM_TARGET_RANGE_REACHED = 1,
-        BC_TERM_MINIMUM_VELOCITY_REACHED = 2,
-        BC_TERM_MAXIMUM_DROP_REACHED = 3,
-        BC_TERM_MINIMUM_ALTITUDE_REACHED = 4,
-        BC_TERM_HANDLER_REQUESTED_STOP = 5,
-    } BCTerminationReason;
+        BCLIBCFFI_TERM_NO_TERMINATE = 0,
+        BCLIBCFFI_TERM_TARGET_RANGE_REACHED = 1,
+        BCLIBCFFI_TERM_MINIMUM_VELOCITY_REACHED = 2,
+        BCLIBCFFI_TERM_MAXIMUM_DROP_REACHED = 3,
+        BCLIBCFFI_TERM_MINIMUM_ALTITUDE_REACHED = 4,
+        BCLIBCFFI_TERM_HANDLER_REQUESTED_STOP = 5,
+    } BCLIBCFFI_TerminationReason;
 
     /** Interpolation key for BCLIBC_BaseTrajData fields. */
-    typedef enum BCBaseTrajInterpKey
+    typedef enum BCLIBCFFI_BaseTrajInterpKey
     {
-        BC_INTERP_KEY_TIME = 0,
-        BC_INTERP_KEY_MACH = 1,
-        BC_INTERP_KEY_POS_X = 2,
-        BC_INTERP_KEY_POS_Y = 3,
-        BC_INTERP_KEY_POS_Z = 4,
-        BC_INTERP_KEY_VEL_X = 5,
-        BC_INTERP_KEY_VEL_Y = 6,
-        BC_INTERP_KEY_VEL_Z = 7,
-    } BCBaseTrajInterpKey;
+        BCLIBCFFI_INTERP_KEY_TIME = 0,
+        BCLIBCFFI_INTERP_KEY_MACH = 1,
+        BCLIBCFFI_INTERP_KEY_POS_X = 2,
+        BCLIBCFFI_INTERP_KEY_POS_Y = 3,
+        BCLIBCFFI_INTERP_KEY_POS_Z = 4,
+        BCLIBCFFI_INTERP_KEY_VEL_X = 5,
+        BCLIBCFFI_INTERP_KEY_VEL_Y = 6,
+        BCLIBCFFI_INTERP_KEY_VEL_Z = 7,
+    } BCLIBCFFI_BaseTrajInterpKey;
 
-    typedef enum BCIntegrationMethod
+    typedef enum BCLIBCFFI_IntegrationMethod
     {
-        BC_INTEGRATION_RK4 = 0,
-        BC_INTEGRATION_EULER = 1,
-    } BCIntegrationMethod;
+        BCLIBCFFI_INTEGRATION_RK4 = 0,
+        BCLIBCFFI_INTEGRATION_EULER = 1,
+    } BCLIBCFFI_IntegrationMethod;
 
     // ============================================================================
     // Input structs
     // ============================================================================
 
-    typedef struct BCConfig
+    typedef struct BCLIBCFFI_Config
     {
         double cStepMultiplier;
         double cZeroFindingAccuracy;
@@ -122,9 +122,9 @@ extern "C"
         int32_t cMaxIterations;
         double cGravityConstant;
         double cMinimumAltitude;
-    } BCConfig;
+    } BCLIBCFFI_Config;
 
-    typedef struct BCAtmosphere
+    typedef struct BCLIBCFFI_Atmosphere
     {
         double t0;            /**< Temperature at base altitude (°F) */
         double a0;            /**< Base altitude (ft) */
@@ -132,9 +132,9 @@ extern "C"
         double mach;          /**< Speed of sound (fps) */
         double density_ratio; /**< Air density / standard density */
         double cLowestTempC;  /**< Lowest allowed temperature (°C) */
-    } BCAtmosphere;
+    } BCLIBCFFI_Atmosphere;
 
-    typedef struct BCCoriolis
+    typedef struct BCLIBCFFI_Coriolis
     {
         double sin_lat;
         double cos_lat;
@@ -146,24 +146,24 @@ extern "C"
         double cross_north;
         int32_t flat_fire_only; /**< Non-zero = flat-fire approximation */
         double muzzle_velocity_fps;
-    } BCCoriolis;
+    } BCLIBCFFI_Coriolis;
 
-    typedef struct BCWind
+    typedef struct BCLIBCFFI_Wind
     {
         double velocity_fps;
         double direction_from_rad;
         double until_distance_ft;
         double max_distance_ft; /**< Sentinel for last segment (use BCLIBC_cMaxWindDistanceFeet) */
-    } BCWind;
+    } BCLIBCFFI_Wind;
 
-    typedef struct BCDragPoint
+    typedef struct BCLIBCFFI_DragPoint
     {
         double Mach;
         double CD;
-    } BCDragPoint;
+    } BCLIBCFFI_DragPoint;
 
     /** Flat shot properties passed to every engine function. */
-    typedef struct BCShotProps
+    typedef struct BCLIBCFFI_ShotProps
     {
         double bc;
         double look_angle_rad;
@@ -178,34 +178,88 @@ extern "C"
         double alt0_ft;
         double muzzle_velocity_fps;
 
-        BCAtmosphere atmo;
-        BCCoriolis coriolis;
-        BCConfig config;
+        BCLIBCFFI_Atmosphere atmo;
+        BCLIBCFFI_Coriolis coriolis;
+        BCLIBCFFI_Config config;
 
-        BCIntegrationMethod method;
+        BCLIBCFFI_IntegrationMethod method;
 
         /** Drag table – pointer must remain valid for the duration of the call. */
-        const BCDragPoint *drag_table;
+        const BCLIBCFFI_DragPoint *drag_table;
         int32_t drag_table_count;
 
         /** Wind list – pointer must remain valid for the duration of the call. */
-        const BCWind *winds;
+        const BCLIBCFFI_Wind *winds;
         int32_t wind_count;
-    } BCShotProps;
+    } BCLIBCFFI_ShotProps;
 
-    typedef struct BCTrajectoryRequest
+    /**
+     * User-facing shot descriptor in natural units.
+     *
+     * Preferred input for BCLIBCFFI_*_shot() functions.  All physics conversions
+     * (CIPM-2007 atmosphere density, Coriolis trig, PCHIP drag curve, cant sin/cos)
+     * are performed inside C++ by BCLIBC_Shot::to_shot_props().
+     *
+     * latitude_deg / azimuth_deg: pass NaN to disable Coriolis / flat-fire-only.
+     * pressure_hpa == 0          : vacuum (zero drag).
+     *
+     * All pointers must remain valid for the duration of the call.
+     * Drag table is passed as two parallel arrays (mach_data / cd_data) matching
+     * the BCLIBC_Shot layout — no interleaved struct needed.
+     */
+    typedef struct BCLIBCFFI_Shot
+    {
+        double bc;
+        double weight_grain;
+        double diameter_inch;
+        double length_inch;
+        double muzzle_velocity_fps;
+
+        double sight_height_ft;
+        double twist_inch;
+
+        /* Atmosphere – raw user-facing units, not pre-computed */
+        double temp_c;
+        double pressure_hpa; /**< 0 = vacuum */
+        double altitude_ft;
+        double humidity;     /**< 0.0 – 1.0 */
+
+        /** Parallel Mach / CD arrays – must remain valid for the duration of the call. */
+        const double *mach_data;
+        const double *cd_data;
+        int32_t drag_table_size;
+
+        /** Wind list – must remain valid for the duration of the call. */
+        const BCLIBCFFI_Wind *winds;
+        int32_t wind_count;
+
+        /* Aiming */
+        double look_angle_rad;
+        double barrel_elevation_rad;
+        double barrel_azimuth_rad;
+        double cant_angle_rad;
+
+        /* Coriolis – raw geographic degrees; NaN disables Coriolis / enables flat-fire-only */
+        double latitude_deg;
+        double azimuth_deg;
+
+        BCLIBCFFI_Config config;
+        BCLIBCFFI_IntegrationMethod method;
+    } BCLIBCFFI_Shot;
+
+    typedef struct BCLIBCFFI_TrajectoryRequest
     {
         double range_limit_ft;
         double range_step_ft;
         double time_step;
-        int32_t filter_flags; /**< BCTrajFlag bitmask */
-    } BCTrajectoryRequest;
+        int32_t filter_flags; /**< BCLIBCFFI_TrajFlag bitmask */
+    } BCLIBCFFI_TrajectoryRequest;
 
     // ============================================================================
     // Output structs
     // ============================================================================
 
-    typedef struct BCBaseTrajData
+    typedef struct BCLIBCFFI_BaseTrajData
     {
         double time;
         double px; /**< Position x (downrange, ft) */
@@ -215,9 +269,9 @@ extern "C"
         double vy; /**< Velocity y (fps) */
         double vz; /**< Velocity z (fps) */
         double mach;
-    } BCBaseTrajData;
+    } BCLIBCFFI_BaseTrajData;
 
-    typedef struct BCTrajectoryData
+    typedef struct BCLIBCFFI_TrajectoryData
     {
         double time;
         double distance_ft;
@@ -234,20 +288,20 @@ extern "C"
         double drag;
         double energy_ft_lb;
         double ogw_lb;
-        int32_t flag; /**< BCTrajFlag */
-    } BCTrajectoryData;
+        int32_t flag; /**< BCLIBCFFI_TrajFlag */
+    } BCLIBCFFI_TrajectoryData;
 
-    typedef struct BCMaxRangeResult
+    typedef struct BCLIBCFFI_MaxRangeResult
     {
         double max_range_ft;
         double angle_at_max_rad;
-    } BCMaxRangeResult;
+    } BCLIBCFFI_MaxRangeResult;
 
-    typedef struct BCInterception
+    typedef struct BCLIBCFFI_Interception
     {
-        BCBaseTrajData raw_data;
-        BCTrajectoryData full_data;
-    } BCInterception;
+        BCLIBCFFI_BaseTrajData raw_data;
+        BCLIBCFFI_TrajectoryData full_data;
+    } BCLIBCFFI_Interception;
 
     // ============================================================================
     // Core functions
@@ -258,9 +312,9 @@ extern "C"
      * @return BCLIBCFFI_OK on success, error code otherwise (fills *err).
      */
     BCLIBC_API int32_t BCLIBCFFI_find_apex(
-        const BCShotProps *props,
-        BCTrajectoryData *out,
-        BCLIBCFFIError *err);
+        const BCLIBCFFI_ShotProps *props,
+        BCLIBCFFI_TrajectoryData *out,
+        BCLIBCFFI_Error *err);
 
     /**
      * Find the maximum range and corresponding angle.
@@ -268,11 +322,11 @@ extern "C"
      * @param high_angle_deg  Upper search bound (degrees).
      */
     BCLIBC_API int32_t BCLIBCFFI_find_max_range(
-        const BCShotProps *props,
+        const BCLIBCFFI_ShotProps *props,
         double low_angle_deg,
         double high_angle_deg,
-        BCMaxRangeResult *out,
-        BCLIBCFFIError *err);
+        BCLIBCFFI_MaxRangeResult *out,
+        BCLIBCFFI_Error *err);
 
     /**
      * Find the barrel elevation angle to zero at the given distance.
@@ -280,40 +334,81 @@ extern "C"
      * @param out_angle_rad   Output: barrel elevation (radians).
      */
     BCLIBC_API int32_t BCLIBCFFI_find_zero_angle(
-        const BCShotProps *props,
+        const BCLIBCFFI_ShotProps *props,
         double distance_ft,
         double *out_angle_rad,
-        BCLIBCFFIError *err);
+        BCLIBCFFI_Error *err);
 
     /**
      * Integrate trajectory and return filtered records.
      *
-     * On success *out_records points to a heap-allocated BCTrajectoryData array
+     * On success *out_records points to a heap-allocated BCLIBCFFI_TrajectoryData array
      * of length *out_count.  Call BCLIBCFFI_free_trajectory() to release it.
      */
     BCLIBC_API int32_t BCLIBCFFI_integrate(
-        const BCShotProps *props,
-        const BCTrajectoryRequest *request,
-        BCTrajectoryData **out_records,
+        const BCLIBCFFI_ShotProps *props,
+        const BCLIBCFFI_TrajectoryRequest *request,
+        BCLIBCFFI_TrajectoryData **out_records,
         int32_t *out_count,
-        int32_t *out_reason, /**< BCTerminationReason */
-        BCLIBCFFIError *err);
+        int32_t *out_reason, /**< BCLIBCFFI_TerminationReason */
+        BCLIBCFFI_Error *err);
 
     /** Free a trajectory array allocated by BCLIBCFFI_integrate(). */
-    BCLIBC_API void BCLIBCFFI_free_trajectory(BCTrajectoryData *records);
+    BCLIBC_API void BCLIBCFFI_free_trajectory(BCLIBCFFI_TrajectoryData *records);
 
     /**
      * Integrate and interpolate the single point where a key field reaches
      * the target value.
-     * @param key          BCBaseTrajInterpKey
+     * @param key          BCLIBCFFI_BaseTrajInterpKey
      * @param target_value Value the key field must reach.
      */
     BCLIBC_API int32_t BCLIBCFFI_integrate_at(
-        const BCShotProps *props,
+        const BCLIBCFFI_ShotProps *props,
         int32_t key,
         double target_value,
-        BCInterception *out,
-        BCLIBCFFIError *err);
+        BCLIBCFFI_Interception *out,
+        BCLIBCFFI_Error *err);
+
+    // ============================================================================
+    // Core functions (BCLIBCFFI_Shot – preferred, all physics conversion in C++)
+    // ============================================================================
+
+    /**
+     * Find the apex of the trajectory.
+     * All physics/unit conversion is performed inside C++ via BCLIBCFFI_Shot::to_shot_props().
+     */
+    BCLIBC_API int32_t BCLIBCFFI_find_apex_shot(
+        const BCLIBCFFI_Shot *shot,
+        BCLIBCFFI_TrajectoryData *out,
+        BCLIBCFFI_Error *err);
+
+    BCLIBC_API int32_t BCLIBCFFI_find_max_range_shot(
+        const BCLIBCFFI_Shot *shot,
+        double low_angle_deg,
+        double high_angle_deg,
+        BCLIBCFFI_MaxRangeResult *out,
+        BCLIBCFFI_Error *err);
+
+    BCLIBC_API int32_t BCLIBCFFI_find_zero_angle_shot(
+        const BCLIBCFFI_Shot *shot,
+        double distance_ft,
+        double *out_angle_rad,
+        BCLIBCFFI_Error *err);
+
+    BCLIBC_API int32_t BCLIBCFFI_integrate_shot(
+        const BCLIBCFFI_Shot *shot,
+        const BCLIBCFFI_TrajectoryRequest *request,
+        BCLIBCFFI_TrajectoryData **out_records,
+        int32_t *out_count,
+        int32_t *out_reason, /**< BCLIBCFFI_TerminationReason */
+        BCLIBCFFI_Error *err);
+
+    BCLIBC_API int32_t BCLIBCFFI_integrate_at_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t key,
+        double target_value,
+        BCLIBCFFI_Interception *out,
+        BCLIBCFFI_Error *err);
 
     // ============================================================================
     // Utility functions

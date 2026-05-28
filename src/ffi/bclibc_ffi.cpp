@@ -4,7 +4,7 @@
  * Thin C++ wrapper that implements the bclibc_ffi.h C API.
  * Mirrors the structure of the WASM bindings (wasm/bindings.cpp):
  *   - PCHIP curve building from a flat drag table
- *   - Engine initialisation from BCShotProps
+ *   - Engine initialisation from BCLIBCFFI_ShotProps
  *   - Exception → error-code conversion
  */
 
@@ -33,7 +33,7 @@ using namespace bclibc;
 static constexpr double APEX_IS_MAX_RANGE_RADIANS = 0.0003;
 static constexpr double ALLOWED_ZERO_ERROR_FEET = 1e-2;
 
-static BCLIBC_Curve buildCurve(const BCDragPoint *dt, int n)
+static BCLIBC_Curve buildCurve(const BCLIBCFFI_DragPoint *dt, int n)
 {
     if (n < 2)
         throw std::invalid_argument("Drag table requires at least 2 points");
@@ -50,7 +50,7 @@ static BCLIBC_Curve buildCurve(const BCDragPoint *dt, int n)
     return build_pchip_curve_from_arrays(x, y);
 }
 
-static BCLIBC_MachList buildMachList(const BCDragPoint *dt, int n)
+static BCLIBC_MachList buildMachList(const BCLIBCFFI_DragPoint *dt, int n)
 {
     BCLIBC_MachList list;
     list.reserve(static_cast<size_t>(n));
@@ -63,7 +63,7 @@ static BCLIBC_MachList buildMachList(const BCDragPoint *dt, int n)
 // Error helpers
 // ============================================================================
 
-static void clearError(BCLIBCFFIError *e)
+static void clearError(BCLIBCFFI_Error *e)
 {
     if (!e)
         return;
@@ -73,7 +73,7 @@ static void clearError(BCLIBCFFIError *e)
     e->i32_0 = 0;
 }
 
-static void setError(BCLIBCFFIError *e, BCLIBCFFIStatus code, const char *msg)
+static void setError(BCLIBCFFI_Error *e, BCLIBCFFI_Status code, const char *msg)
 {
     if (!e)
         return;
@@ -86,18 +86,18 @@ static void setError(BCLIBCFFIError *e, BCLIBCFFIStatus code, const char *msg)
 // Engine initialisation (mirrors WASM initEngine + shotPropsFromVal)
 // ============================================================================
 
-static double calcStep(BCIntegrationMethod m, double multiplier)
+static double calcStep(BCLIBCFFI_IntegrationMethod m, double multiplier)
 {
-    return (m == BC_INTEGRATION_RK4 ? 0.0025 : 0.5) * multiplier;
+    return (m == BCLIBCFFI_INTEGRATION_RK4 ? 0.0025 : 0.5) * multiplier;
 }
 
-static BCLIBC_IntegrateCallable selectIntegrateFunc(BCIntegrationMethod m)
+static BCLIBC_IntegrateCallable selectIntegrateFunc(BCLIBCFFI_IntegrationMethod m)
 {
-    return (m == BC_INTEGRATION_RK4) ? BCLIBC_IntegrateCallable(BCLIBC_integrateRK4)
-                                     : BCLIBC_IntegrateCallable(BCLIBC_integrateEULER);
+    return (m == BCLIBCFFI_INTEGRATION_RK4) ? BCLIBC_IntegrateCallable(BCLIBC_integrateRK4)
+                                            : BCLIBC_IntegrateCallable(BCLIBC_integrateEULER);
 }
 
-static void initEngine(BCLIBC_BaseEngine &eng, const BCShotProps *p)
+static void initEngine(BCLIBC_BaseEngine &eng, const BCLIBCFFI_ShotProps *p)
 {
     BCLIBC_Config config(
         p->config.cStepMultiplier,
@@ -159,11 +159,65 @@ static void initEngine(BCLIBC_BaseEngine &eng, const BCShotProps *p)
     eng.gravity_vector = BCLIBC_V3dT(0.0, config.cGravityConstant, 0.0);
 }
 
+// Builds and initialises the engine from a BCLIBCFFI_Shot (user-facing natural units).
+// mach_data/cd_data passed directly — same layout as BCLIBC_Shot, no copy needed.
+// Winds are copied to BCLIBC_Wind; lifetime covers the to_shot_props() call.
+static void initEngineFromShot(BCLIBC_BaseEngine &eng, const BCLIBCFFI_Shot *s)
+{
+    // Copy BCLIBCFFI_Wind → BCLIBC_Wind; lifetime covers to_shot_props() call.
+    std::vector<BCLIBC_Wind> winds_v;
+    winds_v.reserve(static_cast<size_t>(s->wind_count));
+    for (int i = 0; i < s->wind_count; ++i)
+        winds_v.emplace_back(
+            s->winds[i].velocity_fps,
+            s->winds[i].direction_from_rad,
+            s->winds[i].until_distance_ft,
+            s->winds[i].max_distance_ft);
+
+    BCLIBC_Shot shot;
+    shot.bc = s->bc;
+    shot.weight_grain = s->weight_grain;
+    shot.diameter_inch = s->diameter_inch;
+    shot.length_inch = s->length_inch;
+    shot.muzzle_velocity_fps = s->muzzle_velocity_fps;
+    shot.stability_coefficient = 0.0;
+    shot.sight_height_ft = s->sight_height_ft;
+    shot.twist_inch = s->twist_inch;
+    shot.temp_c = s->temp_c;
+    shot.pressure_hpa = s->pressure_hpa;
+    shot.altitude_ft = s->altitude_ft;
+    shot.humidity = s->humidity;
+    shot.mach_data = s->mach_data;
+    shot.cd_data = s->cd_data;
+    shot.drag_table_size = s->drag_table_size;
+    shot.winds = winds_v.empty() ? nullptr : winds_v.data();
+    shot.wind_count = s->wind_count;
+    shot.look_angle_rad = s->look_angle_rad;
+    shot.barrel_elevation_rad = s->barrel_elevation_rad;
+    shot.barrel_azimuth_rad = s->barrel_azimuth_rad;
+    shot.cant_angle_rad = s->cant_angle_rad;
+    shot.latitude_deg = s->latitude_deg;
+    shot.azimuth_deg = s->azimuth_deg;
+    shot.calc_step = calcStep(s->method, s->config.cStepMultiplier);
+
+    eng.shot = shot.to_shot_props();
+    eng.integrate_func = selectIntegrateFunc(s->method);
+    eng.config = BCLIBC_Config(
+        s->config.cStepMultiplier,
+        s->config.cZeroFindingAccuracy,
+        s->config.cMinimumVelocity,
+        s->config.cMaximumDrop,
+        s->config.cMaxIterations,
+        s->config.cGravityConstant,
+        s->config.cMinimumAltitude);
+    eng.gravity_vector = BCLIBC_V3dT(0.0, eng.config.cGravityConstant, 0.0);
+}
+
 // ============================================================================
 // Output conversions
 // ============================================================================
 
-static void toC(const BCLIBC_TrajectoryData &s, BCTrajectoryData &d)
+static void toC(const BCLIBC_TrajectoryData &s, BCLIBCFFI_TrajectoryData &d)
 {
     d.time = s.time;
     d.distance_ft = s.distance_ft;
@@ -183,7 +237,7 @@ static void toC(const BCLIBC_TrajectoryData &s, BCTrajectoryData &d)
     d.flag = static_cast<int32_t>(s.flag);
 }
 
-static void toC(const BCLIBC_BaseTrajData &s, BCBaseTrajData &d)
+static void toC(const BCLIBC_BaseTrajData &s, BCLIBCFFI_BaseTrajData &d)
 {
     d.time = s.time;
     d.px = s.px;
@@ -202,7 +256,7 @@ static void toC(const BCLIBC_BaseTrajData &s, BCBaseTrajData &d)
 // Catches all exception types including non-std (catch(...)) across the FFI boundary.
 // C++11 compatible: lambda with -> int32_t trailing return type.
 template <typename Func>
-static int32_t ffi_call(Func &&fn, BCLIBCFFIError *err) noexcept
+static int32_t ffi_call(Func &&fn, BCLIBCFFI_Error *err) noexcept
 {
     clearError(err);
     try
@@ -267,66 +321,63 @@ extern "C"
     }
 
     int32_t BCLIBCFFI_find_apex(
-        const BCShotProps *props,
-        BCTrajectoryData *out,
-        BCLIBCFFIError *err)
+        const BCLIBCFFI_ShotProps *props,
+        BCLIBCFFI_TrajectoryData *out,
+        BCLIBCFFI_Error *err)
     {
         return ffi_call([&]() -> int32_t
-        {
+                        {
             BCLIBC_BaseEngine eng;
             initEngine(eng, props);
             BCLIBC_BaseTrajData apex;
             eng.find_apex(apex);
             toC(BCLIBC_TrajectoryData(eng.shot, apex, BCLIBC_TRAJ_FLAG_APEX), *out);
-            return BCLIBCFFI_OK;
-        }, err);
+            return BCLIBCFFI_OK; }, err);
     }
 
     int32_t BCLIBCFFI_find_max_range(
-        const BCShotProps *props,
+        const BCLIBCFFI_ShotProps *props,
         double low_angle_deg,
         double high_angle_deg,
-        BCMaxRangeResult *out,
-        BCLIBCFFIError *err)
+        BCLIBCFFI_MaxRangeResult *out,
+        BCLIBCFFI_Error *err)
     {
         return ffi_call([&]() -> int32_t
-        {
+                        {
             BCLIBC_BaseEngine eng;
             initEngine(eng, props);
             BCLIBC_MaxRangeResult r = eng.find_max_range(
                 low_angle_deg, high_angle_deg, APEX_IS_MAX_RANGE_RADIANS);
             out->max_range_ft = r.max_range_ft;
             out->angle_at_max_rad = r.angle_at_max_rad;
-            return BCLIBCFFI_OK;
-        }, err);
+            return BCLIBCFFI_OK; }, err);
     }
 
     int32_t BCLIBCFFI_find_zero_angle(
-        const BCShotProps *props,
+        const BCLIBCFFI_ShotProps *props,
         double distance_ft,
         double *out_angle_rad,
-        BCLIBCFFIError *err)
+        BCLIBCFFI_Error *err)
     {
         return ffi_call([&]() -> int32_t
-        {
+                        {
             BCLIBC_BaseEngine eng;
             initEngine(eng, props);
             *out_angle_rad = eng.zero_angle_with_fallback(
                 distance_ft, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
-            return BCLIBCFFI_OK;
-        }, err);
+            return BCLIBCFFI_OK; }, err);
     }
 
     int32_t BCLIBCFFI_integrate(
-        const BCShotProps *props,
-        const BCTrajectoryRequest *request,
-        BCTrajectoryData **out_records,
+        const BCLIBCFFI_ShotProps *props,
+        const BCLIBCFFI_TrajectoryRequest *request,
+        BCLIBCFFI_TrajectoryData **out_records,
         int32_t *out_count,
         int32_t *out_reason,
-        BCLIBCFFIError *err)
+        BCLIBCFFI_Error *err)
     {
         return ffi_call([&]() -> int32_t
-        {
+                        {
             BCLIBC_BaseEngine eng;
             initEngine(eng, props);
 
@@ -343,11 +394,11 @@ extern "C"
                 nullptr);
 
             auto count = static_cast<int32_t>(records.size());
-            BCTrajectoryData *arr = nullptr;
+            BCLIBCFFI_TrajectoryData *arr = nullptr;
             if (count > 0)
             {
-                arr = static_cast<BCTrajectoryData *>(
-                    std::malloc(sizeof(BCTrajectoryData) * static_cast<size_t>(count)));
+                arr = static_cast<BCLIBCFFI_TrajectoryData *>(
+                    std::malloc(sizeof(BCLIBCFFI_TrajectoryData) * static_cast<size_t>(count)));
                 if (!arr)
                 {
                     setError(err, BCLIBCFFI_ERR_GENERIC, "Out of memory allocating trajectory");
@@ -368,24 +419,23 @@ extern "C"
             *out_records = arr;
             *out_count = count;
             *out_reason = static_cast<int32_t>(reason);
-            return BCLIBCFFI_OK;
-        }, err);
+            return BCLIBCFFI_OK; }, err);
     }
 
-    void BCLIBCFFI_free_trajectory(BCTrajectoryData *records)
+    void BCLIBCFFI_free_trajectory(BCLIBCFFI_TrajectoryData *records)
     {
         std::free(records);
     }
 
     int32_t BCLIBCFFI_integrate_at(
-        const BCShotProps *props,
+        const BCLIBCFFI_ShotProps *props,
         int32_t key,
         double target_value,
-        BCInterception *out,
-        BCLIBCFFIError *err)
+        BCLIBCFFI_Interception *out,
+        BCLIBCFFI_Error *err)
     {
         return ffi_call([&]() -> int32_t
-        {
+                        {
             BCLIBC_BaseEngine eng;
             initEngine(eng, props);
 
@@ -397,8 +447,7 @@ extern "C"
 
             toC(raw, out->raw_data);
             toC(full, out->full_data);
-            return BCLIBCFFI_OK;
-        }, err);
+            return BCLIBCFFI_OK; }, err);
     }
 
     double BCLIBCFFI_get_correction(double distance_ft, double offset_ft)
@@ -414,6 +463,135 @@ extern "C"
     double BCLIBCFFI_calculate_ogw(double bullet_weight_grain, double velocity_fps)
     {
         return BCLIBC_calculateOgw(bullet_weight_grain, velocity_fps);
+    }
+
+    // ============================================================================
+    // BCLIBCFFI_Shot variants – all physics conversion in C++ via BCLIBC_Shot::to_shot_props()
+    // ============================================================================
+
+    int32_t BCLIBCFFI_find_apex_shot(
+        const BCLIBCFFI_Shot *shot,
+        BCLIBCFFI_TrajectoryData *out,
+        BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        {
+            BCLIBC_BaseEngine eng;
+            initEngineFromShot(eng, shot);
+            BCLIBC_BaseTrajData apex;
+            eng.find_apex(apex);
+            toC(BCLIBC_TrajectoryData(eng.shot, apex, BCLIBC_TRAJ_FLAG_APEX), *out);
+            return BCLIBCFFI_OK; }, err);
+    }
+
+    int32_t BCLIBCFFI_find_max_range_shot(
+        const BCLIBCFFI_Shot *shot,
+        double low_angle_deg,
+        double high_angle_deg,
+        BCLIBCFFI_MaxRangeResult *out,
+        BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        {
+            BCLIBC_BaseEngine eng;
+            initEngineFromShot(eng, shot);
+            BCLIBC_MaxRangeResult r = eng.find_max_range(
+                low_angle_deg, high_angle_deg, APEX_IS_MAX_RANGE_RADIANS);
+            out->max_range_ft = r.max_range_ft;
+            out->angle_at_max_rad = r.angle_at_max_rad;
+            return BCLIBCFFI_OK; }, err);
+    }
+
+    int32_t BCLIBCFFI_find_zero_angle_shot(
+        const BCLIBCFFI_Shot *shot,
+        double distance_ft,
+        double *out_angle_rad,
+        BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        {
+            BCLIBC_BaseEngine eng;
+            initEngineFromShot(eng, shot);
+            *out_angle_rad = eng.zero_angle_with_fallback(
+                distance_ft, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
+            return BCLIBCFFI_OK; }, err);
+    }
+
+    int32_t BCLIBCFFI_integrate_shot(
+        const BCLIBCFFI_Shot *shot,
+        const BCLIBCFFI_TrajectoryRequest *request,
+        BCLIBCFFI_TrajectoryData **out_records,
+        int32_t *out_count,
+        int32_t *out_reason,
+        BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        {
+            BCLIBC_BaseEngine eng;
+            initEngineFromShot(eng, shot);
+
+            std::vector<BCLIBC_TrajectoryData> records;
+            BCLIBC_TerminationReason reason;
+
+            eng.integrate_filtered(
+                request->range_limit_ft,
+                request->range_step_ft,
+                request->time_step,
+                static_cast<BCLIBC_TrajFlag>(request->filter_flags),
+                records,
+                reason,
+                nullptr);
+
+            auto count = static_cast<int32_t>(records.size());
+            BCLIBCFFI_TrajectoryData *arr = nullptr;
+            if (count > 0)
+            {
+                arr = static_cast<BCLIBCFFI_TrajectoryData *>(
+                    std::malloc(sizeof(BCLIBCFFI_TrajectoryData) * static_cast<size_t>(count)));
+                if (!arr)
+                {
+                    setError(err, BCLIBCFFI_ERR_GENERIC, "Out of memory allocating trajectory");
+                    return BCLIBCFFI_ERR_GENERIC;
+                }
+                try
+                {
+                    for (int32_t i = 0; i < count; ++i)
+                        toC(records[i], arr[i]);
+                }
+                catch (...)
+                {
+                    std::free(arr);
+                    throw;
+                }
+            }
+
+            *out_records = arr;
+            *out_count = count;
+            *out_reason = static_cast<int32_t>(reason);
+            return BCLIBCFFI_OK; }, err);
+    }
+
+    int32_t BCLIBCFFI_integrate_at_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t key,
+        double target_value,
+        BCLIBCFFI_Interception *out,
+        BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        {
+            BCLIBC_BaseEngine eng;
+            initEngineFromShot(eng, shot);
+
+            BCLIBC_BaseTrajData raw;
+            BCLIBC_TrajectoryData full;
+            eng.integrate_at(
+                static_cast<BCLIBC_BaseTrajData_InterpKey>(key),
+                target_value, raw, full);
+
+            toC(raw, out->raw_data);
+            toC(full, out->full_data);
+            return BCLIBCFFI_OK; }, err);
     }
 
 } // extern "C"

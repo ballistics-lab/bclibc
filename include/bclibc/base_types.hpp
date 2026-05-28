@@ -2,6 +2,7 @@
 #define BCLIBC_BASE_TYPES_HPP
 
 #include <cstddef>
+#include <limits>
 #include <vector>
 #include "v3d.hpp"
 
@@ -60,6 +61,10 @@ namespace bclibc
      * @brief Earth's angular velocity in radians per second.
      */
     extern const double BCLIBC_cEarthAngularVelocityRadS;
+    /**
+     * @brief ICAO standard sea-level air density (kg/m³). Used to normalise CIPM-2007 density to a ratio.
+     */
+    extern const double BCLIBC_cStandardDensityMetric;
 
     enum class BCLIBC_TerminationReason
     {
@@ -147,6 +152,24 @@ namespace bclibc
             double cLowestTempC);
 
         /**
+         * @brief Factory: construct BCLIBC_Atmosphere from user-facing conditions using CIPM-2007.
+         *
+         * Computes air density via the CIPM-2007 moist-air equation, normalises to
+         * BCLIBC_cStandardDensityMetric (1.2250 kg/m³), and derives Mach 1 in fps.
+         * Mirrors Python's Atmo.calculate_air_density() — the authoritative reference.
+         *
+         * @param t_c       Dry-bulb temperature in degrees Celsius.
+         * @param p_hpa     Atmospheric pressure in hectopascals (hPa).
+         * @param alt_ft    Base altitude in feet (stored as _a0; used by altitude update).
+         * @param humidity  Relative humidity: fraction [0..1] or percent [0..100]. Default 0.
+         */
+        static BCLIBC_Atmosphere from_conditions(
+            double t_c,
+            double p_hpa,
+            double alt_ft,
+            double humidity = 0.0);
+
+        /**
          * @brief Updates the density ratio and speed of sound (Mach 1) for a given altitude.
          *
          * This function calculates the new atmospheric pressure, temperature, and resulting
@@ -191,6 +214,24 @@ namespace bclibc
             double cross_north,
             int flat_fire_only,
             double muzzle_velocity_fps);
+
+        /**
+         * @brief Factory: construct BCLIBC_Coriolis from geographic inputs.
+         *
+         * Mirrors the Python reference implementation `Coriolis.create()`.
+         *
+         * - lat_deg == NaN  → all fields zero, flat_fire_only=1 (no Coriolis effect)
+         * - az_deg  == NaN  → flat-fire only (sin/cos lat computed, azimuth zeroed)
+         * - both provided   → full 3D Coriolis (all trig fields computed)
+         *
+         * @param lat_deg            Geographic latitude in degrees (-90…+90). NaN disables Coriolis.
+         * @param muzzle_velocity_fps Muzzle velocity in feet per second.
+         * @param az_deg             Shot azimuth in degrees (0=North, 90=East). Default NaN → flat-fire only.
+         */
+        static BCLIBC_Coriolis from_lat_az(
+            double lat_deg,
+            double muzzle_velocity_fps,
+            double az_deg = std::numeric_limits<double>::quiet_NaN());
 
         void flat_fire_offsets(
             double time,
@@ -406,6 +447,71 @@ namespace bclibc
      * Takes vectors X and Y, returns BCLIBC_Curve.
      */
     BCLIBC_Curve build_pchip_curve_from_arrays(const std::vector<double> &x, const std::vector<double> &y);
+
+    /**
+     * @brief User-facing shot descriptor — all fields in natural units, no pre-computation.
+     *
+     * Wrappers (Python/Cython, Dart FFI, WASM) fill this struct from their domain objects
+     * and call to_shot_props() to obtain the engine-ready BCLIBC_ShotProps.  All physics
+     * conversions (cant trig, CIPM-2007 atmosphere, Coriolis trig, PCHIP drag curve) happen
+     * once, inside to_shot_props(), eliminating per-wrapper duplication.
+     *
+     * Lifetime note: mach_data, cd_data, and winds are non-owning pointers.  The caller must
+     * keep the backing arrays alive until to_shot_props() returns.
+     */
+    struct BCLIBC_Shot
+    {
+        // ammo
+        double bc;
+        double weight_grain;
+        double diameter_inch;
+        double length_inch;
+        double muzzle_velocity_fps;
+        double stability_coefficient;   ///< 0.0 → computed by engine on first step
+
+        // drag table — raw Mach/CD pairs; PCHIP built inside to_shot_props()
+        const double* mach_data;
+        const double* cd_data;
+        int           drag_table_size;
+
+        // weapon geometry
+        double sight_height_ft;
+        double twist_inch;             ///< positive = right-hand twist, negative = left-hand
+
+        // atmosphere (user-facing inputs, not pre-computed)
+        double temp_c;       ///< dry-bulb temperature in °C
+        double pressure_hpa; ///< atmospheric pressure in hPa; 0 → vacuum (zero drag)
+        double altitude_ft;  ///< base altitude in feet (used for density altitude adjustment)
+        double humidity;     ///< relative humidity: fraction [0..1] or percent [0..100]
+
+        // winds — non-owning array; wind_count == 0 → no wind
+        const BCLIBC_Wind* winds;
+        int                wind_count;
+
+        // aiming (all in radians)
+        double look_angle_rad;
+        double barrel_elevation_rad;
+        double barrel_azimuth_rad;
+        double cant_angle_rad;   ///< to_shot_props() computes cant_cosine/cant_sine internally
+
+        // Coriolis inputs (degrees; NaN disables)
+        double latitude_deg;   ///< geographic latitude [-90..+90]; NaN → no Coriolis effect
+        double azimuth_deg;    ///< shot azimuth [0..360); NaN → flat-fire drift only
+
+        double calc_step;      ///< integration step in feet
+
+        /**
+         * @brief Assemble engine-ready BCLIBC_ShotProps.
+         *
+         * Performs all physics/unit conversions:
+         *   - cant_cosine / cant_sine  from cant_angle_rad
+         *   - BCLIBC_Atmosphere        via BCLIBC_Atmosphere::from_conditions()  (CIPM-2007)
+         *   - BCLIBC_Coriolis          via BCLIBC_Coriolis::from_lat_az()
+         *   - BCLIBC_Curve / MachList  via build_pchip_curve_from_arrays()
+         *   - BCLIBC_WindSock          from the winds array
+         */
+        BCLIBC_ShotProps to_shot_props() const;
+    };
 
     /**
      * @brief Calculates the angular correction needed to hit a target.
