@@ -83,6 +83,8 @@ cmake --build build --config Release
 
 The public C API is declared in `include/bclibc/ffi/bclibc_ffi.h`. All symbols are prefixed with `BCLIBCFFI_`.
 
+**`BCLIBCFFI_ShotProps`-based (pre-computed physics, legacy path):**
+
 | Function | Description |
 |---|---|
 | `BCLIBCFFI_get_version()` | Library version string |
@@ -95,6 +97,30 @@ The public C API is declared in `include/bclibc/ffi/bclibc_ffi.h`. All symbols a
 | `BCLIBCFFI_get_correction()` | Angular correction for offset at distance |
 | `BCLIBCFFI_calculate_energy()` | Kinetic energy (ft-lb) |
 | `BCLIBCFFI_calculate_ogw()` | Optimal Game Weight |
+
+**`BCLIBCFFI_Shot`-based (natural units, preferred — all physics conversion in C++):**
+
+| Function | Description |
+|---|---|
+| `BCLIBCFFI_find_apex_shot()` | Highest point of trajectory |
+| `BCLIBCFFI_find_max_range_shot()` | Maximum range and angle |
+| `BCLIBCFFI_find_zero_angle_shot()` | Barrel elevation to zero at distance |
+| `BCLIBCFFI_integrate_shot()` | Full trajectory, filtered by step/flags |
+| `BCLIBCFFI_integrate_at_shot()` | Single interpolated point at key value |
+
+`BCLIBCFFI_Shot` accepts raw user-facing units (`temp_c`, `pressure_hpa`, `latitude_deg`, `azimuth_deg`, parallel `mach_data`/`cd_data` arrays). All atmosphere density, Coriolis trig, PCHIP drag curve, and cant pre-computation are performed inside C++ by `BCLIBC_Shot::to_shot_props()`.
+
+**Key types:**
+
+| Type | Description |
+|---|---|
+| `BCLIBCFFI_Shot` | Preferred shot input (natural units) |
+| `BCLIBCFFI_ShotProps` | Legacy shot input (pre-computed physics) |
+| `BCLIBCFFI_TrajectoryData` | One filtered trajectory record |
+| `BCLIBCFFI_TrajectoryRequest` | Step / range / filter config for `integrate` |
+| `BCLIBCFFI_Interception` | Single interpolated point from `integrate_at` |
+| `BCLIBCFFI_MaxRangeResult` | Max range + angle from `find_max_range` |
+| `BCLIBCFFI_Error` | Error code + message + typed extra fields |
 
 ### Symbol visibility
 
