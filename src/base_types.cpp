@@ -13,6 +13,7 @@ namespace bclibc
      * @brief Earth's angular velocity in radians per second.
      */
     const double BCLIBC_cEarthAngularVelocityRadS = 7.2921159e-5;
+    const double BCLIBC_cStandardDensityMetric = 1.2250; // kg/m³, ICAO sea-level standard
     /**
      * @brief Conversion factor from degrees Fahrenheit to degrees Rankine.
      */
@@ -501,6 +502,60 @@ namespace bclibc
         return total_size;
     }
 
+    /**
+     * @brief Assemble engine-ready BCLIBC_ShotProps from user-facing BCLIBC_Shot inputs.
+     *
+     * All physics/unit conversions happen here — once, in C++ — eliminating per-wrapper
+     * duplication across Python/Cython, Dart FFI, and WASM.
+     */
+    BCLIBC_ShotProps BCLIBC_Shot::to_shot_props() const
+    {
+        // Atmosphere: CIPM-2007 density + Rankine Mach formula
+        BCLIBC_Atmosphere atmo = BCLIBC_Atmosphere::from_conditions(
+            temp_c, pressure_hpa, altitude_ft, humidity);
+
+        // Coriolis: full trig pre-computation from geographic lat/az (degrees)
+        BCLIBC_Coriolis coriolis = BCLIBC_Coriolis::from_lat_az(
+            latitude_deg, muzzle_velocity_fps, azimuth_deg);
+
+        // Wind sock: copy wind array into owned vector
+        BCLIBC_WindSock wind_sock;
+        if (winds != nullptr && wind_count > 0)
+        {
+            std::vector<BCLIBC_Wind> winds_vec(winds, winds + wind_count);
+            wind_sock = BCLIBC_WindSock(std::move(winds_vec));
+        }
+
+        // Drag curve: build PCHIP from raw Mach/CD arrays
+        std::vector<double> mach_v(mach_data, mach_data + drag_table_size);
+        std::vector<double> cd_v(cd_data, cd_data + drag_table_size);
+        BCLIBC_Curve curve = build_pchip_curve_from_arrays(mach_v, cd_v);
+        BCLIBC_MachList mach_list = BCLIBC_MachList(mach_v.begin(), mach_v.end());
+
+        return BCLIBC_ShotProps(
+            bc,
+            look_angle_rad,
+            twist_inch,
+            length_inch,
+            diameter_inch,
+            weight_grain,
+            barrel_elevation_rad,
+            barrel_azimuth_rad,
+            sight_height_ft,
+            std::cos(cant_angle_rad), // cant_cosine
+            std::sin(cant_angle_rad), // cant_sine
+            altitude_ft,              // alt0
+            calc_step,
+            muzzle_velocity_fps,
+            stability_coefficient,
+            std::move(curve),
+            std::move(mach_list),
+            std::move(atmo),
+            std::move(coriolis),
+            std::move(wind_sock),
+            BCLIBC_TRAJ_FLAG_NONE);
+    }
+
     BCLIBC_Atmosphere::BCLIBC_Atmosphere(
         double _t0,
         double _a0,
@@ -514,6 +569,55 @@ namespace bclibc
           _mach(_mach),
           density_ratio(density_ratio),
           cLowestTempC(cLowestTempC) {};
+
+    /**
+     * @brief Factory: construct BCLIBC_Atmosphere from user-facing conditions using CIPM-2007.
+     *
+     * Mirrors Python's Atmo.calculate_air_density() — the authoritative reference implementation.
+     * Source: CIPM-2007 (https://www.nist.gov/system/files/documents/calibrations/CIPM-2007.pdf)
+     */
+    BCLIBC_Atmosphere BCLIBC_Atmosphere::from_conditions(
+        double t_c, double p_hpa, double alt_ft, double humidity)
+    {
+        static const double kLowestTempC = (BCLIBC_cLowestTempF - 32.0) * 5.0 / 9.0;
+
+        const double T_K = t_c + BCLIBC_cDegreesCtoK;
+        // Rankine formula matches Python's Atmo.machF() exactly (Rankine = Kelvin * 9/5)
+        const double mach_fps = std::sqrt(T_K * (9.0 / 5.0)) * BCLIBC_cSpeedOfSoundImperial;
+
+        // Zero pressure → vacuum (zero density, no drag). Mirrors Python Vacuum behaviour.
+        if (p_hpa <= 0.0)
+            return BCLIBC_Atmosphere(t_c, alt_ft, p_hpa, mach_fps, 0.0, kLowestTempC);
+
+        // CIPM-2007 molar masses and universal gas constant
+        static const double R = 8.314472;      // J/(mol·K)
+        static const double M_a = 28.96546e-3; // kg/mol — dry air
+        static const double M_v = 18.01528e-3; // kg/mol — water vapour
+
+        const double p = p_hpa * 100.0; // hPa → Pa
+
+        // Normalize humidity to fraction [0..1], matching Python Atmo behaviour
+        double rh = (humidity > 1.0) ? humidity / 100.0 : humidity;
+        rh = std::fmax(0.0, std::fmin(1.0, rh));
+
+        // Saturation vapour pressure (Pa) — CIPM-2007 eq. (A1.1), T in Kelvin
+        const double p_sv = std::exp(
+            1.2378847e-5 * T_K * T_K - 1.9121316e-2 * T_K + 33.93711047 - 6.3431645e3 / T_K);
+
+        // Enhancement factor — p in Pa, t in Celsius
+        const double f = 1.00062 + 3.14e-8 * p + 5.6e-7 * t_c * t_c;
+
+        // Mole fraction of water vapour
+        const double x_v = (rh * f * p_sv) / p;
+
+        // Compressibility factor Z — t_c used for the t_l (= T_K - 273.15) terms
+        const double Z = 1.0 - (p / T_K) * (1.58123e-6 + (-2.9331e-8) * t_c + 1.1043e-10 * t_c * t_c + (5.707e-6 + (-2.051e-8) * t_c) * x_v + (1.9898e-4 + (-2.376e-6) * t_c) * x_v * x_v) + (p / T_K) * (p / T_K) * (1.83e-11 + (-0.765e-8) * x_v * x_v);
+
+        const double density = (p * M_a) / (Z * R * T_K) * (1.0 - x_v * (1.0 - M_v / M_a));
+        const double density_ratio = density / BCLIBC_cStandardDensityMetric;
+
+        return BCLIBC_Atmosphere(t_c, alt_ft, p_hpa, mach_fps, density_ratio, kLowestTempC);
+    }
 
     /**
      * @brief Updates the density ratio and speed of sound (Mach 1) for a given altitude.
@@ -784,6 +888,42 @@ namespace bclibc
           cross_north(cross_north),
           flat_fire_only(flat_fire_only),
           muzzle_velocity_fps(muzzle_velocity_fps) {};
+
+    BCLIBC_Coriolis BCLIBC_Coriolis::from_lat_az(
+        double lat_deg,
+        double muzzle_velocity_fps,
+        double az_deg)
+    {
+        // No latitude supplied → no Coriolis effect (mirrors Python Coriolis.create() returning None)
+        if (std::isnan(lat_deg))
+        {
+            return BCLIBC_Coriolis(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, muzzle_velocity_fps);
+        }
+
+        static const double kDegToRad = 0.017453292519943295; // pi / 180
+        const double lat_rad = lat_deg * kDegToRad;
+        const double sin_lat = std::sin(lat_rad);
+        const double cos_lat = std::cos(lat_rad);
+
+        // No azimuth → flat-fire only mode (horizontal Coriolis drift only)
+        if (std::isnan(az_deg))
+        {
+            return BCLIBC_Coriolis(sin_lat, cos_lat, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, muzzle_velocity_fps);
+        }
+
+        // Full 3D Coriolis
+        const double az_rad = az_deg * kDegToRad;
+        const double sin_az = std::sin(az_rad);
+        const double cos_az = std::cos(az_rad);
+
+        return BCLIBC_Coriolis(
+            sin_lat, cos_lat, sin_az, cos_az,
+            sin_az,  // range_east
+            cos_az,  // range_north
+            cos_az,  // cross_east
+            -sin_az, // cross_north
+            0, muzzle_velocity_fps);
+    }
 
     void BCLIBC_Coriolis::flat_fire_offsets(
         double time,
