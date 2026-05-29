@@ -530,7 +530,7 @@ namespace bclibc
         std::vector<double> mach_v(mach_data, mach_data + drag_table_size);
         std::vector<double> cd_v(cd_data, cd_data + drag_table_size);
         BCLIBC_Curve curve = build_pchip_curve_from_arrays(mach_v, cd_v);
-        BCLIBC_MachList mach_list = BCLIBC_MachList(mach_v.begin(), mach_v.end());
+        BCLIBC_MachList mach_list = std::move(mach_v);
 
         return BCLIBC_ShotProps(
             bc,
@@ -645,6 +645,16 @@ namespace bclibc
             // Close enough to base altitude, use stored values
             density_ratio_out = this->density_ratio;
             mach_out = this->_mach;
+            return;
+        }
+
+        // Vacuum guard: _p0 == 0 when constructed via from_conditions(p_hpa=0).
+        // The barometric formula divides by _p0 — avoid 0/0 = NaN.
+        // density_ratio is already 0 for vacuum, so the result is unambiguous.
+        if (this->_p0 <= 0.0)
+        {
+            density_ratio_out = 0.0;
+            mach_out = this->_mach; // temperature-based, computed in from_conditions()
             return;
         }
 
