@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.1.0] - 2026-05-26
+## [1.1.1] - 2026-05-29
+
+### Fixed
+- `BCLIBC_Atmosphere::update_density_factor_and_mach_for_altitude()`: added vacuum guard (`_p0 <= 0`) before the barometric formula; previously `_p0 = 0` (set by `from_conditions(p_hpa=0)`) caused `0/0 = NaN` for `density_delta`, propagating NaN drag through any vacuum trajectory where altitude changes by more than 30 ft from base
+- `BCLIBC_Shot::to_shot_props()`: `BCLIBC_MachList` now move-constructed from `mach_v` instead of copy-constructed; eliminates one redundant O(N) heap allocation per shot
+
+## [1.1.0] - 2026-05-28
 
 ### Added
 - `BCLIBC_Coriolis::from_lat_az(lat_deg, muzzle_velocity_fps, az_deg = NaN)` — static factory; computes all trig pre-computation (sin/cos lat, sin/cos az, range/cross offsets) from geographic degrees; NaN lat → no Coriolis; NaN az → flat-fire drift only
@@ -89,7 +95,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/ballistics-lab/bclibc/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/ballistics-lab/bclibc/compare/v1.0.5...v1.1.0
 [1.0.5]: https://github.com/ballistics-lab/bclibc/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/ballistics-lab/bclibc/compare/v1.0.3...v1.0.4
