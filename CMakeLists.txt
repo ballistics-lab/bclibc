@@ -174,7 +174,7 @@ foreach(target bclibc_core bclibc_ffi)
     else()
         # GCC/Clang flags
         target_compile_options(${target} PRIVATE
-            "$<$<NOT:$<CONFIG:Debug>>:-O3;-ffast-math>"
+            "$<$<NOT:$<CONFIG:Debug>>:-O3>"
             "$<$<CONFIG:Debug>:-O0;-g>"
         )
     endif()

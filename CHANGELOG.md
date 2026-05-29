@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-05-29
+
+### Fixed
+- `CMakeLists.txt`: removed `-ffast-math` from Release build flags; the flag broke trajectory event detection (apex, zero-angle) by relaxing IEEE 754 semantics required by the solver's sign-change logic
+
 ## [1.1.1] - 2026-05-29
 
 ### Fixed
@@ -95,7 +100,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/ballistics-lab/bclibc/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/ballistics-lab/bclibc/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/ballistics-lab/bclibc/compare/v1.0.5...v1.1.0
 [1.0.5]: https://github.com/ballistics-lab/bclibc/compare/v1.0.4...v1.0.5
