@@ -64,7 +64,7 @@ BCLIBC_CXX_OBJS = $(addprefix $(BUILD)/, $(notdir $(BCLIBC_CXX_SRCS:.cpp=.o)))
 # C++ compiler: always derived from CROSS_COMPILE, not from CC.
 # This avoids accidentally picking up the host g++ when CC is set by the
 # environment (common in CI runners).
-CXX ?= $(CROSS_COMPILE)g++
+CXX := $(CROSS_COMPILE)g++
 
 CXXFLAGS = $(CFLAGS) -I$(BCLIBC_ROOT)/include -Igenerated \
            -fno-exceptions -fno-rtti -std=c++17
