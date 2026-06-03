@@ -81,7 +81,8 @@ VPATH += $(BCLIBC_ROOT)/src \
          $(BCLIBC_ROOT)/src/ffi \
          .
 
-$(BUILD)/%.o: %.cpp | $(BUILD)
+$(BUILD)/%.o: %.cpp
+	@mkdir -p $(dir $@)
 	$(Q)$(CXX) $(CXXFLAGS) -MMD -MF $(@:.o=.d) -c -o $@ $<
 
 # Include generated dependency files if they exist

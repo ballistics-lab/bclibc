@@ -1,16 +1,13 @@
 # bclibc external C module for MicroPython firmware builds.
 #
 # Use this when you want to compile bclibc directly into the MicroPython
-# firmware image (e.g. for RP2040 or ESP32) rather than loading it as a
-# separate .mpy file.
+# firmware image rather than loading it as a separate .mpy file.
+# For most use cases the pre-built .mpy from the Releases page is simpler.
 #
 # Usage:
 #   cmake -B build \
 #     -DUSER_C_MODULES=/path/to/bclibc/micropython/micropython.cmake \
 #     ...other MicroPython cmake args...
-#
-# For CircuitPython the equivalent flag is -DCIRCUITPY_EXTMOD_DIR.
-# See the README for full build instructions.
 
 cmake_minimum_required(VERSION 3.13)
 

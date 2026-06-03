@@ -1,0 +1,176 @@
+name: Build MicroPython native module (.mpy)
+
+# Reusable workflow – called by release.yml per architecture.
+# Can also be triggered manually for a quick one-off build.
+#
+# Supported ARCH / target pairs:
+#   armv6m   / rp2040  – Raspberry Pi Pico (RP2040, Cortex-M0+)
+#   xtensawin / esp32  – ESP32 / ESP32-S2 / ESP32-S3 (Xtensa LX6/LX7)
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: MicroPython natmod ARCH
+        required: true
+        default: armv6m
+        type: choice
+        options:
+          - armv6m
+          - xtensawin
+      target:
+        description: Human-readable target name (used in artifact name)
+        required: true
+        default: rp2040
+        type: string
+      mpy_version:
+        description: MicroPython git tag to build against
+        required: false
+        default: v1.24.1
+        type: string
+
+  workflow_call:
+    inputs:
+      arch:
+        description: MicroPython natmod ARCH
+        required: true
+        type: string
+      target:
+        description: Human-readable target name (used in artifact name)
+        required: true
+        type: string
+      mpy_version:
+        description: MicroPython git tag to build against
+        required: false
+        type: string
+        default: v1.24.1
+      retention_days:
+        description: Artifact retention in days
+        required: false
+        type: number
+        default: 7
+    outputs:
+      artifact_name:
+        description: Name of the uploaded artifact
+        value: ${{ jobs.build.outputs.artifact_name }}
+
+jobs:
+  build:
+    name: bclibc-${{ inputs.target }}.mpy
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.artifact_name }}
+
+    steps:
+      - name: Checkout bclibc
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      # ── Toolchain: ARM (RP2040) ──────────────────────────────────────────
+      - name: Install ARM toolchain
+        if: inputs.arch == 'armv6m'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y gcc-arm-none-eabi g++-arm-none-eabi
+
+      # ── Toolchain: Xtensa (ESP32 / ESP32-S2 / ESP32-S3) ─────────────────
+      - name: Cache Xtensa toolchain
+        if: inputs.arch == 'xtensawin'
+        id: cache-xtensa
+        uses: actions/cache@v4
+        with:
+          path: ~/.espressif/xtensa-esp-elf
+          key: xtensa-esp-elf-13.2.0_20240530-linux-x86_64
+
+      - name: Download Xtensa toolchain
+        if: inputs.arch == 'xtensawin' && steps.cache-xtensa.outputs.cache-hit != 'true'
+        run: |
+          VER=esp-13.2.0_20240530
+          FILE=xtensa-esp-elf-13.2.0_20240530-x86_64-linux-gnu.tar.xz
+          wget -q \
+            "https://github.com/espressif/crosstool-NG/releases/download/${VER}/${FILE}"
+          mkdir -p "${HOME}/.espressif/xtensa-esp-elf"
+          tar -xf "${FILE}" -C "${HOME}/.espressif/xtensa-esp-elf" --strip-components=1
+
+      - name: Add Xtensa toolchain to PATH
+        if: inputs.arch == 'xtensawin'
+        run: |
+          TOOLCHAIN_BIN=$(find "${HOME}/.espressif/xtensa-esp-elf" \
+            -name "xtensa-esp-elf-gcc" -type f | head -1 | xargs dirname)
+          echo "${TOOLCHAIN_BIN}" >> "${GITHUB_PATH}"
+
+      # ── MicroPython source (shallow, no submodules needed for natmod) ────
+      - name: Cache MicroPython source
+        id: cache-mpy
+        uses: actions/cache@v4
+        with:
+          path: mpy-src
+          key: micropython-${{ inputs.mpy_version }}
+
+      - name: Checkout MicroPython
+        if: steps.cache-mpy.outputs.cache-hit != 'true'
+        uses: actions/checkout@v6
+        with:
+          repository: micropython/micropython
+          ref: ${{ inputs.mpy_version }}
+          path: mpy-src
+          submodules: false
+          fetch-depth: 1
+
+      # ── mpy-cross (host binary, needed for QSTR processing) ──────────────
+      - name: Cache mpy-cross
+        id: cache-mpycross
+        uses: actions/cache@v4
+        with:
+          path: mpy-src/mpy-cross/build
+          key: mpy-cross-${{ inputs.mpy_version }}-${{ runner.os }}
+
+      - name: Build mpy-cross
+        if: steps.cache-mpycross.outputs.cache-hit != 'true'
+        run: make -C mpy-src/mpy-cross -j$(nproc)
+
+      # ── Build bclibc.mpy ──────────────────────────────────────────────────
+      - name: Set CROSS_COMPILE
+        id: toolchain
+        run: |
+          if [[ "${{ inputs.arch }}" == "xtensawin" ]]; then
+            echo "cross_compile=xtensa-esp-elf-" >> "$GITHUB_OUTPUT"
+          else
+            # armv6m default works with gcc-arm-none-eabi
+            echo "cross_compile=arm-none-eabi-" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build bclibc.mpy
+        run: |
+          cd micropython/natmod
+          make \
+            ARCH=${{ inputs.arch }} \
+            CROSS_COMPILE=${{ steps.toolchain.outputs.cross_compile }} \
+            MPY_DIR=${{ github.workspace }}/mpy-src \
+            -j$(nproc)
+
+      # ── Artifact ──────────────────────────────────────────────────────────
+      - name: Compute artifact name
+        id: meta
+        run: |
+          echo "artifact_name=bclibc-mpy-${{ inputs.target }}" >> "$GITHUB_OUTPUT"
+
+      - name: Stage artifact
+        run: |
+          mkdir -p artifact-out
+          cp micropython/natmod/bclibc.mpy \
+             artifact-out/bclibc-${{ inputs.target }}.mpy
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.meta.outputs.artifact_name }}
+          path: artifact-out/
+          retention-days: ${{ inputs.retention_days || 7 }}
+          if-no-files-found: error

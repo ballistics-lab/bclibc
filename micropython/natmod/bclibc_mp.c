@@ -1,10 +1,14 @@
 /**
  * bclibc_mp.c
  *
- * MicroPython native module (.mpy) for the bclibc ballistics engine.
+ * Shared Python binding layer for bclibc, supporting two build modes:
  *
- * Build:
- *   make ARCH=armv7emsp MPY_DIR=/path/to/micropython
+ *   BCLIBC_BUILD_NATMOD  (defined by natmod/Makefile)
+ *     → MicroPython native .mpy module via dynruntime.h + mpy_init()
+ *
+ *   (flag absent)
+ *     → Static firmware module for MicroPython or CircuitPython firmware
+ *       builds via standard py/obj.h headers + MP_REGISTER_MODULE
  *
  * Python API
  * ----------
@@ -43,7 +47,19 @@
  *                         until_distance_ft, max_distance_ft).
  */
 
+#ifdef BCLIBC_BUILD_NATMOD
+/* natmod: dynruntime.h provides the full API via mp_fun_table pointers */
 #include "py/dynruntime.h"
+#else
+/* firmware: standard MicroPython / CircuitPython C API */
+#include "py/obj.h"
+#include "py/runtime.h"
+#include "py/misc.h"
+#include "py/nlr.h"
+#include "py/objlist.h"
+#include "py/objtuple.h"
+#endif
+
 #include "bclibc/ffi/bclibc_ffi.h"
 #include <string.h>
 
