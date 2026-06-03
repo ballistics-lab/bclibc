@@ -1,0 +1,5 @@
+# Override global ignores for intentionally committed natmod files
+!Makefile
+!generated/
+!generated/bclibc/
+!generated/bclibc/version.h

@@ -1,0 +1,105 @@
+# bclibc MicroPython native module (.mpy) build
+#
+# Requires the MicroPython source tree.  Set MPY_DIR to its root.
+#
+# Usage:
+#   make ARCH=armv7emsp  MPY_DIR=/path/to/micropython   # STM32 Cortex-M4
+#   make ARCH=armv6m     MPY_DIR=/path/to/micropython   # RP2040
+#   make ARCH=xtensawin  MPY_DIR=/path/to/micropython   # ESP32
+#   make ARCH=rv32imc    MPY_DIR=/path/to/micropython   # ESP32-C3
+#   make clean
+#
+# Supported ARCH values (maps to MicroPython dynruntime architecture names):
+#   armv6m       - Cortex-M0/M0+ (RP2040, no FPU; uses soft-float for double)
+#   armv7m       - Cortex-M3
+#   armv7emsp    - Cortex-M4F  (single-precision FPU; double is emulated)
+#   armv7emdp    - Cortex-M7   (double-precision FPU)
+#   xtensawin    - ESP32 Xtensa LX6
+#   rv32imc      - ESP32-C3 RISC-V
+#
+# Note on floating-point precision:
+#   bclibc uses double (64-bit) throughout.  On armv6m/armv7emsp the FPU only
+#   handles float; double operations use soft-float emulation which is correct
+#   but slower.  On armv7emdp the hardware FPU handles double directly.
+
+ARCH    ?= armv7emsp
+MPY_DIR ?= ../../../micropython
+
+MOD_NAME    = bclibc
+BCLIBC_ROOT = ../..
+BUILD       = build-$(ARCH)
+
+# ============================================================================
+# C source (Python binding layer)
+# ============================================================================
+SRC_C = bclibc_mp.c
+
+# Extra include dirs (picked up by dynruntime.mk via CFLAGS_EXTRA)
+CFLAGS_EXTRA += -I$(BCLIBC_ROOT)/include -Igenerated
+
+# ============================================================================
+# Pull in the MicroPython natmod build system.
+# This sets CC, CFLAGS, LD, PYTHON, BUILD, and the $(MOD_NAME).mpy link rule.
+# ============================================================================
+include $(MPY_DIR)/py/dynruntime.mk
+
+# ============================================================================
+# C++ support (bclibc core + FFI + operator-new stubs)
+# ============================================================================
+
+BCLIBC_CXX_SRCS = \
+    cxx_stubs.cpp \
+    $(BCLIBC_ROOT)/src/base_types.cpp \
+    $(BCLIBC_ROOT)/src/engine.cpp \
+    $(BCLIBC_ROOT)/src/euler.cpp \
+    $(BCLIBC_ROOT)/src/interp.cpp \
+    $(BCLIBC_ROOT)/src/rk4.cpp \
+    $(BCLIBC_ROOT)/src/traj_data.cpp \
+    $(BCLIBC_ROOT)/src/traj_filter.cpp \
+    $(BCLIBC_ROOT)/src/ffi/bclibc_ffi.cpp
+
+# Flatten all C++ object paths into $(BUILD)/ (unique filenames assumed)
+BCLIBC_CXX_OBJS = $(addprefix $(BUILD)/, $(notdir $(BCLIBC_CXX_SRCS:.cpp=.o)))
+
+# Derive the C++ compiler from the C compiler set by dynruntime.mk
+# Works for arm-none-eabi-gcc → arm-none-eabi-g++
+# and plain gcc → g++
+_CXX := $(subst -gcc,-g++,$(CC))
+ifeq ($(_CXX),$(CC))
+    _CXX := $(subst gcc,g++,$(CC))
+endif
+ifeq ($(_CXX),$(CC))
+    _CXX := g++
+endif
+CXX := $(_CXX)
+
+CXXFLAGS = $(CFLAGS) -I$(BCLIBC_ROOT)/include -Igenerated \
+           -fno-exceptions -fno-rtti -std=c++17
+
+# Use VPATH so the pattern rule finds .cpp files in subdirectories
+VPATH += $(BCLIBC_ROOT)/src \
+         $(BCLIBC_ROOT)/src/ffi \
+         .
+
+$(BUILD)/%.o: %.cpp | $(BUILD)
+	$(Q)$(CXX) $(CXXFLAGS) -MMD -MF $(@:.o=.d) -c -o $@ $<
+
+# Include generated dependency files if they exist
+-include $(BCLIBC_CXX_OBJS:.o=.d)
+
+# Add C++ objects as prerequisites to the .mpy link step.
+# GNU make appends these to the existing rule defined in dynruntime.mk;
+# the original recipe uses $^ (all prerequisites), so the objects are
+# automatically passed to the mpy_ld.py linker.
+$(MOD_NAME).mpy: $(BCLIBC_CXX_OBJS)
+
+# ============================================================================
+# Convenience targets
+# ============================================================================
+
+.PHONY: all clean
+
+all: $(MOD_NAME).mpy
+
+clean:
+	rm -rf $(BUILD) $(MOD_NAME).mpy
