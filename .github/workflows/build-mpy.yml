@@ -72,6 +72,9 @@ jobs:
         with:
           python-version: '3.x'
 
+      - name: Install Python deps for mpy_ld.py
+        run: pip install pyelftools
+
       # ── Toolchain: ARM (RP2040 / Cortex-M0+) ──────────────────────────────
       - name: Install ARM toolchain
         if: inputs.arch == 'armv6m'

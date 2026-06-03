@@ -61,17 +61,10 @@ BCLIBC_CXX_SRCS = \
 # Flatten all C++ object paths into $(BUILD)/ (unique filenames assumed)
 BCLIBC_CXX_OBJS = $(addprefix $(BUILD)/, $(notdir $(BCLIBC_CXX_SRCS:.cpp=.o)))
 
-# Derive the C++ compiler from the C compiler set by dynruntime.mk
-# Works for arm-none-eabi-gcc → arm-none-eabi-g++
-# and plain gcc → g++
-_CXX := $(subst -gcc,-g++,$(CC))
-ifeq ($(_CXX),$(CC))
-    _CXX := $(subst gcc,g++,$(CC))
-endif
-ifeq ($(_CXX),$(CC))
-    _CXX := g++
-endif
-CXX := $(_CXX)
+# C++ compiler: always derived from CROSS_COMPILE, not from CC.
+# This avoids accidentally picking up the host g++ when CC is set by the
+# environment (common in CI runners).
+CXX ?= $(CROSS_COMPILE)g++
 
 CXXFLAGS = $(CFLAGS) -I$(BCLIBC_ROOT)/include -Igenerated \
            -fno-exceptions -fno-rtti -std=c++17
