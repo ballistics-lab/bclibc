@@ -35,7 +35,7 @@ BUILD       = build-$(ARCH)
 SRC_C = bclibc_mp.c
 
 # Extra include dirs (picked up by dynruntime.mk via CFLAGS_EXTRA)
-CFLAGS_EXTRA += -I$(BCLIBC_ROOT)/include -Igenerated
+CFLAGS_EXTRA += -I$(BCLIBC_ROOT)/include -Igenerated -DBCLIBC_BUILD_NATMOD
 
 # ============================================================================
 # Pull in the MicroPython natmod build system.
@@ -66,7 +66,7 @@ BCLIBC_CXX_OBJS = $(addprefix $(BUILD)/, $(notdir $(BCLIBC_CXX_SRCS:.cpp=.o)))
 # environment (common in CI runners).
 CXX := $(CROSS_COMPILE)g++
 
-CXXFLAGS = $(CFLAGS) -I$(BCLIBC_ROOT)/include -Igenerated \
+CXXFLAGS = $(filter-out -std=c99,$(CFLAGS)) -I$(BCLIBC_ROOT)/include -Igenerated \
            -fno-exceptions -fno-rtti -std=c++17
 
 # Use VPATH so the pattern rule finds .cpp files in subdirectories

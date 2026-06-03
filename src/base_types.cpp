@@ -130,6 +130,7 @@ namespace bclibc
         // twist/length/diameter/p0 are zero. Catch it here and set the coefficient
         // to 0.0 — spin_drift() returns 0 in that case, so the trajectory
         // calculation proceeds correctly without spin drift.
+#ifndef BCLIBC_BUILD_NATMOD
         try
         {
             this->update_stability_coefficient();
@@ -141,6 +142,9 @@ namespace bclibc
                 e.what());
             this->stability_coefficient = 0.0;
         }
+#else
+        this->update_stability_coefficient();
+#endif
     };
 
     BCLIBC_ShotProps::~BCLIBC_ShotProps()

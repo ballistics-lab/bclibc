@@ -53,6 +53,7 @@ namespace bclibc
             BCLIBC_DEBUG(
                 "Trajectory Filter Finalization check: prev_data.time=%.6f",
                 this->prev_data.time);
+#ifndef BCLIBC_BUILD_NATMOD
             try
             {
                 // get_record(-1) throws std::out_of_range when records is empty.
@@ -69,6 +70,14 @@ namespace bclibc
             {
                 BCLIBC_WARN("Exception suppressed in ~BCLIBC_TrajectoryDataFilter");
             }
+#else
+            if (!this->records.empty() &&
+                this->prev_data.time > this->get_record(-1).time)
+            {
+                BCLIBC_TrajectoryData fin(this->props, this->prev_data);
+                this->append(fin);
+            }
+#endif
         }
     };
 
@@ -175,8 +184,10 @@ namespace bclibc
                     }
                     else if (is_can_interpolate) /* if (this->prev_data && this->prev_prev_data) */
                     {
+#ifndef BCLIBC_BUILD_NATMOD
                         try
                         {
+#endif
                             BCLIBC_BaseTrajData::interpolate(
                                 BCLIBC_BaseTrajData_InterpKey::POS_X,
                                 record_distance,
@@ -185,10 +196,12 @@ namespace bclibc
                                 new_data,
                                 result_data);
                             found_data = true;
+#ifndef BCLIBC_BUILD_NATMOD
                         }
                         catch (const std::domain_error &e)
                         {
                         }
+#endif
                     }
                     if (found_data)
                     {
@@ -214,8 +227,10 @@ namespace bclibc
 
                     BCLIBC_BaseTrajData result_data = BCLIBC_BaseTrajData();
 
+#ifndef BCLIBC_BUILD_NATMOD
                     try
                     {
+#endif
                         BCLIBC_BaseTrajData::interpolate(
                             BCLIBC_BaseTrajData_InterpKey::TIME,
                             this->time_of_last_record,
@@ -224,12 +239,14 @@ namespace bclibc
                             new_data,
                             result_data);
                         this->add_row(rows, result_data, BCLIBC_TRAJ_FLAG_RANGE);
+#ifndef BCLIBC_BUILD_NATMOD
                     }
                     catch (const std::domain_error &e)
                     {
                         // Can't interpolate without valid data/segment
                         break;
                     }
+#endif
                 }
             }
             // endregion Time steps
@@ -242,8 +259,10 @@ namespace bclibc
                 // "Apex" is the point where the vertical component of velocity goes from positive to negative.
                 BCLIBC_BaseTrajData result_data = BCLIBC_BaseTrajData();
 
+#ifndef BCLIBC_BUILD_NATMOD
                 try
                 {
+#endif
                     BCLIBC_BaseTrajData::interpolate(
                         BCLIBC_BaseTrajData_InterpKey::VEL_Y,
                         0.0,
@@ -254,10 +273,12 @@ namespace bclibc
                     // "Apex" is the point where the vertical component of velocity goes from positive to negative.
                     this->add_row(rows, result_data, BCLIBC_TRAJ_FLAG_APEX);
                     this->filter = (BCLIBC_TrajFlag)(this->filter & ~BCLIBC_TRAJ_FLAG_APEX);
+#ifndef BCLIBC_BUILD_NATMOD
                 }
                 catch (const std::domain_error &e)
                 {
                 }
+#endif
             }
         }
 
@@ -606,8 +627,10 @@ namespace bclibc
             {
                 this->target_passed = true;
                 // Interpolate immediately
+#ifndef BCLIBC_BUILD_NATMOD
                 try
                 {
+#endif
                     BCLIBC_BaseTrajData::interpolate(
                         this->key_kind,
                         this->target_value,
@@ -621,11 +644,13 @@ namespace bclibc
                         *this->termination_reason_ptr = BCLIBC_TerminationReason::HANDLER_REQUESTED_STOP;
                         BCLIBC_INFO("BCLIBC_SinglePointHandler requested early termination");
                     }
+#ifndef BCLIBC_BUILD_NATMOD
                 }
                 catch (const std::domain_error &)
                 {
                     // Degenerate segment, continue
                 }
+#endif
             }
         }
     };

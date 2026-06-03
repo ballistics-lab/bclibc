@@ -1,7 +1,9 @@
 #ifndef BCLIBC_BaseEngine_HPP
 #define BCLIBC_BaseEngine_HPP
 
+#ifndef BCLIBC_BUILD_NATMOD
 #include <mutex>
+#endif
 #include <functional>
 #include "bclibc/traj_filter.hpp"
 
@@ -79,7 +81,10 @@ namespace bclibc
         // A recursive mutex that guarantees thread-safe access (read/write) to the entire Engine state,
         // specifically `config` and `shot`. The recursive nature is necessary because public methods
         // (like zero_angle) call other internal methods (like integrate), requiring nested locking.
+        // Disabled for natmod builds: single-threaded embedded target, no POSIX threading.
+#ifndef BCLIBC_BUILD_NATMOD
         std::recursive_mutex engine_mutex;
+#endif
 
     public:
         int integration_step_count;

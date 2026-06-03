@@ -259,6 +259,7 @@ template <typename Func>
 static int32_t ffi_call(Func &&fn, BCLIBCFFI_Error *err) noexcept
 {
     clearError(err);
+#ifndef BCLIBC_BUILD_NATMOD
     try
     {
         return fn();
@@ -306,6 +307,11 @@ static int32_t ffi_call(Func &&fn, BCLIBCFFI_Error *err) noexcept
                  "Unknown non-std exception across FFI boundary");
         return BCLIBCFFI_ERR_GENERIC;
     }
+#else
+    // No exception handling in natmod (-fno-exceptions): C++ throws become
+    // terminate().  Input validation in bclibc_mp.c prevents reaching throw.
+    return fn();
+#endif
 }
 
 // ============================================================================
@@ -404,6 +410,7 @@ extern "C"
                     setError(err, BCLIBCFFI_ERR_GENERIC, "Out of memory allocating trajectory");
                     return BCLIBCFFI_ERR_GENERIC;
                 }
+#ifndef BCLIBC_BUILD_NATMOD
                 try
                 {
                     for (int32_t i = 0; i < count; ++i)
@@ -414,6 +421,10 @@ extern "C"
                     std::free(arr);
                     throw; // re-throw — outer ffi_call catches and returns ERR_GENERIC
                 }
+#else
+                for (int32_t i = 0; i < count; ++i)
+                    toC(records[i], arr[i]);
+#endif
             }
 
             *out_records = arr;
@@ -553,6 +564,7 @@ extern "C"
                     setError(err, BCLIBCFFI_ERR_GENERIC, "Out of memory allocating trajectory");
                     return BCLIBCFFI_ERR_GENERIC;
                 }
+#ifndef BCLIBC_BUILD_NATMOD
                 try
                 {
                     for (int32_t i = 0; i < count; ++i)
@@ -563,6 +575,10 @@ extern "C"
                     std::free(arr);
                     throw;
                 }
+#else
+                for (int32_t i = 0; i < count; ++i)
+                    toC(records[i], arr[i]);
+#endif
             }
 
             *out_records = arr;

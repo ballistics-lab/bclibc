@@ -51,6 +51,7 @@ namespace bclibc
         {
             if (const char *env_level_str = std::getenv("BCLIBC_LOG_LEVEL"))
             {
+#ifndef BCLIBC_BUILD_NATMOD
                 try
                 {
                     // Use std::stoi to convert string to integer safely
@@ -63,6 +64,12 @@ namespace bclibc
                     // Ignore conversion errors and use default
                     return BCLIBC_LogLevel::CRITICAL;
                 }
+#else
+                // std::stoi throws; use atoi (no exception) for -fno-exceptions builds.
+                // getenv returns nullptr on bare-metal so this is rarely reached.
+                int level_val = std::atoi(env_level_str);
+                return static_cast<BCLIBC_LogLevel>(std::max(0, level_val));
+#endif
             }
             return BCLIBC_LogLevel::CRITICAL; // Default: logging disabled
         }();
