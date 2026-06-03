@@ -1,10 +1,10 @@
 name: Build MicroPython native module (.mpy)
 
-# Reusable workflow – called by release.yml per architecture.
-# Can also be triggered manually for a quick one-off build.
+# Reusable workflow – builds bclibc as a native .mpy for one target.
+# Called by pr-check-mpy.yml (CI) and release.yml (release).
 #
-# Supported ARCH / target pairs:
-#   armv6m   / rp2040  – Raspberry Pi Pico (RP2040, Cortex-M0+)
+# Supported arch / target pairs:
+#   armv6m    / rp2040 – Raspberry Pi Pico (RP2040, Cortex-M0+)
 #   xtensawin / esp32  – ESP32 / ESP32-S2 / ESP32-S3 (Xtensa LX6/LX7)
 
 on:
@@ -19,12 +19,12 @@ on:
           - armv6m
           - xtensawin
       target:
-        description: Human-readable target name (used in artifact name)
+        description: Target name used in artifact filename
         required: true
         default: rp2040
         type: string
       mpy_version:
-        description: MicroPython git tag to build against
+        description: MicroPython git tag
         required: false
         default: v1.24.1
         type: string
@@ -36,11 +36,11 @@ on:
         required: true
         type: string
       target:
-        description: Human-readable target name (used in artifact name)
+        description: Target name used in artifact filename
         required: true
         type: string
       mpy_version:
-        description: MicroPython git tag to build against
+        description: MicroPython git tag
         required: false
         type: string
         default: v1.24.1
@@ -72,14 +72,14 @@ jobs:
         with:
           python-version: '3.x'
 
-      # ── Toolchain: ARM (RP2040) ──────────────────────────────────────────
+      # ── Toolchain: ARM (RP2040 / Cortex-M0+) ──────────────────────────────
       - name: Install ARM toolchain
         if: inputs.arch == 'armv6m'
         run: |
           sudo apt-get update -q
           sudo apt-get install -y gcc-arm-none-eabi g++-arm-none-eabi
 
-      # ── Toolchain: Xtensa (ESP32 / ESP32-S2 / ESP32-S3) ─────────────────
+      # ── Toolchain: Xtensa (ESP32 / ESP32-S2 / ESP32-S3) ───────────────────
       - name: Cache Xtensa toolchain
         if: inputs.arch == 'xtensawin'
         id: cache-xtensa
@@ -101,11 +101,11 @@ jobs:
       - name: Add Xtensa toolchain to PATH
         if: inputs.arch == 'xtensawin'
         run: |
-          TOOLCHAIN_BIN=$(find "${HOME}/.espressif/xtensa-esp-elf" \
-            -name "xtensa-esp-elf-gcc" -type f | head -1 | xargs dirname)
-          echo "${TOOLCHAIN_BIN}" >> "${GITHUB_PATH}"
+          BIN=$(find "${HOME}/.espressif/xtensa-esp-elf" \
+                  -name "xtensa-esp-elf-gcc" -type f | head -1 | xargs dirname)
+          echo "${BIN}" >> "${GITHUB_PATH}"
 
-      # ── MicroPython source (shallow, no submodules needed for natmod) ────
+      # ── MicroPython source ─────────────────────────────────────────────────
       - name: Cache MicroPython source
         id: cache-mpy
         uses: actions/cache@v4
@@ -123,7 +123,7 @@ jobs:
           submodules: false
           fetch-depth: 1
 
-      # ── mpy-cross (host binary, needed for QSTR processing) ──────────────
+      # ── mpy-cross (host binary, needed for QSTR processing) ────────────────
       - name: Cache mpy-cross
         id: cache-mpycross
         uses: actions/cache@v4
@@ -135,37 +135,34 @@ jobs:
         if: steps.cache-mpycross.outputs.cache-hit != 'true'
         run: make -C mpy-src/mpy-cross -j$(nproc)
 
-      # ── Build bclibc.mpy ──────────────────────────────────────────────────
+      # ── Build bclibc.mpy ───────────────────────────────────────────────────
       - name: Set CROSS_COMPILE
-        id: toolchain
+        id: tc
         run: |
           if [[ "${{ inputs.arch }}" == "xtensawin" ]]; then
             echo "cross_compile=xtensa-esp-elf-" >> "$GITHUB_OUTPUT"
           else
-            # armv6m default works with gcc-arm-none-eabi
             echo "cross_compile=arm-none-eabi-" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build bclibc.mpy
+      - name: Build
         run: |
           cd micropython/natmod
           make \
             ARCH=${{ inputs.arch }} \
-            CROSS_COMPILE=${{ steps.toolchain.outputs.cross_compile }} \
+            CROSS_COMPILE=${{ steps.tc.outputs.cross_compile }} \
             MPY_DIR=${{ github.workspace }}/mpy-src \
             -j$(nproc)
 
-      # ── Artifact ──────────────────────────────────────────────────────────
+      # ── Artifact ───────────────────────────────────────────────────────────
       - name: Compute artifact name
         id: meta
-        run: |
-          echo "artifact_name=bclibc-mpy-${{ inputs.target }}" >> "$GITHUB_OUTPUT"
+        run: echo "artifact_name=bclibc-mpy-${{ inputs.target }}" >> "$GITHUB_OUTPUT"
 
       - name: Stage artifact
         run: |
           mkdir -p artifact-out
-          cp micropython/natmod/bclibc.mpy \
-             artifact-out/bclibc-${{ inputs.target }}.mpy
+          cp micropython/natmod/bclibc.mpy artifact-out/bclibc-${{ inputs.target }}.mpy
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
