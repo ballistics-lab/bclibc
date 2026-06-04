@@ -106,13 +106,28 @@ $(BUILD)/cxx_stubs.o: cxx_stubs.cpp
 #          xtensa-esp-elf both do; the test avoids adding a raw "libm.a"
 #          sentinel returned when the file is not found).
 # ============================================================================
-_LIBGCC   := $(shell $(CROSS_COMPILE)gcc --print-libgcc-file-name 2>/dev/null)
-_LIBM_RAW := $(shell $(CROSS_COMPILE)gcc --print-file-name=libm.a 2>/dev/null)
-_LIBM     := $(if $(filter-out libm.a,$(_LIBM_RAW)),$(_LIBM_RAW),)
+_LIBGCC          := $(shell $(CROSS_COMPILE)gcc --print-libgcc-file-name 2>/dev/null)
+_LIBM_RAW        := $(shell $(CROSS_COMPILE)gcc --print-file-name=libm.a 2>/dev/null)
+_LIBM            := $(if $(filter-out libm.a,$(_LIBM_RAW)),$(_LIBM_RAW),)
+_LIBSTDCXX_RAW   := $(shell $(CXX) --print-file-name=libstdc++.a 2>/dev/null)
+_LIBSTDCXX       := $(if $(filter-out libstdc++.a,$(_LIBSTDCXX_RAW)),$(_LIBSTDCXX_RAW),)
+_LIBSUPCXX_RAW   := $(shell $(CXX) --print-file-name=libsupc++.a 2>/dev/null)
+_LIBSUPCXX       := $(if $(filter-out libsupc++.a,$(_LIBSUPCXX_RAW)),$(_LIBSUPCXX_RAW),)
+_LIBC_RAW        := $(shell $(CROSS_COMPILE)gcc --print-file-name=libc.a 2>/dev/null)
+_LIBC            := $(if $(filter-out libc.a,$(_LIBC_RAW)),$(_LIBC_RAW),)
 
 _RT_LIBS  := $(_LIBGCC)
 ifneq ($(_LIBM),)
 _RT_LIBS  += $(_LIBM)
+endif
+ifneq ($(_LIBSTDCXX),)
+_RT_LIBS  += $(_LIBSTDCXX)
+endif
+ifneq ($(_LIBSUPCXX),)
+_RT_LIBS  += $(_LIBSUPCXX)
+endif
+ifneq ($(_LIBC),)
+_RT_LIBS  += $(_LIBC)
 endif
 
 PARTIAL_OBJ := $(BUILD)/$(MOD)_rt.o
