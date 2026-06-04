@@ -103,12 +103,16 @@ static inline double _bclibc_nan(void) {
 
 #ifdef BCLIBC_BUILD_NATMOD
 
-/* Key lookup without raising: returns MP_OBJ_NULL when key absent. */
+/* Key lookup without raising: calls dict.get(key) → mp_const_none if absent.
+ * mp_map_lookup / mp_obj_dict_get_map are absent from mp_fun_table v1.24.1;
+ * mp_load_method_maybe + mp_call_function_n_kw are available. */
 static mp_obj_t _dict_safe_get(mp_obj_t dict, const char *key, size_t klen) {
-    mp_map_t *map = mp_obj_dict_get_map(dict);
-    mp_obj_t  k   = mp_obj_new_str(key, klen);
-    mp_map_elem_t *elem = mp_map_lookup(map, k, MP_MAP_LOOKUP);
-    return (elem && elem->value != MP_OBJ_NULL) ? elem->value : MP_OBJ_NULL;
+    mp_obj_t dest[3];
+    mp_load_method_maybe(dict, MP_QSTR_get, dest);
+    if (dest[0] == MP_OBJ_NULL) return mp_const_none;
+    dest[2] = mp_obj_new_str(key, klen);
+    /* dest[1] = self (dict), dest[2] = key; n_args=2 (self + key) */
+    return mp_call_function_n_kw(dest[0], 2, 0, &dest[1]);
 }
 
 static double _safe_float(mp_obj_t obj, const char *key, double def) {
@@ -125,7 +129,8 @@ static mp_int_t _safe_int(mp_obj_t obj, const char *key, mp_int_t def) {
 
 static mp_obj_t _safe_obj(mp_obj_t obj, const char *key, mp_obj_t def) {
     mp_obj_t v = _dict_safe_get(obj, key, strlen(key));
-    return (v != MP_OBJ_NULL) ? v : def;
+    if (v == MP_OBJ_NULL || v == mp_const_none) return def;
+    return v;
 }
 
 #else /* firmware build */
