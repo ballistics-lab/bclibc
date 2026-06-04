@@ -19,7 +19,11 @@
 #ifndef _GLIBCXX_STDEXCEPT
 #define _GLIBCXX_STDEXCEPT 1
 
-#include <exception>  /* std::exception base — no std::string, safe to include */
+/* Set the guard BEFORE including <string> so that any transitive include of
+ * <stdexcept> from within <string> is blocked.  <string> does not use
+ * std::runtime_error directly, so this ordering is safe. */
+#include <exception>  /* std::exception base — no std::string, safe */
+#include <string>     /* required for the const string& overloads below */
 
 namespace std {
 
@@ -27,6 +31,9 @@ class runtime_error : public exception {
     const char *_natmod_what;
 public:
     explicit runtime_error(const char *msg) noexcept : _natmod_what(msg) {}
+    /* Allows <system_error> constructors (string temporaries) to compile.
+     * Never called in natmod builds (-fno-exceptions / jmp_buf path). */
+    explicit runtime_error(const std::string&) noexcept : _natmod_what(nullptr) {}
     virtual ~runtime_error() noexcept;
     virtual const char *what() const noexcept;
 };
@@ -35,6 +42,7 @@ class logic_error : public exception {
     const char *_natmod_what;
 public:
     explicit logic_error(const char *msg) noexcept : _natmod_what(msg) {}
+    explicit logic_error(const std::string&) noexcept : _natmod_what(nullptr) {}
     virtual ~logic_error() noexcept;
     virtual const char *what() const noexcept;
 };

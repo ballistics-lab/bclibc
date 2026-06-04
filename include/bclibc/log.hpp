@@ -1,12 +1,14 @@
 #ifndef BCLIBC_LOG_HPP
 #define BCLIBC_LOG_HPP
 
+#ifndef BCLIBC_BUILD_NATMOD
 #include <iostream>
 #include <string>
-#include <cstdio>    // For vsnprintf
 #include <cstdarg>   // For va_list
 #include <cstdlib>   // For getenv
 #include <algorithm> // For std::max
+#endif
+#include <cstdio>    // For vsnprintf (used by the natmod no-op path)
 
 namespace bclibc
 {
@@ -36,6 +38,16 @@ namespace bclibc
     static constexpr const char *BCLIBC_ANSI_COLOR_RESET = "\x1b[0m";
     static constexpr const char *BCLIBC_ANSI_BOLD_MAGENTA = "\x1b[1;35m";
 
+#ifdef BCLIBC_BUILD_NATMOD
+    /* Natmod builds: all logging is disabled.  No iostream, no string, no .data
+     * sections.  The static const is constant-initialised → goes to .rodata. */
+    inline BCLIBC_LogLevel &get_min_level() noexcept {
+        static const BCLIBC_LogLevel s = BCLIBC_LogLevel::CRITICAL;
+        return const_cast<BCLIBC_LogLevel&>(s);
+    }
+    inline void log(BCLIBC_LogLevel, const char*, int, const char*,
+                    const char*, ...) noexcept {}
+#else
     /**
      * @brief Determines the minimum configured log level.
      *
@@ -51,27 +63,17 @@ namespace bclibc
         {
             if (const char *env_level_str = std::getenv("BCLIBC_LOG_LEVEL"))
             {
-#ifndef BCLIBC_BUILD_NATMOD
                 try
                 {
-                    // Use std::stoi to convert string to integer safely
                     int level_val = std::stoi(env_level_str);
-                    // Ensure the level is not negative
                     return static_cast<BCLIBC_LogLevel>(std::max(0, level_val));
                 }
                 catch (const std::exception &e)
                 {
-                    // Ignore conversion errors and use default
                     return BCLIBC_LogLevel::CRITICAL;
                 }
-#else
-                // std::stoi throws; use atoi (no exception) for -fno-exceptions builds.
-                // getenv returns nullptr on bare-metal so this is rarely reached.
-                int level_val = std::atoi(env_level_str);
-                return static_cast<BCLIBC_LogLevel>(std::max(0, level_val));
-#endif
             }
-            return BCLIBC_LogLevel::CRITICAL; // Default: logging disabled
+            return BCLIBC_LogLevel::CRITICAL;
         }();
         return level;
     }
@@ -120,40 +122,25 @@ namespace bclibc
         }
     }
 
-    /**
-     * @brief Core logging implementation using va_list for printf-style arguments.
-     * @note This internal function allows the C++ function 'log' to support the
-     * variadic arguments required by the original C-style macro API.
-     */
     inline void log_impl_v(BCLIBC_LogLevel level, const char *file, int line, const char *func, const char *format, va_list args)
     {
-        // --- 1. Format the user message into a std::string ---
-
-        // Copy va_list to safely determine size (required for portable vsnprintf use)
         va_list args_copy;
         va_copy(args_copy, args);
-        // Determine required buffer size (not including null terminator)
         int size = std::vsnprintf(nullptr, 0, format, args_copy);
         va_end(args_copy);
 
         if (size < 0)
         {
-            // Error in formatting
             std::cerr << "Log formatting error.\n";
             return;
         }
 
-        // Create buffer for the formatted message
         std::string message_buffer(size, 0);
-        // Write the formatted message into the buffer
         std::vsnprintf(&message_buffer[0], size + 1, format, args);
-
-        // --- 2. Construct and output the final log line ---
 
         const char *color = level_to_color(level);
         const char *level_str = level_to_string(level);
 
-        // Print to standard error stream (std::cerr)
         std::cerr << color
                   << level_str
                   << BCLIBC_ANSI_COLOR_RESET << ": "
@@ -162,20 +149,9 @@ namespace bclibc
                   << message_buffer
                   << "\n";
 
-        // IMPORTANT: Flush std::cerr to ensure immediate output
         std::cerr.flush();
     }
 
-    /**
-     * @brief User-facing logging function.
-     *
-     * @param level The log level of the current message.
-     * @param file The file name (__FILE__).
-     * @param line The line number (__LINE__).
-     * @param func The function name (__func__).
-     * @param format The printf-style format string.
-     * @param ... The arguments for the format string.
-     */
     inline void log(BCLIBC_LogLevel level, const char *file, int line, const char *func, const char *format, ...)
     {
         if (static_cast<int>(level) < static_cast<int>(get_min_level()))
@@ -188,6 +164,8 @@ namespace bclibc
         log_impl_v(level, file, line, func, format, args);
         va_end(args);
     }
+
+#endif // BCLIBC_BUILD_NATMOD
 
 }; // namespace bclibc
 
