@@ -72,7 +72,7 @@ CXX := $(CROSS_COMPILE)g++
 # Derive C++ flags from the C flags dynruntime.mk built (strips -std=c99),
 # then layer on C++-specific options.  CFLAGS already includes CFLAGS_EXTRA
 # (and thus -DBCLIBC_BUILD_NATMOD) because dynruntime.mk does CFLAGS += $(CFLAGS_EXTRA).
-CXXFLAGS = $(filter-out -std=c99,$(CFLAGS)) -I$(BCLIBC_ROOT)/include -Igenerated \
+CXXFLAGS = $(filter-out -std=c99 -Werror,$(CFLAGS)) -I$(BCLIBC_ROOT)/include -Igenerated \
            -fno-exceptions -fno-rtti -std=c++17
 
 # VPATH lets the %.cpp pattern rule find sources in subdirectories.
