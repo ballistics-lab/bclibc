@@ -3,6 +3,7 @@
 #include <cmath>
 #include <stdexcept>
 #include "bclibc/base_types.hpp"
+#include "bclibc/bclibc_throw.hpp"
 #include "bclibc/log.hpp"
 
 namespace bclibc
@@ -237,7 +238,7 @@ namespace bclibc
             else
             {
                 this->stability_coefficient = 0.0;
-                throw std::domain_error("Division by zero in stability coefficient calculation.");
+                BCLIBC_THROW(std::domain_error("Division by zero in stability coefficient calculation."));
             }
 
             fv = std::pow(this->muzzle_velocity / 2800.0, 1.0 / 3.0);
@@ -252,7 +253,7 @@ namespace bclibc
             else
             {
                 this->stability_coefficient = 0.0;
-                throw std::domain_error("Division by zero in ftp calculation.");
+                BCLIBC_THROW(std::domain_error("Division by zero in ftp calculation."));
             }
 
             this->stability_coefficient = sd * fv * ftp;
@@ -273,7 +274,7 @@ namespace bclibc
     {
         size_t n = x.size();
         if (n < 2)
-            throw std::invalid_argument("PCHIP requires at least 2 points");
+            BCLIBC_THROW(std::invalid_argument("PCHIP requires at least 2 points"));
 
         size_t nm1 = n - 1;
         std::vector<double> h(nm1), d(nm1), m(n);
@@ -378,7 +379,7 @@ namespace bclibc
         if (n_size_t < 2 || n_size_t != nm1_size_t + 1)
         {
             // Insufficient data or size mismatch between breakpoints and segments
-            throw std::invalid_argument("Invalid drag curve data: requires at least 2 points and consistent sizes.");
+            BCLIBC_THROW(std::invalid_argument("Invalid drag curve data: requires at least 2 points and consistent sizes."));
         }
 
         const int nm1 = (int)nm1_size_t; // Last valid segment index

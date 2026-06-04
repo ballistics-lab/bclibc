@@ -20,6 +20,7 @@
 #include "bclibc/traj_data.hpp"
 #include "bclibc/engine.hpp"
 #include "bclibc/exceptions.hpp"
+#include "bclibc/bclibc_throw.hpp"
 #include "bclibc/rk4.hpp"
 #include "bclibc/euler.hpp"
 #include "bclibc/version.h" // This is the generated file
@@ -36,7 +37,7 @@ static constexpr double ALLOWED_ZERO_ERROR_FEET = 1e-2;
 static BCLIBC_Curve buildCurve(const BCLIBCFFI_DragPoint *dt, int n)
 {
     if (n < 2)
-        throw std::invalid_argument("Drag table requires at least 2 points");
+        BCLIBC_THROW(std::invalid_argument("Drag table requires at least 2 points"));
 
     // 1. Prepare data (X and Y)
     std::vector<double> x(n), y(n);
@@ -308,8 +309,19 @@ static int32_t ffi_call(Func &&fn, BCLIBCFFI_Error *err) noexcept
         return BCLIBCFFI_ERR_GENERIC;
     }
 #else
-    // No exception handling in natmod (-fno-exceptions): C++ throws become
-    // terminate().  Input validation in bclibc_mp.c prevents reaching throw.
+    if (setjmp(g_bclibc_jmp_buf) != 0) {
+        if (err) {
+            err->code  = g_bclibc_throw_state.code;
+            std::strncpy(err->message, g_bclibc_throw_state.what,
+                         sizeof(err->message) - 1);
+            err->message[sizeof(err->message) - 1] = '\0';
+            err->f64_0 = g_bclibc_throw_state.f64_0;
+            err->f64_1 = g_bclibc_throw_state.f64_1;
+            err->f64_2 = g_bclibc_throw_state.f64_2;
+            err->i32_0 = g_bclibc_throw_state.i32_0;
+        }
+        return g_bclibc_throw_state.code;
+    }
     return fn();
 #endif
 }

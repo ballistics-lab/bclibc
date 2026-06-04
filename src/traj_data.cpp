@@ -3,6 +3,7 @@
 #include <cstring>
 #include <stdexcept>
 #include "bclibc/traj_data.hpp"
+#include "bclibc/bclibc_throw.hpp"
 #include "bclibc/log.hpp"
 
 namespace bclibc
@@ -97,7 +98,7 @@ namespace bclibc
         // Validate non-degenerate segments
         if (x0 == x1 || x0 == x2 || x1 == x2)
         {
-            throw std::domain_error("Degenerate interpolation segment: duplicate key values");
+            BCLIBC_THROW(std::domain_error("Degenerate interpolation segment: duplicate key values"));
         }
 
         // Interpolate all fields directly without creating intermediate vectors
@@ -365,7 +366,7 @@ namespace bclibc
         // Bounds check
         if (idx < 0 || idx >= len)
         {
-            throw std::out_of_range("Index out of bounds");
+            BCLIBC_THROW(std::out_of_range("Index out of bounds"));
         }
         return this->buffer[idx];
     }
@@ -410,7 +411,7 @@ namespace bclibc
 
         if (n < 3)
         {
-            throw std::domain_error("Insufficient data points for interpolation (need >= 3)");
+            BCLIBC_THROW(std::domain_error("Insufficient data points for interpolation (need >= 3)"));
         }
 
         ssize_t target_idx = -1;
@@ -436,7 +437,7 @@ namespace bclibc
             const ssize_t center = this->bisect_center_idx_buf(key_kind, key_value);
             if (center < 0)
             {
-                throw std::logic_error("Binary search failed");
+                BCLIBC_THROW(std::logic_error("Binary search failed"));
             }
             target_idx = (center < n - 1) ? center : n - 2;
         }
@@ -487,18 +488,18 @@ namespace bclibc
 
         if (n < 3)
         {
-            throw std::domain_error("Insufficient data points for interpolation");
+            BCLIBC_THROW(std::domain_error("Insufficient data points for interpolation"));
         }
 
         const ssize_t center = this->bisect_center_idx_slant_buf(ca, sa, value);
         if (center < 0)
         {
-            throw std::runtime_error("Failed to locate interpolation center");
+            BCLIBC_THROW(std::runtime_error("Failed to locate interpolation center"));
         }
 
         if (center < 1 || center >= n - 1)
         {
-            throw std::out_of_range("Center index outside safe interpolation range");
+            BCLIBC_THROW(std::out_of_range("Center index outside safe interpolation range"));
         }
 
         // Cache data access
@@ -513,7 +514,7 @@ namespace bclibc
 
         if (ox0 == ox1 || ox1 == ox2)
         {
-            throw std::domain_error("Degenerate slant values: cannot interpolate");
+            BCLIBC_THROW(std::domain_error("Degenerate slant values: cannot interpolate"));
         }
 
         // Perform vectorized interpolation
@@ -555,7 +556,7 @@ namespace bclibc
         // Validate interpolation range
         if (idx < 1 || idx >= length - 1)
         {
-            throw std::out_of_range("Index outside valid interpolation range [1, n-2]");
+            BCLIBC_THROW(std::out_of_range("Index outside valid interpolation range [1, n-2]"));
         }
 
         // Cache point references
@@ -571,7 +572,7 @@ namespace bclibc
         // Validate non-degenerate
         if (ox0 == ox1 || ox0 == ox2 || ox1 == ox2)
         {
-            throw std::invalid_argument("Duplicate key values: cannot interpolate");
+            BCLIBC_THROW(std::invalid_argument("Duplicate key values: cannot interpolate"));
         }
 
         // Perform vectorized interpolation
@@ -1049,7 +1050,7 @@ namespace bclibc
         // FLAG (= 15) is not interpolatable, so use >= to exclude it.
         if ((int)key < 0 || (int)key >= BCLIBC_TRAJECTORY_DATA_INTERP_KEY_ACTIVE_COUNT)
         {
-            throw std::logic_error("Cannot interpolate by unsupported key");
+            BCLIBC_THROW(std::logic_error("Cannot interpolate by unsupported key"));
         }
 
         // Cache independent variable values
@@ -1100,12 +1101,12 @@ namespace bclibc
 
                     if (interp_status != BCLIBC_InterpStatus::SUCCESS)
                     {
-                        throw std::domain_error("Linear interpolation failed: zero division");
+                        BCLIBC_THROW(std::domain_error("Linear interpolation failed: zero division"));
                     }
                 }
                 else
                 {
-                    throw std::invalid_argument("Invalid interpolation method");
+                    BCLIBC_THROW(std::invalid_argument("Invalid interpolation method"));
                 }
             }
 

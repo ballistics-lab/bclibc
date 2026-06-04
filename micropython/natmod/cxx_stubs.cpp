@@ -18,10 +18,19 @@
  */
 
 #include <cstddef>
+#include <csetjmp>
+
+#include "bclibc/bclibc_throw.hpp"
 
 extern "C" {
     void *m_malloc(size_t num_bytes);
     void  m_free(void *ptr);
+}
+
+// Global exception-transport state used by BCLIBC_THROW / ffi_call setjmp.
+extern "C" {
+    jmp_buf                   g_bclibc_jmp_buf;
+    bclibc::BCLIBCThrowState  g_bclibc_throw_state;
 }
 
 void *operator new(size_t size) {

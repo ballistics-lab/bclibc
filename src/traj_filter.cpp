@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <cstring>
 #include "bclibc/traj_filter.hpp"
+#include "bclibc/bclibc_throw.hpp"
 #include "bclibc/log.hpp"
 
 namespace bclibc
@@ -398,13 +399,13 @@ namespace bclibc
         const size_t size = this->records.size();
         if (size == 0)
         {
-            throw std::out_of_range("Cannot get record from empty trajectory data.");
+            BCLIBC_THROW(std::out_of_range("Cannot get record from empty trajectory data."));
         }
         const std::ptrdiff_t signed_size = static_cast<std::ptrdiff_t>(size);
         const std::ptrdiff_t effective_index = (index >= 0) ? index : signed_size + index;
         if (effective_index < 0 || effective_index >= signed_size)
         {
-            throw std::out_of_range("Index is out of bounds.");
+            BCLIBC_THROW(std::out_of_range("Index is out of bounds."));
         }
         return this->records[static_cast<size_t>(effective_index)];
     };
@@ -668,7 +669,7 @@ namespace bclibc
     {
         if (!this->is_found)
         {
-            throw std::runtime_error("Target point not found during integration");
+            BCLIBC_THROW(std::runtime_error("Target point not found during integration"));
         }
         return this->result;
     };
@@ -677,7 +678,7 @@ namespace bclibc
     {
         if (this->count == 0)
         {
-            throw std::out_of_range("Cannot get last point: the handler is empty (count = 0).");
+            BCLIBC_THROW(std::out_of_range("Cannot get last point: the handler is empty (count = 0)."));
         }
 
         if (this->count >= 3)
