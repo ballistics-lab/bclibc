@@ -55,10 +55,10 @@
  * The four typed primitives (_from_f/_to_f/_from_d/_to_d) are always defined.
  * Fall back to the single-precision variants on builds that omit the wrappers. */
 #ifndef mp_obj_new_float
-#  define mp_obj_new_float(d)  mp_obj_new_float_from_f((float)(d))
+#  define mp_obj_new_float(d)  mp_obj_new_float_from_d((double)(d))
 #endif
 #ifndef mp_obj_get_float
-#  define mp_obj_get_float(o)  ((double)mp_obj_get_float_to_f(o))
+#  define mp_obj_get_float(o)  mp_obj_get_float_to_d(o)
 #endif
 #else
 /* firmware: standard MicroPython / CircuitPython C API */
