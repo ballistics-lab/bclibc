@@ -25,21 +25,24 @@
 ARCH    ?= armv7emsp
 MPY_DIR ?= ../../../micropython
 
-MOD_NAME    = bclibc
+# MOD and MOD_NAME are both required: dynruntime.mk reads MOD for the link
+# target name; we keep MOD_NAME as an alias for convenience rules below.
+MOD         = bclibc
 BCLIBC_ROOT = ../..
 BUILD       = build-$(ARCH)
 
 # ============================================================================
 # C source (Python binding layer)
+# dynruntime.mk computes SRC_O from $(filter %.c,$(SRC)) — must use SRC.
 # ============================================================================
-SRC_C = bclibc_mp.c
+SRC = bclibc_mp.c
 
-# Extra include dirs (picked up by dynruntime.mk via CFLAGS_EXTRA)
+# Extra include dirs and defines picked up by dynruntime.mk via CFLAGS_EXTRA.
 CFLAGS_EXTRA += -I$(BCLIBC_ROOT)/include -Igenerated -DBCLIBC_BUILD_NATMOD
 
 # ============================================================================
 # Pull in the MicroPython natmod build system.
-# This sets CC, CFLAGS, LD, PYTHON, BUILD, and the $(MOD_NAME).mpy link rule.
+# Sets CC, CFLAGS, MPY_LD, PYTHON, BUILD, and the $(MOD).mpy / .native.mpy rules.
 # ============================================================================
 include $(MPY_DIR)/py/dynruntime.mk
 
@@ -66,10 +69,13 @@ BCLIBC_CXX_OBJS = $(addprefix $(BUILD)/, $(notdir $(BCLIBC_CXX_SRCS:.cpp=.o)))
 # environment (common in CI runners).
 CXX := $(CROSS_COMPILE)g++
 
+# Derive C++ flags from the C flags dynruntime.mk built (strips -std=c99),
+# then layer on C++-specific options.  CFLAGS already includes CFLAGS_EXTRA
+# (and thus -DBCLIBC_BUILD_NATMOD) because dynruntime.mk does CFLAGS += $(CFLAGS_EXTRA).
 CXXFLAGS = $(filter-out -std=c99,$(CFLAGS)) -I$(BCLIBC_ROOT)/include -Igenerated \
            -fno-exceptions -fno-rtti -std=c++17
 
-# Use VPATH so the pattern rule finds .cpp files in subdirectories
+# VPATH lets the %.cpp pattern rule find sources in subdirectories.
 VPATH += $(BCLIBC_ROOT)/src \
          $(BCLIBC_ROOT)/src/ffi \
          .
@@ -81,11 +87,12 @@ $(BUILD)/%.o: %.cpp
 # Include generated dependency files if they exist
 -include $(BCLIBC_CXX_OBJS:.o=.d)
 
-# Add C++ objects as prerequisites to the .mpy link step.
-# GNU make appends these to the existing rule defined in dynruntime.mk;
-# the original recipe uses $^ (all prerequisites), so the objects are
-# automatically passed to the mpy_ld.py linker.
-$(MOD_NAME).mpy: $(BCLIBC_CXX_OBJS)
+# Add C++ objects as extra prerequisites to the native link step.
+# dynruntime.mk defines: $(BUILD)/$(MOD).native.mpy: $(SRC_O)
+#   with recipe:  $(MPY_LD) ... -o $@ $^
+# GNU make appends our prerequisites to the existing rule; $^ therefore
+# includes both the C objects and the C++ objects when the recipe runs.
+$(BUILD)/$(MOD).native.mpy: $(BCLIBC_CXX_OBJS)
 
 # ============================================================================
 # Convenience targets
@@ -93,7 +100,7 @@ $(MOD_NAME).mpy: $(BCLIBC_CXX_OBJS)
 
 .PHONY: all clean
 
-all: $(MOD_NAME).mpy
+all: $(MOD).mpy
 
 clean:
-	rm -rf $(BUILD) $(MOD_NAME).mpy
+	rm -rf $(BUILD) $(MOD).mpy
