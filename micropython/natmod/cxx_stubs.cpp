@@ -27,6 +27,11 @@
  * CXXFLAGS, so std::exception / std::runtime_error etc. are already
  * declared when this file is compiled. */
 #include <exception>   /* real std::exception base */
+/* <functional> declares std::bad_function_call (in <bits/std_function.h>).
+ * bad_function_call is NOT in <stdexcept>, so the compat header omits it.
+ * Include <functional> here to get the declaration before we define the
+ * virtual functions below. */
+#include <functional>
 
 extern "C" {
     void *m_malloc(size_t num_bytes);

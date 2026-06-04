@@ -65,18 +65,15 @@ public:
     virtual ~domain_error() noexcept;
 };
 
-class bad_function_call : public exception {
-public:
-    bad_function_call() noexcept = default;
-    virtual ~bad_function_call() noexcept;
-    virtual const char *what() const noexcept;
-};
+/* bad_function_call is declared in <bits/std_function.h> (via <functional>),
+ * NOT in <stdexcept>.  Defining it here would cause a "redefinition" error
+ * when engine.hpp includes <functional>.  Let <functional> own the declaration;
+ * cxx_stubs.cpp provides the virtual-function definitions. */
 
 /* __throw_* stubs — replace libstdc++.a versions to avoid .data pull-in.
  * Called by std::vector, std::function, etc. under -fno-exceptions.
  * Definitions in cxx_stubs.cpp. */
 [[noreturn]] void __throw_bad_alloc();
-[[noreturn]] void __throw_bad_function_call();
 [[noreturn]] void __throw_length_error(const char *);
 [[noreturn]] void __throw_out_of_range(const char *);
 [[noreturn]] void __throw_out_of_range_fmt(const char *, ...)
