@@ -19,7 +19,6 @@
 
 #include <cstddef>
 #include <cstdarg>
-#include <csetjmp>
 
 #include "bclibc/bclibc_throw.hpp"
 
@@ -43,7 +42,7 @@ extern "C" {
 // ============================================================================
 
 extern "C" {
-    jmp_buf                   g_bclibc_jmp_buf;
+    void                     *g_bclibc_jmp_buf[5];
     bclibc::BCLIBCThrowState  g_bclibc_throw_state;
 }
 

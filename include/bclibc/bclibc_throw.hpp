@@ -26,9 +26,12 @@
 
 #else // BCLIBC_BUILD_NATMOD
 
-// ── Natmod build: setjmp/longjmp transport ───────────────────────────────────
+// ── Natmod build: __builtin_setjmp/__builtin_longjmp transport ───────────────
+// Use GCC compiler builtins instead of libc setjmp/longjmp: the builtins are
+// expanded inline by GCC and generate no external symbol references, which is
+// required because libc.a is excluded from the natmod partial link.
+// Buffer type must be void*[5] (GCC's requirement for these builtins).
 
-#include <csetjmp>
 #include <cstdint>
 #include <cstring>
 
@@ -49,8 +52,8 @@ struct BCLIBCThrowState {
 } // namespace bclibc
 
 extern "C" {
-    extern jmp_buf                   g_bclibc_jmp_buf;
-    extern bclibc::BCLIBCThrowState  g_bclibc_throw_state;
+    extern void                      *g_bclibc_jmp_buf[5];
+    extern bclibc::BCLIBCThrowState   g_bclibc_throw_state;
 }
 
 namespace bclibc {
@@ -75,7 +78,7 @@ template <typename E>
     g_bclibc_throw_state.f64_2 = 0.0;
     g_bclibc_throw_state.i32_0 = 0;
     _bclibc_copy_what(e.what());
-    longjmp(g_bclibc_jmp_buf, 1);
+    __builtin_longjmp(g_bclibc_jmp_buf, 1);
 }
 
 // ── bclibc-typed specialisations ─────────────────────────────────────────────
@@ -89,7 +92,7 @@ template <>
     g_bclibc_throw_state.f64_2 = 0.0;
     g_bclibc_throw_state.i32_0 = 0;
     _bclibc_copy_what(e.what());
-    longjmp(g_bclibc_jmp_buf, 1);
+    __builtin_longjmp(g_bclibc_jmp_buf, 1);
 }
 
 template <>
@@ -101,7 +104,7 @@ template <>
     g_bclibc_throw_state.f64_2 = e.look_angle_rad;
     g_bclibc_throw_state.i32_0 = 0;
     _bclibc_copy_what(e.what());
-    longjmp(g_bclibc_jmp_buf, 1);
+    __builtin_longjmp(g_bclibc_jmp_buf, 1);
 }
 
 template <>
@@ -113,7 +116,7 @@ template <>
     g_bclibc_throw_state.f64_2 = 0.0;
     g_bclibc_throw_state.i32_0 = e.iterations_count;
     _bclibc_copy_what(e.what());
-    longjmp(g_bclibc_jmp_buf, 1);
+    __builtin_longjmp(g_bclibc_jmp_buf, 1);
 }
 
 template <>
@@ -125,7 +128,7 @@ template <>
     g_bclibc_throw_state.f64_2 = 0.0;
     g_bclibc_throw_state.i32_0 = 0;
     _bclibc_copy_what(e.what());
-    longjmp(g_bclibc_jmp_buf, 1);
+    __builtin_longjmp(g_bclibc_jmp_buf, 1);
 }
 
 } // namespace bclibc

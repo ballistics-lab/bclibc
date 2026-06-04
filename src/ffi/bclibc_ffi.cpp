@@ -309,7 +309,7 @@ static int32_t ffi_call(Func &&fn, BCLIBCFFI_Error *err) noexcept
         return BCLIBCFFI_ERR_GENERIC;
     }
 #else
-    if (setjmp(g_bclibc_jmp_buf) != 0) {
+    if (__builtin_setjmp(g_bclibc_jmp_buf) != 0) {
         if (err) {
             err->code  = g_bclibc_throw_state.code;
             std::strncpy(err->message, g_bclibc_throw_state.what,
