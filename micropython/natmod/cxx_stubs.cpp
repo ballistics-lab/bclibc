@@ -118,8 +118,11 @@ int memcmp(const void *a, const void *b, size_t n) {
     return 0;
 }
 
-/* errno: toolchain libm may reference __errno() or errno directly */
-int errno = 0;
-int *__errno(void) { return &errno; }
+/* errno: both toolchains define errno as the macro (*__errno()), so writing
+ * 'int errno = 0' would expand to a bogus function-pointer initialisation.
+ * Remove the macro, then provide __errno() with a static backing int. */
+#undef errno
+static int s_errno;
+int *__errno(void) { return &s_errno; }
 
 } // extern "C"
