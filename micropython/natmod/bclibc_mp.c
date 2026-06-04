@@ -50,16 +50,14 @@
 #ifdef BCLIBC_BUILD_NATMOD
 /* natmod: dynruntime.h provides the full API via mp_fun_table pointers */
 #include "py/dynruntime.h"
-/* armv6m sets MICROPY_FLOAT_IMPL=none in dynruntime.mk, so the generic
- * mp_obj_new_float / mp_obj_get_float wrappers are conditionally absent.
- * The four typed primitives (_from_f/_to_f/_from_d/_to_d) are always defined.
- * Fall back to the single-precision variants on builds that omit the wrappers. */
-#ifndef mp_obj_new_float
-#  define mp_obj_new_float(d)  mp_obj_new_float_from_d((double)(d))
-#endif
-#ifndef mp_obj_get_float
-#  define mp_obj_get_float(o)  mp_obj_get_float_to_d(o)
-#endif
+/* Always use the double-precision fun_table entries.
+ * armv6m (MICROPY_FLOAT_IMPL=none) leaves mp_obj_new_float undefined.
+ * xtensawin defines it as _from_f which generates __truncdfsf2 — not
+ * resolvable in a natmod.  #undef overrides both cases. */
+#undef  mp_obj_new_float
+#define mp_obj_new_float(d)  mp_obj_new_float_from_d((double)(d))
+#undef  mp_obj_get_float
+#define mp_obj_get_float(o)  mp_obj_get_float_to_d(o)
 #else
 /* firmware: standard MicroPython / CircuitPython C API */
 #include "py/obj.h"

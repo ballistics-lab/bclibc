@@ -47,7 +47,7 @@ CFLAGS_EXTRA += -I$(BCLIBC_ROOT)/include -Igenerated -DBCLIBC_BUILD_NATMOD
 include $(MPY_DIR)/py/dynruntime.mk
 
 # ============================================================================
-# C++ support (bclibc core + FFI + operator-new stubs)
+# C++ support (bclibc core + FFI + operator-new / stdlib stubs)
 # ============================================================================
 
 BCLIBC_CXX_SRCS = \
@@ -84,15 +84,50 @@ $(BUILD)/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(Q)$(CXX) $(CXXFLAGS) -MMD -MF $(@:.o=.d) -c -o $@ $<
 
+# cxx_stubs.cpp provides strlen/memcpy/memset/memmove/memcmp.
+# -fno-builtin prevents GCC from recognising the loop patterns and emitting
+# recursive calls to the same library functions.
+$(BUILD)/cxx_stubs.o: cxx_stubs.cpp
+	@mkdir -p $(dir $@)
+	$(Q)$(CXX) $(CXXFLAGS) -fno-builtin -MMD -MF $(@:.o=.d) -c -o $@ $<
+
 # Include generated dependency files if they exist
 -include $(BCLIBC_CXX_OBJS:.o=.d)
 
-# Add C++ objects as extra prerequisites to the native link step.
+# ============================================================================
+# Partial link: bundle all C++ objects + toolchain runtime libraries into a
+# single relocatable object so that mpy_ld.py sees only two input files
+# (bclibc_mp.o and bclibc_rt.o) and all soft-float / math symbols are
+# resolved internally.
+#
+# _LIBGCC: soft-float emulation (__aeabi_dadd, __adddf3, etc.)
+# _LIBM:   math functions (sqrt, sin, cos, atan2, …) — included only when
+#          the toolchain provides a libm.a (bare-metal arm-none-eabi and
+#          xtensa-esp-elf both do; the test avoids adding a raw "libm.a"
+#          sentinel returned when the file is not found).
+# ============================================================================
+_LIBGCC   := $(shell $(CROSS_COMPILE)gcc --print-libgcc-file-name 2>/dev/null)
+_LIBM_RAW := $(shell $(CROSS_COMPILE)gcc --print-file-name=libm.a 2>/dev/null)
+_LIBM     := $(if $(filter-out libm.a,$(_LIBM_RAW)),$(_LIBM_RAW),)
+
+_RT_LIBS  := $(_LIBGCC)
+ifneq ($(_LIBM),)
+_RT_LIBS  += $(_LIBM)
+endif
+
+PARTIAL_OBJ := $(BUILD)/$(MOD)_rt.o
+
+$(PARTIAL_OBJ): $(BCLIBC_CXX_OBJS)
+	$(ECHO) "PARTIAL-LINK $(notdir $@)"
+	$(Q)$(CROSS_COMPILE)ld -r -nostdlib \
+	    --start-group $^ $(_RT_LIBS) --end-group \
+	    -o $@
+
+# Add the partial object as an extra prerequisite for the native link step.
 # dynruntime.mk defines: $(BUILD)/$(MOD).native.mpy: $(SRC_O)
 #   with recipe:  $(MPY_LD) ... -o $@ $^
-# GNU make appends our prerequisites to the existing rule; $^ therefore
-# includes both the C objects and the C++ objects when the recipe runs.
-$(BUILD)/$(MOD).native.mpy: $(BCLIBC_CXX_OBJS)
+# GNU make appends our prerequisite; $^ becomes bclibc_mp.o + bclibc_rt.o.
+$(BUILD)/$(MOD).native.mpy: $(PARTIAL_OBJ)
 
 # ============================================================================
 # Convenience targets
