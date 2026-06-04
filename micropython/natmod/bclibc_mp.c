@@ -90,8 +90,45 @@ static inline double _bclibc_nan(void) {
 /* ============================================================================
  * Dict / subscriptable accessor helpers
  *
- * All use NLR to catch KeyError so missing keys return the caller's default.
+ * Two implementations:
+ *
+ *   BCLIBC_BUILD_NATMOD — uses mp_map_lookup so that nlr_push is never
+ *     called.  nlr_push is not available in the natmod link environment
+ *     (it is not in mp_fun_table and would appear as an undefined symbol
+ *     on armv6m; on xtensawin the three call-sites would each try to add
+ *     a separate GOT entry, triggering the build_got_xtensa assertion).
+ *
+ *   Firmware — keeps the original nlr_push / nlr_pop pattern.
  * ========================================================================= */
+
+#ifdef BCLIBC_BUILD_NATMOD
+
+/* Key lookup without raising: returns MP_OBJ_NULL when key absent. */
+static mp_obj_t _dict_safe_get(mp_obj_t dict, const char *key, size_t klen) {
+    mp_map_t *map = mp_obj_dict_get_map(dict);
+    mp_obj_t  k   = mp_obj_new_str(key, klen);
+    mp_map_elem_t *elem = mp_map_lookup(map, k, MP_MAP_LOOKUP);
+    return (elem && elem->value != MP_OBJ_NULL) ? elem->value : MP_OBJ_NULL;
+}
+
+static double _safe_float(mp_obj_t obj, const char *key, double def) {
+    mp_obj_t v = _dict_safe_get(obj, key, strlen(key));
+    if (v == MP_OBJ_NULL || v == mp_const_none) return def;
+    return (double)mp_obj_get_float(v);
+}
+
+static mp_int_t _safe_int(mp_obj_t obj, const char *key, mp_int_t def) {
+    mp_obj_t v = _dict_safe_get(obj, key, strlen(key));
+    if (v == MP_OBJ_NULL || v == mp_const_none) return def;
+    return mp_obj_get_int(v);
+}
+
+static mp_obj_t _safe_obj(mp_obj_t obj, const char *key, mp_obj_t def) {
+    mp_obj_t v = _dict_safe_get(obj, key, strlen(key));
+    return (v != MP_OBJ_NULL) ? v : def;
+}
+
+#else /* firmware build */
 
 static double _safe_float(mp_obj_t obj, const char *key, double def) {
     nlr_buf_t nlr;
@@ -135,6 +172,8 @@ static mp_obj_t _safe_obj(mp_obj_t obj, const char *key, mp_obj_t def) {
     }
     return result;
 }
+
+#endif /* BCLIBC_BUILD_NATMOD */
 
 /* Convenience shorthands */
 #define SF(d, k, def)  ((double)_safe_float((d), (k), (double)(def)))

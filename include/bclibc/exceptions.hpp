@@ -1,7 +1,11 @@
 #ifndef BCLIBC_EXCEPTIONS_HPP
 #define BCLIBC_EXCEPTIONS_HPP
 
+#ifndef BCLIBC_BUILD_NATMOD
 #include <stdexcept>
+#include <string>
+#endif
+
 #include "bclibc/base_types.hpp"
 #include "bclibc/traj_data.hpp"
 
@@ -10,8 +14,13 @@ namespace bclibc
     class BCLIBC_SolverRuntimeError : public std::runtime_error
     {
     public:
-        BCLIBC_SolverRuntimeError(const std::string &message)
-            : std::runtime_error(message) {};
+#ifdef BCLIBC_BUILD_NATMOD
+        explicit BCLIBC_SolverRuntimeError(const char *message) noexcept
+            : std::runtime_error(message) {}
+#else
+        explicit BCLIBC_SolverRuntimeError(const std::string &message)
+            : std::runtime_error(message) {}
+#endif
     };
 
     class BCLIBC_OutOfRangeError : public BCLIBC_SolverRuntimeError
@@ -21,6 +30,17 @@ namespace bclibc
         double max_range_ft;
         double look_angle_rad;
 
+#ifdef BCLIBC_BUILD_NATMOD
+        BCLIBC_OutOfRangeError(
+            const char *message,
+            double requested_distance_ft,
+            double max_range_ft,
+            double look_angle_rad) noexcept
+            : BCLIBC_SolverRuntimeError(message),
+              requested_distance_ft(requested_distance_ft),
+              max_range_ft(max_range_ft),
+              look_angle_rad(look_angle_rad) {}
+#else
         BCLIBC_OutOfRangeError(
             const std::string &message,
             double requested_distance_ft,
@@ -29,7 +49,8 @@ namespace bclibc
             : BCLIBC_SolverRuntimeError(message),
               requested_distance_ft(requested_distance_ft),
               max_range_ft(max_range_ft),
-              look_angle_rad(look_angle_rad) {};
+              look_angle_rad(look_angle_rad) {}
+#endif
     };
 
     class BCLIBC_ZeroFindingError : public BCLIBC_SolverRuntimeError
@@ -39,6 +60,17 @@ namespace bclibc
         int iterations_count;
         double last_barrel_elevation_rad;
 
+#ifdef BCLIBC_BUILD_NATMOD
+        BCLIBC_ZeroFindingError(
+            const char *message,
+            double zero_finding_error,
+            int iterations_count,
+            double last_barrel_elevation_rad) noexcept
+            : BCLIBC_SolverRuntimeError(message),
+              zero_finding_error(zero_finding_error),
+              iterations_count(iterations_count),
+              last_barrel_elevation_rad(last_barrel_elevation_rad) {}
+#else
         BCLIBC_ZeroFindingError(
             const std::string &message,
             double zero_finding_error,
@@ -47,7 +79,8 @@ namespace bclibc
             : BCLIBC_SolverRuntimeError(message),
               zero_finding_error(zero_finding_error),
               iterations_count(iterations_count),
-              last_barrel_elevation_rad(last_barrel_elevation_rad) {};
+              last_barrel_elevation_rad(last_barrel_elevation_rad) {}
+#endif
     };
 
     class BCLIBC_InterceptionError : public BCLIBC_SolverRuntimeError
@@ -55,13 +88,23 @@ namespace bclibc
     public:
         BCLIBC_BaseTrajData raw_data;
         BCLIBC_TrajectoryData full_data;
+#ifdef BCLIBC_BUILD_NATMOD
+        BCLIBC_InterceptionError(
+            const char *message,
+            const BCLIBC_BaseTrajData &raw_data,
+            const BCLIBC_TrajectoryData &full_data) noexcept
+            : BCLIBC_SolverRuntimeError(message),
+              raw_data(raw_data),
+              full_data(full_data) {}
+#else
         BCLIBC_InterceptionError(
             const std::string &message,
             const BCLIBC_BaseTrajData &raw_data,
             const BCLIBC_TrajectoryData &full_data)
             : BCLIBC_SolverRuntimeError(message),
               raw_data(raw_data),
-              full_data(full_data) {};
+              full_data(full_data) {}
+#endif
     };
 }; // bclibc
 
