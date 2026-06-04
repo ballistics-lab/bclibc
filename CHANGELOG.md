@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Add missing traj_data.hpp include in exceptions.hpp
+
 ## [1.1.2] - 2026-05-29
 
 ### Fixed
