@@ -35,6 +35,7 @@
 extern "C" {
     void *m_malloc(size_t num_bytes);
     void  m_free(void *ptr);
+    void *m_realloc(void *ptr, size_t new_num_bytes);
 }
 
 // ============================================================================
@@ -73,6 +74,26 @@ void operator delete(void *ptr, size_t) noexcept {
 void operator delete[](void *ptr, size_t) noexcept {
     m_free(ptr);
 }
+
+// ============================================================================
+// C allocator shims — map malloc/free/realloc/calloc to MicroPython heap so
+// that STL internals and any C code that calls malloc() directly don't become
+// undefined symbol references in the natmod partial link.
+// ============================================================================
+
+extern "C" {
+
+void *malloc(size_t n)              { return m_malloc(n); }
+void  free(void *p)                 { m_free(p); }
+void *realloc(void *p, size_t n)    { return m_realloc(p, n); }
+void *calloc(size_t n, size_t sz)   {
+    size_t total = n * sz;
+    void *p = m_malloc(total);
+    if (p) memset(p, 0, total);
+    return p;
+}
+
+} // extern "C" (allocator shims)
 
 // ============================================================================
 // Minimal C stdlib — compiled with -fno-builtin so GCC doesn't replace
