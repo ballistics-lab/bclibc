@@ -161,6 +161,9 @@ target_link_libraries(bclibc_ffi PRIVATE bclibc_core)
 # ============================================================================
 # Compiler optimizations and flags
 # ============================================================================
+include(CheckIPOSupported)
+check_ipo_supported(RESULT IPO_SUPPORTED OUTPUT IPO_ERROR)
+
 foreach(target bclibc_core bclibc_ffi)
     if(MSVC)
         # MSVC specific flags
@@ -173,12 +176,38 @@ foreach(target bclibc_core bclibc_ffi)
         )
     else()
         # GCC/Clang flags
+        # -ffast-math прибрано: для RK4/Euler-інтегратора він порушує
+        # IEEE-754 семантику (reorder FP-операцій, no-NaN/Inf) і дає
+        # розбіжності з Debug-збіркою. -ffp-contract=off лишає чисту
+        # IEEE-арифметику навіть з контракцією FMA.
         target_compile_options(${target} PRIVATE
-            "$<$<NOT:$<CONFIG:Debug>>:-O3;-ffast-math>"
+            "$<$<NOT:$<CONFIG:Debug>>:-O3;-ffunction-sections;-fdata-sections;-ffp-contract=off>"
             "$<$<CONFIG:Debug>:-O0;-g>"
         )
     endif()
+
+    if(IPO_SUPPORTED)
+        set_target_properties(${target} PROPERTIES
+            INTERPROCEDURAL_OPTIMIZATION_RELEASE ON
+        )
+    endif()
 endforeach()
+
+# Лінкер: прибирання мертвого коду + strip у Release.
+# Не впливає на результати обчислень — лише на розмір бінарника.
+if(MSVC)
+    target_link_options(bclibc_ffi PRIVATE
+        "$<$<CONFIG:Release>:/OPT:REF;/OPT:ICF>"
+    )
+elseif(MACOS_BUILD)
+    target_link_options(bclibc_ffi PRIVATE
+        "$<$<NOT:$<CONFIG:Debug>>:-Wl,-dead_strip;-Wl,-x>"
+    )
+else()
+    target_link_options(bclibc_ffi PRIVATE
+        "$<$<NOT:$<CONFIG:Debug>>:-Wl,--gc-sections;-Wl,-strip-all>"
+    )
+endif()
 
 # ============================================================================
 # Symbol Export Control (Only for FFI) - Unix/Linux only
