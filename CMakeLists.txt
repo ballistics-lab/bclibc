@@ -161,6 +161,9 @@ target_link_libraries(bclibc_ffi PRIVATE bclibc_core)
 # ============================================================================
 # Compiler optimizations and flags
 # ============================================================================
+include(CheckIPOSupported)
+check_ipo_supported(RESULT IPO_SUPPORTED OUTPUT IPO_ERROR)
+
 foreach(target bclibc_core bclibc_ffi)
     if(MSVC)
         # MSVC specific flags
@@ -173,12 +176,38 @@ foreach(target bclibc_core bclibc_ffi)
         )
     else()
         # GCC/Clang flags
+        # -ffast-math was removed: for RK4/Euler integrators it breaks
+        # IEEE-754 semantics (reordering FP operations, no-NaN/Inf assumptions)
+        # and introduces discrepancies with the Debug build. -ffp-contract=off
+        # preserves strict IEEE arithmetic even when dealing with FMA contraction.
         target_compile_options(${target} PRIVATE
-            "$<$<NOT:$<CONFIG:Debug>>:-O3;-ffast-math>"
+            "$<$<NOT:$<CONFIG:Debug>>:-O3;-ffunction-sections;-fdata-sections;-ffp-contract=off>"
             "$<$<CONFIG:Debug>:-O0;-g>"
         )
     endif()
+
+    if(IPO_SUPPORTED)
+        set_target_properties(${target} PROPERTIES
+            INTERPROCEDURAL_OPTIMIZATION_RELEASE ON
+        )
+    endif()
 endforeach()
+
+# Linker: dead code elimination + strip in Release.
+# Does not affect calculation results — only reduces the binary size.
+if(MSVC)
+    target_link_options(bclibc_ffi PRIVATE
+        "$<$<CONFIG:Release>:/OPT:REF;/OPT:ICF>"
+    )
+elseif(MACOS_BUILD)
+    target_link_options(bclibc_ffi PRIVATE
+        "$<$<NOT:$<CONFIG:Debug>>:-Wl,-dead_strip;-Wl,-x>"
+    )
+else()
+    target_link_options(bclibc_ffi PRIVATE
+        "$<$<NOT:$<CONFIG:Debug>>:-Wl,--gc-sections;-Wl,-strip-all>"
+    )
+endif()
 
 # ============================================================================
 # Symbol Export Control (Only for FFI) - Unix/Linux only
@@ -194,7 +223,7 @@ endif()
 # ============================================================================
 # Installation rules
 # Only install when bclibc is the top-level project (e.g. Flatpak cmake-ninja
-# standalone build).  When used via add_subdirectory from a Flutter plugin the
+# standalone build). When used via add_subdirectory from a Flutter plugin the
 # parent build owns the install step and bclibc's package config files are not
 # needed — and running them breaks the Flutter cmake_install phase.
 # ============================================================================
