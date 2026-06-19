@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Updated `Makefile`, `CMakeLists`, `build-libs` to be consistant and better structured
+
 ## [1.1.0] - 2026-05-26
 
 ### Added
