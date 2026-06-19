@@ -5,7 +5,11 @@
 # ============================================================================
 ifeq ($(OS),Windows_NT)
     DETECTED_OS := Windows
-    CMAKE_GENERATOR := "Visual Studio 17 2022"
+    # No -G hardcode: let CMake auto-detect the newest installed Visual
+    # Studio (VS2022, VS2026, whatever comes next). Hardcoding the
+    # generator name breaks the moment GitHub/local toolchain migrates
+    # to a newer VS (e.g. "Visual Studio 17 2022" -> "Visual Studio 18 2026").
+    CMAKE_GENERATOR_FLAG :=
     MAKE_COMMAND := cmake --build build --config Release
     LIB_PREFIX :=
     LIB_SUFFIX := .dll
@@ -13,7 +17,7 @@ ifeq ($(OS),Windows_NT)
     LIB_DIR_DEBUG := build/bin/Debug
 else
     DETECTED_OS := $(shell uname -s)
-    CMAKE_GENERATOR := "Unix Makefiles"
+    CMAKE_GENERATOR_FLAG := -G "Unix Makefiles"
     LIB_PREFIX := lib
     LIB_DIR := build
     LIB_DIR_DEBUG := build
@@ -36,7 +40,7 @@ all: build
 # ============================================================================
 cmake-configure:
 	mkdir -p build
-	cd build && cmake -G $(CMAKE_GENERATOR) -DCMAKE_BUILD_TYPE=Release ..
+	cd build && cmake $(CMAKE_GENERATOR_FLAG) -DCMAKE_BUILD_TYPE=Release ..
 	@echo "CMake configured for $(DETECTED_OS)"
 
 build: cmake-configure
@@ -63,7 +67,7 @@ windows: cmake-configure
 
 windows-debug:
 	mkdir -p build
-	cd build && cmake -G $(CMAKE_GENERATOR) -DCMAKE_BUILD_TYPE=Debug ..
+	cd build && cmake $(CMAKE_GENERATOR_FLAG) -DCMAKE_BUILD_TYPE=Debug ..
 	cmake --build build --config Debug
 	@echo "Windows Debug build complete"
 	@echo "DLL location: build/bin/Debug/bclibc_ffi.dll"
@@ -91,6 +95,6 @@ clean:
 # ============================================================================
 info:
 	@echo "Detected OS: $(DETECTED_OS)"
-	@echo "CMake Generator: $(CMAKE_GENERATOR)"
+	@echo "CMake generator flag: $(CMAKE_GENERATOR_FLAG)"
 	@echo "Library prefix: $(LIB_PREFIX)"
 	@echo "Library suffix: $(LIB_SUFFIX)"
