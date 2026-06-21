@@ -1,0 +1,8 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+# Provide the header-only target
+include("${CMAKE_CURRENT_LIST_DIR}/tiny_bclibc-targets.cmake")
+
+check_required_components(tiny_bclibc)

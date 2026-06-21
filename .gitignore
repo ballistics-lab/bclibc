@@ -5,6 +5,7 @@ lib/
 build_check/
 build_*/
 cmake-build-*/
+build-*/
 
 *.o
 *.a
@@ -23,7 +24,7 @@ cmake-build-*/
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
-Makefile
+# Makefile
 compile_commands.json
 
 # Generated files
@@ -56,3 +57,9 @@ version.h
 # Debug symbols
 *.dSYM/
 *.dSYM.zip
+
+# MicroPython native module build artifacts
+*.mpy
+.mpy_ld_cache/
+micropython-natmod/build-*/
+micropython-natmod/generated/
