@@ -7,8 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### `tiny_bclibc` — Pure C99 ballistics engine
+- New `tiny_bclibc/` subtree: header-only C99 port of the ballistics engine
+  - `real_t` = `double` by default; `float` with `-DTINY_BCLIBC_USE_FLOAT`
+  - Three usage modes: header-only (`static inline`), shared library, static library via single TU `src/tiny_bclibc_impl.c`
+  - Public API: `tiny_bclibc_build_shot_props`, `tiny_bclibc_integrate`, `tiny_bclibc_integrate_at`, `tiny_bclibc_find_zero_angle`, `tiny_bclibc_find_apex`, `tiny_bclibc_find_max_range`, `tiny_bclibc_last_error`
+  - CIPM-2007 atmosphere, PCHIP drag curves, Coriolis, spin drift, Ridder zero-finding, RK4 integration
+  - Bare-metal / RTOS compatible: `TINY_BCLIBC_NO_THREAD_LOCAL`, `TINY_BCLIBC_NO_ERR_BUF`
+  - CMake package with `tiny_bclibc::headers` / `tiny_bclibc::shared` / `tiny_bclibc::static` targets
+  - Identity test suite (`tests/test_identity.cpp`) verifying numerical agreement with the C++ engine
+
+#### `micropython-natmod` — MicroPython native module
+- New `micropython-natmod/` subtree: `.mpy` native module wrapping `tiny_bclibc`
+  - Supports 11 architectures: x64, x86, armv6m, armv7m, armv7emsp, armv7emdp, xtensa, xtensawin, rv32imc, rv64imc (single and double precision variants)
+  - Bundled math: `libm_dbl` (musl-derived, x64/x86 double), fdlibm (x64/x86 single, RISC-V); ARM/Xtensa uses newlib via `LINK_RUNTIME`
+  - `math_shim.c`: `sincos`/`sincosf` shim for GCC `-O2` merge optimisation
+  - `mem_shim.c`: `memset`/`memcpy` shim for bare-metal targets
+  - `math_shadow/math.h`: intercepts glibc `<math.h>` to prevent `__sin`/`__cos` signature conflict with musl libm_dbl
+  - `tiny_bclibc_types.py`: `Shot`, `Wind`, `Config`, `Request` data classes with `pack()`/`unpack()`
+  - `test_bclibc.py`: full test suite (integrate, find_zero_angle, find_apex, integrate_at, RAM test)
+  - `test_bclibc_ffi.py`: mirror test suite using MicroPython `ffi` module against `libtiny_bclibc.so` — works on any unix port architecture (aarch64, mipsel, …) without a native module
+  - `ci/run_qemu.py`: QEMU pty bridge for running natmod tests on emulated MCU targets; supports `--machine` and `--qemu-extra` for any QEMU ARM board
+- CI workflow `.github/workflows/natmod.yml`:
+  - Builds all arch/precision matrix in parallel
+  - Tests on x64 and x86 unix port (both precisions)
+  - Tests on QEMU Cortex-M3 (`MPS2_AN385` / armv7m)
+  - Tests on QEMU Cortex-M0 (`MICROBIT` / armv6m / nRF51)
+
 ### Changed
-- Updated `Makefile`, `CMakeLists`, `build-libs` to be consistant and better structured
+- `README.md`: added repository structure overview; sections for `tiny_bclibc` and `micropython-natmod`
+- Updated `Makefile`, `CMakeLists`, `build-libs` to be consistent and better structured
 
 ## [1.1.0] - 2026-05-26
 
