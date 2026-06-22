@@ -60,9 +60,7 @@ class Wind:
         return Wind(v[0], v[1], v[2], v[3])
 
     def __repr__(self):
-        return "Wind({:.1f} fps dir={:.3f} rad)".format(
-            self.velocity_fps, self.direction_from_rad
-        )
+        return "Wind({:.1f} fps dir={:.3f} rad)".format(self.velocity_fps, self.direction_from_rad)
 
 
 class Config:
@@ -194,9 +192,7 @@ class Shot:
             )
             off += _WIND_SIZE
         for i in range(dc):
-            struct.pack_into(
-                _DRAG_FMT, buf, off, float(self.drag_mach[i]), float(self.drag_cd[i])
-            )
+            struct.pack_into(_DRAG_FMT, buf, off, float(self.drag_mach[i]), float(self.drag_cd[i]))
             off += _DRAG_SIZE
         return bytes(buf)
 
@@ -255,12 +251,8 @@ class Shot:
         )
 
     def __repr__(self):
-        drag = {DRAG_G1: "G1", DRAG_G7: "G7", DRAG_CUSTOM: "custom"}.get(
-            self.drag_type, "?"
-        )
-        return "Shot(bc={} mv={} fps drag={})".format(
-            self.bc, self.muzzle_velocity_fps, drag
-        )
+        drag = {DRAG_G1: "G1", DRAG_G7: "G7", DRAG_CUSTOM: "custom"}.get(self.drag_type, "?")
+        return "Shot(bc={} mv={} fps drag={})".format(self.bc, self.muzzle_velocity_fps, drag)
 
 
 class Request:
@@ -289,6 +281,4 @@ class Request:
         return Request(v[0], v[1], v[2], v[3])
 
     def __repr__(self):
-        return "Request(range={} ft step={} ft)".format(
-            self.range_limit_ft, self.range_step_ft
-        )
+        return "Request(range={} ft step={} ft)".format(self.range_limit_ft, self.range_step_ft)

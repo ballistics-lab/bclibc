@@ -287,11 +287,7 @@ try:
         _pass("integrate — {} rows, stop reason {}".format(len(rows), reason))
     else:
         _fail("integrate", "expected >=2 rows, got " + str(len(rows)))
-    print(
-        "  {:>8s}  {:>8s}  {:>8s}  {:>8s}".format(
-            "dist_ft", "vel_fps", "height_ft", "mach"
-        )
-    )
+    print("  {:>8s}  {:>8s}  {:>8s}  {:>8s}".format("dist_ft", "vel_fps", "height_ft", "mach"))
     for r in rows:
         print("  {:>8.0f}  {:>8.1f}  {:>8.3f}  {:>8.3f}".format(r[1], r[2], r[4], r[3]))
 except Exception as ex:
@@ -319,9 +315,7 @@ print("\n--- find_zero_angle (300 m zero) ---")
 elev = None
 try:
     elev = bclibc.find_zero_angle(SHOT.pack(), ZERO_DIST_FT)
-    _pass(
-        "find_zero_angle elev_rad={:.6f}  ({:.4f} deg)".format(elev, math.degrees(elev))
-    )
+    _pass("find_zero_angle elev_rad={:.6f}  ({:.4f} deg)".format(elev, math.degrees(elev)))
     if abs(elev - _ZERO_300M_REF) > _ZERO_300M_TOL:
         _fail(
             "find_zero_angle value",
@@ -400,16 +394,8 @@ try:
     mem_after_gc = gc.mem_alloc()
     delta = mem_after - mem_before
     delta_gc = mem_after_gc - mem_before
-    _pass(
-        "integrate 3 km — {} rows  alloc={} B  alloc_after_gc={} B".format(
-            len(rows_3km), delta, delta_gc
-        )
-    )
-    print(
-        "  mem_before={} B  mem_peak={} B  mem_after_gc={} B".format(
-            mem_before, mem_after, mem_after_gc
-        )
-    )
+    _pass("integrate 3 km — {} rows  alloc={} B  alloc_after_gc={} B".format(len(rows_3km), delta, delta_gc))
+    print("  mem_before={} B  mem_peak={} B  mem_after_gc={} B".format(mem_before, mem_after, mem_after_gc))
 except Exception as ex:
     _fail("RAM integrate 3 km", ex)
 

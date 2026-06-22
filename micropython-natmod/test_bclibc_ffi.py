@@ -421,9 +421,7 @@ def _build_props(shot_py):
     bc, wt, dia, length, mv, sh, tw, tc, phpa, alt, hum, la, be, baz, cant, lat, az = s
 
     # 6 config floats + cMaxIterations int32 at offsets 68..95
-    step_mult, zero_acc, min_vel, max_drop, gravity, min_alt, max_iter = (
-        struct.unpack_from("<6fi", buf, 68)
-    )
+    step_mult, zero_acc, min_vel, max_drop, gravity, min_alt, max_iter = struct.unpack_from("<6fi", buf, 68)
 
     drag_type = buf[96]
     wind_count = buf[97]
@@ -639,14 +637,7 @@ def get_correction(distance_ft, offset_ft):
 
 
 def calculate_ogw(weight_grain, velocity_fps):
-    return (
-        weight_grain
-        * weight_grain
-        * velocity_fps
-        * velocity_fps
-        * velocity_fps
-        * 1.5e-12
-    )
+    return weight_grain * weight_grain * velocity_fps * velocity_fps * velocity_fps * 1.5e-12
 
 
 # ── Test fixtures (same as test_bclibc.py) ───────────────────────────────────
@@ -898,11 +889,7 @@ try:
         _pass("integrate — {} rows, stop reason {}".format(len(rows), reason))
     else:
         _fail("integrate", "expected >=2 rows, got " + str(len(rows)))
-    print(
-        "  {:>8s}  {:>8s}  {:>8s}  {:>8s}".format(
-            "dist_ft", "vel_fps", "height_ft", "mach"
-        )
-    )
+    print("  {:>8s}  {:>8s}  {:>8s}  {:>8s}".format("dist_ft", "vel_fps", "height_ft", "mach"))
     for r in rows:
         print("  {:>8.0f}  {:>8.1f}  {:>8.3f}  {:>8.3f}".format(r[1], r[2], r[4], r[3]))
 except Exception as ex:
@@ -922,20 +909,14 @@ print("\n--- find_zero_angle (300 m zero) ---")
 elev = None
 try:
     elev = find_zero_angle(SHOT, ZERO_DIST_FT)
-    _pass(
-        "find_zero_angle elev_rad={:.6f}  ({:.4f} deg)".format(elev, math.degrees(elev))
-    )
+    _pass("find_zero_angle elev_rad={:.6f}  ({:.4f} deg)".format(elev, math.degrees(elev)))
 except Exception as ex:
     _fail("find_zero_angle", ex)
 
 print("\n--- find_zero_angle (100 m zero) ---")
 try:
     elev_100m = find_zero_angle(SHOT, ZERO_DIST_100M_FT)
-    _pass(
-        "find_zero_angle 100m  elev_rad={:.6f}  ({:.4f} deg)".format(
-            elev_100m, math.degrees(elev_100m)
-        )
-    )
+    _pass("find_zero_angle 100m  elev_rad={:.6f}  ({:.4f} deg)".format(elev_100m, math.degrees(elev_100m)))
     if elev_100m <= 0:
         _fail(
             "find_zero_angle 100m",
@@ -990,11 +971,7 @@ try:
             len(rows_3km), mem_after - mem_before, mem_after_gc - mem_before
         )
     )
-    print(
-        "  mem_before={} B  mem_peak={} B  mem_after_gc={} B".format(
-            mem_before, mem_after, mem_after_gc
-        )
-    )
+    print("  mem_before={} B  mem_peak={} B  mem_after_gc={} B".format(mem_before, mem_after, mem_after_gc))
 except Exception as ex:
     _fail("RAM integrate 3 km", ex)
 
