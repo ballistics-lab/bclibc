@@ -34,27 +34,28 @@ SHOT = Shot(
 # Request for 1 km trajectory with fine steps
 REQUEST_1KM = Request(
     range_limit_ft=1000.0 * 3.28084,  # 1 km in feet
-    range_step_ft=10.0 * 3.28084,     # 10 m steps
+    range_step_ft=10.0 * 3.28084,  # 10 m steps
     filter_flags=bclibc.TRAJ_FLAG_RANGE,
 )
 
 # Request for 3 km trajectory with coarse steps
 REQUEST_3KM = Request(
     range_limit_ft=3000.0 * 3.28084,  # 3 km in feet
-    range_step_ft=100.0 * 3.28084,    # 100 m steps
+    range_step_ft=100.0 * 3.28084,  # 100 m steps
     filter_flags=bclibc.TRAJ_FLAG_RANGE,
 )
 
 # ── Benchmark functions ──────────────────────────────────────────────────────
 
+
 def bench_integrate(req, iterations=10):
     """Benchmark integrate() function."""
     shot_buf = SHOT.pack()
     req_buf = req.pack()
-    
+
     times = []
     rows_count = 0
-    
+
     for _ in range(iterations):
         gc.collect()
         start = time.ticks_us()
@@ -62,27 +63,28 @@ def bench_integrate(req, iterations=10):
         end = time.ticks_us()
         times.append(time.ticks_diff(end, start))
         rows_count = len(rows)
-    
+
     avg_us = sum(times) / len(times)
     avg_ms = avg_us / 1000.0
-    
+
     return {
-        'avg_us': avg_us,
-        'avg_ms': avg_ms,
-        'min_us': min(times),
-        'max_us': max(times),
-        'iterations': iterations,
-        'rows': rows_count,
-        'reason': reason,
+        "avg_us": avg_us,
+        "avg_ms": avg_ms,
+        "min_us": min(times),
+        "max_us": max(times),
+        "iterations": iterations,
+        "rows": rows_count,
+        "reason": reason,
     }
+
 
 def bench_integrate_at(iterations=100):
     """Benchmark integrate_at() function."""
     shot_buf = SHOT.pack()
     targets = [100.0, 500.0, 1000.0, 1500.0, 2000.0]  # feet
-    
+
     times = []
-    
+
     for _ in range(iterations):
         for target in targets:
             gc.collect()
@@ -90,27 +92,28 @@ def bench_integrate_at(iterations=100):
             raw, full = bclibc.integrate_at(shot_buf, bclibc.INTERP_POS_X, target)
             end = time.ticks_us()
             times.append(time.ticks_diff(end, start))
-    
+
     avg_us = sum(times) / len(times)
     avg_ms = avg_us / 1000.0
-    
+
     return {
-        'avg_us': avg_us,
-        'avg_ms': avg_ms,
-        'min_us': min(times),
-        'max_us': max(times),
-        'iterations': iterations * len(targets),
-        'calls_per_sec': 1.0 / (avg_us / 1_000_000) if avg_us > 0 else 0,
+        "avg_us": avg_us,
+        "avg_ms": avg_ms,
+        "min_us": min(times),
+        "max_us": max(times),
+        "iterations": iterations * len(targets),
+        "calls_per_sec": 1.0 / (avg_us / 1_000_000) if avg_us > 0 else 0,
     }
+
 
 def bench_find_zero_angle(iterations=50):
     """Benchmark find_zero_angle() function."""
     shot_buf = SHOT.pack()
     zero_dist_ft = 300.0 * 3.28084  # 300 m
-    
+
     times = []
     results = []
-    
+
     for _ in range(iterations):
         gc.collect()
         start = time.ticks_us()
@@ -118,18 +121,19 @@ def bench_find_zero_angle(iterations=50):
         end = time.ticks_us()
         times.append(time.ticks_diff(end, start))
         results.append(elev)
-    
+
     avg_us = sum(times) / len(times)
     avg_ms = avg_us / 1000.0
-    
+
     return {
-        'avg_us': avg_us,
-        'avg_ms': avg_ms,
-        'min_us': min(times),
-        'max_us': max(times),
-        'iterations': iterations,
-        'elev_rad_avg': sum(results) / len(results),
+        "avg_us": avg_us,
+        "avg_ms": avg_ms,
+        "min_us": min(times),
+        "max_us": max(times),
+        "iterations": iterations,
+        "elev_rad_avg": sum(results) / len(results),
     }
+
 
 def bench_find_apex(iterations=50):
     """Benchmark find_apex() function."""
@@ -137,7 +141,7 @@ def bench_find_apex(iterations=50):
     shot_buf = SHOT.pack()
     zero_dist_ft = 300.0 * 3.28084
     elev = bclibc.find_zero_angle(shot_buf, zero_dist_ft)
-    
+
     # Create zeroed shot
     zeroed = Shot(
         bc=SHOT.bc,
@@ -151,61 +155,63 @@ def bench_find_apex(iterations=50):
         drag_type=DRAG_G7,
     )
     zeroed_buf = zeroed.pack()
-    
+
     times = []
-    
+
     for _ in range(iterations):
         gc.collect()
         start = time.ticks_us()
         apex = bclibc.find_apex(zeroed_buf)
         end = time.ticks_us()
         times.append(time.ticks_diff(end, start))
-    
+
     avg_us = sum(times) / len(times)
     avg_ms = avg_us / 1000.0
-    
+
     return {
-        'avg_us': avg_us,
-        'avg_ms': avg_ms,
-        'min_us': min(times),
-        'max_us': max(times),
-        'iterations': iterations,
-        'apex_dist_ft': apex[1],
-        'apex_height_ft': apex[4],
+        "avg_us": avg_us,
+        "avg_ms": avg_ms,
+        "min_us": min(times),
+        "max_us": max(times),
+        "iterations": iterations,
+        "apex_dist_ft": apex[1],
+        "apex_height_ft": apex[4],
     }
+
 
 def bench_memory_usage():
     """Measure memory usage during trajectory calculation."""
     gc.collect()
     mem_before = gc.mem_alloc()
     mem_free_before = gc.mem_free()
-    
+
     shot_buf = SHOT.pack()
     req_buf = REQUEST_3KM.pack()
-    
+
     gc.collect()
     mem_after_pack = gc.mem_alloc()
-    
+
     rows, reason = bclibc.integrate(shot_buf, req_buf)
     mem_after_integrate = gc.mem_alloc()
-    
+
     # Store results to prevent optimization
     result = len(rows)
     gc.collect()
     mem_after_gc = gc.mem_alloc()
     mem_free_after = gc.mem_free()
-    
+
     return {
-        'mem_before': mem_before,
-        'mem_after_pack': mem_after_pack,
-        'mem_after_integrate': mem_after_integrate,
-        'mem_after_gc': mem_after_gc,
-        'mem_free_before': mem_free_before,
-        'mem_free_after': mem_free_after,
-        'rows': len(rows),
-        'reason': reason,
-        'peak_alloc': mem_after_integrate - mem_before,
+        "mem_before": mem_before,
+        "mem_after_pack": mem_after_pack,
+        "mem_after_integrate": mem_after_integrate,
+        "mem_after_gc": mem_after_gc,
+        "mem_free_before": mem_free_before,
+        "mem_free_after": mem_free_after,
+        "rows": len(rows),
+        "reason": reason,
+        "peak_alloc": mem_after_integrate - mem_before,
     }
+
 
 # ── Run benchmarks ──────────────────────────────────────────────────────────
 
@@ -280,9 +286,9 @@ print("Benchmark Summary")
 print("=" * 60)
 
 # Estimate shots per second for different operations
-integrate_time_ms = bench_integrate(REQUEST_1KM, iterations=5)['avg_ms']
-integrate_at_time_ms = bench_integrate_at(iterations=50)['avg_ms']
-find_zero_time_ms = bench_find_zero_angle(iterations=20)['avg_ms']
+integrate_time_ms = bench_integrate(REQUEST_1KM, iterations=5)["avg_ms"]
+integrate_at_time_ms = bench_integrate_at(iterations=50)["avg_ms"]
+find_zero_time_ms = bench_find_zero_angle(iterations=20)["avg_ms"]
 
 print(f"  Trajectory (1 km, 10 m steps): {1000 / integrate_time_ms:.1f} shots/sec")
 print(f"  Interpolation: {1000 / integrate_at_time_ms:.1f} calls/sec")

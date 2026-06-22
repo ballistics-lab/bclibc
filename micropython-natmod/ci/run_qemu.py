@@ -18,6 +18,7 @@ Examples:
     --machine microbit \\
     --qemu-extra "-global nrf51-soc.flash-size=1048576 -global nrf51-soc.sram-size=262144"
 """
+
 import sys
 import os
 import argparse
@@ -69,23 +70,36 @@ def inject_types(types_src: bytes) -> bytes:
         b"import sys as _s\n"
         b"class _M: pass\n"
         b"_m=_M(); _m.__name__='tiny_bclibc_types'\n"
-        b"for _k in (" + b",".join(b"'" + n + b"'" for n in public.split(b",")) + b",):\n"
+        b"for _k in ("
+        + b",".join(b"'" + n + b"'" for n in public.split(b","))
+        + b",):\n"
         b"  setattr(_m,_k,globals()[_k])\n"
         b"_s.modules['tiny_bclibc_types']=_m\n"
     )
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("firmware", help="Path to firmware.elf")
-    ap.add_argument("natmod_dir", help="Directory with tiny_bclibc.mpy / tiny_bclibc_types.py / test_bclibc.py")
-    ap.add_argument("--machine", default="mps2-an385", help="QEMU -machine value (default: mps2-an385)")
-    ap.add_argument("--qemu-extra", default="", help="Extra QEMU arguments inserted before -serial")
+    ap.add_argument(
+        "natmod_dir",
+        help="Directory with tiny_bclibc.mpy / tiny_bclibc_types.py / test_bclibc.py",
+    )
+    ap.add_argument(
+        "--machine",
+        default="mps2-an385",
+        help="QEMU -machine value (default: mps2-an385)",
+    )
+    ap.add_argument(
+        "--qemu-extra", default="", help="Extra QEMU arguments inserted before -serial"
+    )
     args = ap.parse_args()
 
-    mpy_data  = read_file(os.path.join(args.natmod_dir, "tiny_bclibc.mpy"))
+    mpy_data = read_file(os.path.join(args.natmod_dir, "tiny_bclibc.mpy"))
     types_src = read_file(os.path.join(args.natmod_dir, "tiny_bclibc_types.py"))
-    test_src  = read_file(os.path.join(args.natmod_dir, "test_bclibc.py"))
+    test_src = read_file(os.path.join(args.natmod_dir, "test_bclibc.py"))
 
     extra = f" {args.qemu_extra}" if args.qemu_extra else ""
     qemu_cmd = (

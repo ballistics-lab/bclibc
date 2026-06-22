@@ -85,9 +85,13 @@ def parse_highlights(section: str) -> str:
 
 def get_prev_tag(version: str) -> Optional[str]:
     try:
-        tags = subprocess.check_output(["git", "tag", "--sort=-version:refname"], text=True).splitlines()
+        tags = subprocess.check_output(
+            ["git", "tag", "--sort=-version:refname"], text=True
+        ).splitlines()
         exclude = {version, f"v{version}"}
-        return next((t.strip() for t in tags if t.strip() and t.strip() not in exclude), None)
+        return next(
+            (t.strip() for t in tags if t.strip() and t.strip() not in exclude), None
+        )
     except subprocess.CalledProcessError:
         return None
 
@@ -95,7 +99,9 @@ def get_prev_tag(version: str) -> Optional[str]:
 def get_contributors(prev_tag: Optional[str]) -> List[str]:
     try:
         ref = f"{prev_tag}..HEAD" if prev_tag else "HEAD"
-        names = subprocess.check_output(["git", "log", ref, "--format=%aN"], text=True).splitlines()
+        names = subprocess.check_output(
+            ["git", "log", ref, "--format=%aN"], text=True
+        ).splitlines()
         return sorted({n for n in names if n and "github-actions" not in n.lower()})
     except subprocess.CalledProcessError:
         return []
@@ -140,10 +146,13 @@ def generate(version: str, repo: str, changelog_path: Path, package_name: str) -
         version=version,
         intro=intro,
         highlights=highlights,
-        upgrade_section=f"## 🛠 Upgrade Notes\n\n{upgrade_notes}\n" if upgrade_notes else "",
+        upgrade_section=f"## 🛠 Upgrade Notes\n\n{upgrade_notes}\n"
+        if upgrade_notes
+        else "",
         contributors_section=(
             f"## 📜 Contributors\n\nSpecial thanks to everyone who contributed to this release:\n\n{contributor_list}\n"
-            if contributors else ""
+            if contributors
+            else ""
         ),
         changelog_link=changelog_link,
     )
@@ -152,7 +161,10 @@ def generate(version: str, repo: str, changelog_path: Path, package_name: str) -
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print(f"Usage: {sys.argv[0]} <version> <repo> [changelog] [package_name]", file=sys.stderr)
+        print(
+            f"Usage: {sys.argv[0]} <version> <repo> [changelog] [package_name]",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     _version = sys.argv[1].lstrip("v")
