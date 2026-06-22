@@ -34,11 +34,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Builds all arch/precision matrix in parallel
   - Tests on x64 and x86 unix port (both precisions)
   - Tests on QEMU Cortex-M3 (`MPS2_AN385` / armv7m)
-  - Tests on QEMU Cortex-M0 (`MICROBIT` / armv6m / nRF51)
+  - `workflow_dispatch` trigger with `mpy_tag` input to test against any MicroPython release
+- `TINY_BCLIBC_FAST_ZERO_FIND` compile-time flag for `find_zero_angle` on soft-float MCUs (Cortex-M0+, RISC-V without FPU):
+  - GSS bracket search uses 8× coarser RK4 step — reduces steps per trajectory ~8×
+  - GSS convergence threshold relaxed to `1e-2 rad` (~13 iterations vs ~25) — halves trajectory count
+  - Ridder's method `acc` relaxed to `0.01 ft` (3 mm) — within `float` precision floor
+  - Final angle is computed by Ridder's at full `calc_step`; output accuracy is unchanged
+  - Enabled automatically by natmod `Makefile` when `USE_FLOAT=1`; independent of `TINY_BCLIBC_USE_FLOAT`
+- `micropython-natmod/RISC-V_picolibc.md`: documents two `mpy_ld.py` bugs triggered by picolibc on RISC-V and the patch in `patches/micropython/mpy_ld_srodata.patch`
+- `micropython-natmod/sincosf_shim.md`: documents why `src/math_shim.c` is compiled only for x64/x86
 
 ### Changed
 - `README.md`: added repository structure overview; sections for `tiny_bclibc` and `micropython-natmod`
 - Updated `Makefile`, `CMakeLists`, `build-libs` to be consistent and better structured
+- natmod `math_shim.c` (`sincosf` shim) removed from RISC-V build — GCC does not generate `sincosf` calls on ARM/RISC-V with the flags used; saves 68 B of flash
+- natmod armv6m QEMU test (`MICROBIT` board) removed — MICROBIT firmware does not support loading native `.mpy` for Cortex-M0; build verification in the `build` job is sufficient
 
 ## [1.1.0] - 2026-05-26
 

@@ -290,7 +290,7 @@ def run_benchmarks_on_core1():
         
         # 4. find_zero_angle() benchmark
         print("\n[Core1] --- find_zero_angle() (300 m zero) ---")
-        results['find_zero_angle'] = bench_find_zero_angle(iterations=50)
+        results['find_zero_angle'] = bench_find_zero_angle(iterations=10)
         print(f"[Core1]   Avg: {results['find_zero_angle']['avg_ms']:.3f} ms")
         print(f"[Core1]   Elevation: {math.degrees(results['find_zero_angle']['elev_rad_avg']):.4f}°")
         

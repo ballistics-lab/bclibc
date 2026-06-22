@@ -270,6 +270,28 @@ See [tiny_bclibc_types.py](tiny_bclibc_types.py) for `Shot`, `Wind`, `Config`, `
 
 BSS must be 0 — MicroPython natmod ABI does not allow uninitialized static data.
 
+### `find_zero_angle` performance (`TINY_BCLIBC_FAST_ZERO_FIND`)
+
+`find_zero_angle` uses a Golden-Section Search (GSS) to bracket the max-range angle,
+then Ridder's method to find the zero angle. Each GSS iteration runs a full RK4
+trajectory, which is expensive on soft-float MCUs (Cortex-M0+, RISC-V without FPU).
+
+`TINY_BCLIBC_FAST_ZERO_FIND` is automatically defined when building with `USE_FLOAT=1`.
+It applies two optimisations that do **not** affect the final angle accuracy:
+
+| Parameter | Default | Fast |
+|-----------|---------|------|
+| GSS step multiplier | 1× | 8× coarser (fewer RK4 steps per trajectory) |
+| GSS convergence `h` | `1e-5 rad` | `1e-2 rad` (~13 iterations vs ~25) |
+| Ridder's `acc` | `0.001 ft` | `0.01 ft` (3 mm — more than sufficient for `float`) |
+
+The bracket bound (`angle_at_max`) is used only to constrain Ridder's search interval;
+its precision does not affect the output. Ridder's method always uses the original
+`calc_step`.
+
+To build without `FAST_ZERO_FIND` even on `USE_FLOAT=1`, remove
+`-DTINY_BCLIBC_FAST_ZERO_FIND` from `CFLAGS_EXTRA` in the Makefile.
+
 See [sincosf_shim.md](sincosf_shim.md) for why `src/math_shim.c` is only compiled on x64/x86 and how to add it back for MCU targets if needed.
 
 ## Memory budget

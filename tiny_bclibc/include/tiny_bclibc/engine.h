@@ -807,16 +807,29 @@ static inline void tiny_bclibc__set_error(const char *msg)
         real_t c2 = a + inv_phi_sq * h;
         real_t d = a + inv_phi * h;
         real_t yc, yd;
+        /* For single precision the bracket only needs to be tight enough to
+         * enclose the zero angle — Ridder's method provides the final accuracy.
+         * 1e-2 rad (~0.57 deg) requires ~13 GSS iterations vs ~25 for 1e-5,
+         * halving the number of expensive range_for_angle calls. */
+#ifdef TINY_BCLIBC_FAST_ZERO_FIND
+        const real_t GSS_H_TOL = REAL_C(1e-2);
+#else
+        const real_t GSS_H_TOL = REAL_C(1e-5);
+#endif
 
-        /* Знімаємо обмеження для max-range */
-        real_t saved_min_vel = p.calc_step; /* нема config — skip */
-        (void)saved_min_vel;
+        /* FAST_ZERO_FIND: coarser step for GSS bracket search only.
+         * range_for_angle just needs to rank angles by range — fine accuracy
+         * is not required.  Ridder's below restores the original step. */
+#ifdef TINY_BCLIBC_FAST_ZERO_FIND
+        const real_t gss_step_save = p.calc_step;
+        p.calc_step *= REAL_C(8.0);
+#endif
 
         yc = tiny_bclibc__range_for_angle(&p, c2);
         yd = tiny_bclibc__range_for_angle(&p, d);
         for (int32_t i = 0; i < 100; i++)
         {
-            if (h < REAL_C(1e-5))
+            if (h < GSS_H_TOL)
                 break;
             if (yc > yd)
             {
@@ -839,6 +852,10 @@ static inline void tiny_bclibc__set_error(const char *msg)
         }
         real_t angle_at_max = (a + b) / REAL_C(2.0);
         real_t max_range = tiny_bclibc__range_for_angle(&p, angle_at_max);
+
+#ifdef TINY_BCLIBC_FAST_ZERO_FIND
+        p.calc_step = gss_step_save;
+#endif
 
         if (distance_ft > max_range)
         {
@@ -869,7 +886,13 @@ static inline void tiny_bclibc__set_error(const char *msg)
             return TINY_BCLIBC_ERR_ZERO_FINDING;
         }
 
+        /* Ridder's convergence in feet.  float has ~7 significant digits so
+         * 0.01 ft (3 mm) is the practical accuracy floor; double uses 0.001 ft. */
+#ifdef TINY_BCLIBC_FAST_ZERO_FIND
+        const real_t acc = REAL_C(0.01);
+#else
         const real_t acc = REAL_C(0.001);
+#endif
         real_t mid_angle, f_mid, s, next_angle, f_next;
         int32_t converged = 0;
         int32_t max_iter = 50;
