@@ -100,10 +100,8 @@ CFLAGS_EXTRA += -msse2 -mfpmath=sse
 endif
 
 else ifeq ($(ARCH),$(filter $(ARCH),rv32imc rv64imc))
-# RISC-V: picolibc libc.a triggers an mpy_ld.py relocation bug (Symbol has
-# no .section).  Avoid LINK_RUNTIME; use fdlibm + libgcc soft-float instead.
-SRC          += $(_FDLIBM_SRCS) src/math_shim.c src/mem_shim.c
-CFLAGS_EXTRA += $(_FDLIBM_FLAGS)
+# RISC-V: picolibc libc.a provides math + memcpy/memset/sincosf — no shims needed.
+LINK_RUNTIME  = 1
 
 else
 # ARM + Xtensa: newlib libm.a is self-contained and provides both precisions.
@@ -132,11 +130,6 @@ endif
 
 include $(MPY_DIR)/py/dynruntime.mk
 
-# ── RISC-V: add libgcc.a for soft-float builtins ─────────────────────────────
-# Must be after include so CROSS and CFLAGS_ARCH are set by dynruntime.mk.
-ifeq ($(ARCH),$(filter $(ARCH),rv32imc rv64imc))
-MPY_LD_FLAGS += -l$(realpath $(shell $(CROSS)gcc $(CFLAGS_ARCH) --print-libgcc-file-name))
-endif
 
 # ── Version header ─────────────────────────────────────────────────────────────
 $(VERSION_H): $(VERSION_IN)
