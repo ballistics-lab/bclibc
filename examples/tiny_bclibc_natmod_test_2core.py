@@ -1,3 +1,5 @@
+# ruff: noqa
+
 """
 tiny_bclibc natmod integration test - DUAL CORE VERSION (FIXED).
 Runs tests on Core1 with heartbeat on Core0.

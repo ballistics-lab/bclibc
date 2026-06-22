@@ -1,3 +1,5 @@
+# ruff: noqa
+
 """
 tiny_bclibc performance benchmark on Core1 with Heartbeat on Core0.
 Run with:

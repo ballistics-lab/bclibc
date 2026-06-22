@@ -1,3 +1,5 @@
+# ruff: noqa
+
 """
 tiny_bclibc natmod integration test.
 Run with:

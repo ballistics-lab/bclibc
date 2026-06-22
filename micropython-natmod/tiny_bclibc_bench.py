@@ -1,3 +1,5 @@
+# ruff: noqa
+
 """
 tiny_bclibc performance benchmark.
 Run with:

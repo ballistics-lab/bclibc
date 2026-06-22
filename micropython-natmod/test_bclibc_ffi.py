@@ -1,3 +1,5 @@
+# ruff: noqa
+
 """
 test_bclibc_ffi.py — mirrors test_bclibc.py using ffi to call libtiny_bclibc.so.
 
