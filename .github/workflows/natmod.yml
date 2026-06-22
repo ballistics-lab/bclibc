@@ -193,46 +193,8 @@ jobs:
             "$MPY_DIR/ports/qemu/build-MPS2_AN385/firmware.elf" \
             micropython-natmod/
 
-  # ── Test on emulated Cortex-M0 via QEMU (armv6m / nRF51 MICROBIT) ────────
-  test-qemu-arm6m:
-    name: test (armv6m / QEMU Cortex-M0)
-    needs: build
-    if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Fetch MicroPython ${{ env.MPY_TAG }}
-        run: |
-          VER="${MPY_TAG#v}"
-          wget -q "https://github.com/micropython/micropython/releases/download/${MPY_TAG}/micropython-${VER}.tar.xz" -O mpy.tar.xz
-          tar xf mpy.tar.xz && rm mpy.tar.xz
-          echo "MPY_DIR=$GITHUB_WORKSPACE/micropython-${VER}" >> $GITHUB_ENV
-
-      - name: Install toolchain + QEMU
-        run: |
-          sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi qemu-system-arm
-          pip install pyelftools ar pyserial
-
-      - name: Build mpy-cross
-        run: make -C "$MPY_DIR/mpy-cross"
-
-      - name: Build MicroPython QEMU firmware (MICROBIT / Cortex-M0)
-        run: make -C "$MPY_DIR/ports/qemu" BOARD=MICROBIT
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: tiny-bclibc-armv6m
-          path: micropython-natmod/
-
-      - name: Symlink to tiny_bclibc.mpy
-        working-directory: micropython-natmod
-        run: ln -sf tiny_bclibc_armv6m.mpy tiny_bclibc.mpy
-
-      - name: Run tests via QEMU
-        run: |
-          python3 micropython-natmod/ci/run_qemu.py \
-            "$MPY_DIR/ports/qemu/build-MICROBIT/firmware.elf" \
-            micropython-natmod/ \
-            --machine microbit \
-            --qemu-extra "-global nrf51-soc.flash-size=1048576 -global nrf51-soc.sram-size=262144"
+  # armv6m (RP2040) runtime test is not possible via QEMU: the MICROBIT board
+  # firmware does not support loading native .mpy for Cortex-M0, and no other
+  # QEMU ARM board emulates armv6m native modules. The build job above already
+  # verifies that the armv6m .mpy is correctly generated; hardware testing on
+  # actual RP2040 hardware is outside the scope of this CI.
