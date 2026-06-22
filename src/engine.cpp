@@ -900,12 +900,6 @@ namespace bclibc
 
             next_angle = mid_angle + (mid_angle - low_angle) * (copysign(1.0, f_low - f_high) * f_mid / s);
 
-            if (std::fabs(next_angle - mid_angle) < kRiddersAngleTol)
-            {
-                converged = 1;
-                return next_angle;
-            }
-
             f_next = this->error_at_distance(
                 next_angle,
                 target_x_ft,
@@ -915,6 +909,12 @@ namespace bclibc
             if (std::fabs(f_next) < this->config.cZeroFindingAccuracy)
             {
                 BCLIBC_DEBUG("Ridder: found exact solution at next_angle=%.6f", next_angle);
+                converged = 1;
+                return next_angle;
+            }
+
+            if (std::fabs(next_angle - mid_angle) < kRiddersAngleTol)
+            {
                 converged = 1;
                 return next_angle;
             }

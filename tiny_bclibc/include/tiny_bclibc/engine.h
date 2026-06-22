@@ -923,7 +923,8 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
             real_t sign = (f_low > f_high) ? REAL_C(1.0) : REAL_C(-1.0);
             next_angle = mid_angle + (mid_angle - low_angle) * (sign * f_mid / s);
-            if (TINY_BCLIBC_FABS(next_angle - mid_angle) < angle_tol)
+            f_next = tiny_bclibc__error_at_distance(&p, next_angle, tx, ty);
+            if (TINY_BCLIBC_FABS(f_next) < acc)
             {
                 converged = 1;
                 p.barrel_elevation = next_angle;
@@ -931,8 +932,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 return TINY_BCLIBC_OK;
             }
 
-            f_next = tiny_bclibc__error_at_distance(&p, next_angle, tx, ty);
-            if (TINY_BCLIBC_FABS(f_next) < acc)
+            if (TINY_BCLIBC_FABS(next_angle - mid_angle) < angle_tol)
             {
                 converged = 1;
                 p.barrel_elevation = next_angle;

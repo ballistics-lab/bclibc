@@ -63,3 +63,18 @@ version.h
 .mpy_ld_cache/
 micropython-natmod/build-*/
 micropython-natmod/generated/
+
+# Python
+**/__pycache__
+**/.mypy_cache/
+**/.ruff_cache/
+**/.pytest_cache/
+**/.idea
+**/*.pyd
+**/*.so
+**/*.dylib
+**/build
+**/dist
+**/wheelhouse
+**/*.egg-info
+**/.venv
