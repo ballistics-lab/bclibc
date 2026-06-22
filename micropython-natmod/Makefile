@@ -132,7 +132,23 @@ ifeq ($(USE_FLOAT),1)
 CFLAGS_EXTRA += -DTINY_BCLIBC_USE_FLOAT -DTINY_BCLIBC_FAST_ZERO_FIND
 endif
 
+# Guard the include so 'make clean' works without MPY_DIR.
+# dynruntime.mk has no -MMD so header changes are not auto-tracked; see below.
+ifeq ($(wildcard $(MPY_DIR)/py/dynruntime.mk),)
+ifeq ($(filter clean,$(MAKECMDGOALS)),clean)
+# clean only — dynruntime.mk not needed
+else
+$(error MPY_DIR="$(MPY_DIR)" — set MPY_DIR=/path/to/micropython)
+endif
+else
 include $(MPY_DIR)/py/dynruntime.mk
+endif
+
+# ── Header dependency tracking ────────────────────────────────────────────────
+# dynruntime.mk compiles with no -MMD, so .o files only depend on .c.
+# Force a rebuild of all object files when any tiny_bclibc header changes.
+_TINY_HEADERS := $(wildcard $(BCLIBC_ROOT)/tiny_bclibc/include/tiny_bclibc/*.h)
+$(SRC_O): $(_TINY_HEADERS)
 
 # ── RISC-V: add libgcc.a for soft-float builtins ─────────────────────────────
 # Must be after include so CROSS and CFLAGS_ARCH are set by dynruntime.mk.
