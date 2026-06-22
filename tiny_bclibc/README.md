@@ -66,7 +66,7 @@ These are compiler defines, not CMake options — pass via `-D` flag or CFLAGS:
 
 | Define | Description |
 |--------|-------------|
-| `TINY_BCLIBC_FAST_ZERO_FIND` | Reduce `find_zero_angle` computation on resource-constrained targets. Uses an 8× coarser RK4 step during the GSS bracket search and relaxed convergence tolerances (`h < 1e-2 rad`, `acc = 0.01 ft`). The final angle is still computed by Ridder's method at full precision. Enabled automatically by the natmod Makefile when `USE_FLOAT=1`. |
+| `TINY_BCLIBC_FAST_ZERO_FIND` | Reduce `find_zero_angle` computation on resource-constrained targets. Uses an 8× coarser RK4 step during the GSS bracket search and relaxed convergence tolerances (`h < 1e-2 rad`). Ridder's height-error tolerance is relaxed to `0.01 ft` (vs `0.001 ft`); angle-bracket convergence always uses `1e-5 rad`. The final angle is computed by Ridder's at full `calc_step`; output accuracy is unchanged. Enabled automatically by the natmod Makefile when `USE_FLOAT=1`. |
 
 ```bash
 cmake -B build -DTINY_BCLIBC_BUILD_SHARED=ON -DTINY_BCLIBC_USE_FLOAT=OFF

@@ -886,13 +886,18 @@ static inline void tiny_bclibc__set_error(const char *msg)
             return TINY_BCLIBC_ERR_ZERO_FINDING;
         }
 
-        /* Ridder's convergence in feet.  float has ~7 significant digits so
-         * 0.01 ft (3 mm) is the practical accuracy floor; double uses 0.001 ft. */
+        /* Ridder's height-error convergence in feet.  float has ~7 significant
+         * digits so 0.01 ft (3 mm) is the practical accuracy floor for single
+         * precision; double uses 0.001 ft. */
 #ifdef TINY_BCLIBC_FAST_ZERO_FIND
         const real_t acc = REAL_C(0.01);
 #else
         const real_t acc = REAL_C(0.001);
 #endif
+        /* Angle bracket convergence in radians — independent of acc (which is in
+         * feet).  1e-5 rad ≈ 0.0006° gives sub-milliradian accuracy on any
+         * target distance; kept constant across FAST/normal modes. */
+        const real_t angle_tol = REAL_C(1e-5);
         real_t mid_angle, f_mid, s, next_angle, f_next;
         int32_t converged = 0;
         int32_t max_iter = 50;
@@ -918,7 +923,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
             real_t sign = (f_low > f_high) ? REAL_C(1.0) : REAL_C(-1.0);
             next_angle = mid_angle + (mid_angle - low_angle) * (sign * f_mid / s);
-            if (TINY_BCLIBC_FABS(next_angle - mid_angle) < acc)
+            if (TINY_BCLIBC_FABS(next_angle - mid_angle) < angle_tol)
             {
                 converged = 1;
                 p.barrel_elevation = next_angle;
@@ -953,7 +958,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 f_low = f_next;
             }
 
-            if (TINY_BCLIBC_FABS(high_angle - low_angle) < acc)
+            if (TINY_BCLIBC_FABS(high_angle - low_angle) < angle_tol)
             {
                 converged = 1;
                 real_t res = (low_angle + high_angle) / REAL_C(2.0);

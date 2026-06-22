@@ -852,6 +852,10 @@ namespace bclibc
         }
 
         // 4. Ridder's method implementation
+        // cZeroFindingAccuracy is a height tolerance in feet; use a separate
+        // constant for the Ridder's angle-bracket convergence checks so they
+        // are not affected by the height accuracy setting.
+        static const double kRiddersAngleTol = 1e-5;
         for (int i = 0; i < this->config.cMaxIterations; i++)
         {
             mid_angle = (low_angle + high_angle) / 2.0;
@@ -896,7 +900,7 @@ namespace bclibc
 
             next_angle = mid_angle + (mid_angle - low_angle) * (copysign(1.0, f_low - f_high) * f_mid / s);
 
-            if (std::fabs(next_angle - mid_angle) < this->config.cZeroFindingAccuracy)
+            if (std::fabs(next_angle - mid_angle) < kRiddersAngleTol)
             {
                 converged = 1;
                 return next_angle;
@@ -940,7 +944,7 @@ namespace bclibc
                 break;
             }
 
-            if (std::fabs(high_angle - low_angle) < this->config.cZeroFindingAccuracy)
+            if (std::fabs(high_angle - low_angle) < kRiddersAngleTol)
             {
                 converged = 1;
                 return (low_angle + high_angle) / 2.0;
@@ -953,7 +957,7 @@ namespace bclibc
             // Try fallback strategies before giving up
 
             // If we have a very small bracket, consider it converged
-            if (std::fabs(high_angle - low_angle) < 10.0 * this->config.cZeroFindingAccuracy)
+            if (std::fabs(high_angle - low_angle) < 10.0 * kRiddersAngleTol)
             {
                 double result = (low_angle + high_angle) / 2.0;
                 BCLIBC_DEBUG("Ridder: accepting solution from small bracket: %.6f", result);

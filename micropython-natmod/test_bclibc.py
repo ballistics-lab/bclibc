@@ -78,12 +78,17 @@ ZERO_DIST_FT     = 300.0 * 3.28084   # 300 m in feet
 ZERO_DIST_100M_FT = 100.0 * 3.28084  # 100 m in feet
 
 
+_failures = 0
+
+
 def _pass(name):
     print("  PASS  " + name)
 
 
-def _fail(name, msg):
-    print("  FAIL  " + name + " — " + str(msg))
+def _fail(name, msg=""):
+    global _failures
+    _failures += 1
+    print("  FAIL  " + name + (" — " + str(msg) if msg else ""))
 
 
 # ── Tests ──────────────────────────────────────────────────────────────────────
@@ -138,12 +143,22 @@ except Exception as ex:
     _fail("integrate custom", ex)
 
 # -- find_zero_angle -----------------------------------------------------------
+# Reference: py-ballisticcalc (G7 BC=0.310, 168gr, 2750fps, sight 1.5in, 300m zero)
+#   0.002502148750322508 rad = 0.1434°
+# Tolerance 1e-4 rad (0.006°) — tight enough to catch premature-convergence bugs
+#   (e.g. FAST_ZERO_FIND with acc misused as angle tolerance returned 0.001362 rad, off by 0.0014)
+_ZERO_300M_REF = 0.002502
+_ZERO_300M_TOL = 1e-4
 print("\n--- find_zero_angle (300 m zero) ---")
 elev = None
 try:
     elev = bclibc.find_zero_angle(SHOT.pack(), ZERO_DIST_FT)
     _pass("find_zero_angle elev_rad={:.6f}  ({:.4f} deg)".format(
         elev, math.degrees(elev)))
+    if abs(elev - _ZERO_300M_REF) > _ZERO_300M_TOL:
+        _fail("find_zero_angle value",
+              "expected ~{:.6f} rad, got {:.6f} rad (diff={:.2e})".format(
+                  _ZERO_300M_REF, elev, abs(elev - _ZERO_300M_REF)))
 except Exception as ex:
     _fail("find_zero_angle", ex)
 
@@ -216,3 +231,6 @@ except Exception as ex:
     _fail("RAM integrate 3 km", ex)
 
 print("\n=== done ===")
+if _failures:
+    print("{} test(s) FAILED".format(_failures))
+    sys.exit(_failures)
