@@ -52,7 +52,7 @@ Fix — split the two cases:
 +            assert 0, r               # PCREL without a parent is a real error
 ```
 
-Full patch: [mpy_ld_srodata.patch](mpy_ld_srodata.patch)
+Full patch: [mpy_ld_srodata.patch](patches/micropython/mpy_ld_srodata.patch)
 
 ---
 

@@ -6,11 +6,15 @@ on:
       - "micropython-natmod/**"
       - "tiny_bclibc/**"
       - ".github/workflows/natmod.yml"
+  workflow_dispatch:
+    inputs:
+      mpy_tag:
+        description: 'MicroPython release tag (e.g. v1.28.0)'
+        required: false
+        default: 'v1.28.0'
 
 env:
-  MPY_VERSION: v1.28.0
-  MPY_TARBALL: https://github.com/micropython/micropython/releases/download/v1.28.0/micropython-1.28.0.tar.xz
-  MPY_DIR: ${{ github.workspace }}/micropython-1.28.0
+  MPY_TAG: ${{ github.event.inputs.mpy_tag || 'v1.28.0' }}
 
 jobs:
   # ── Build all architectures + precisions in parallel ───────────────────────
@@ -38,8 +42,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Fetch MicroPython ${{ env.MPY_VERSION }}
-        run: wget -q "$MPY_TARBALL" -O mpy.tar.xz && tar xf mpy.tar.xz && rm mpy.tar.xz
+      - name: Fetch MicroPython ${{ env.MPY_TAG }}
+        run: |
+          VER="${MPY_TAG#v}"
+          wget -q "https://github.com/micropython/micropython/releases/download/${MPY_TAG}/micropython-${VER}.tar.xz" -O mpy.tar.xz
+          tar xf mpy.tar.xz && rm mpy.tar.xz
+          echo "MPY_DIR=$GITHUB_WORKSPACE/micropython-${VER}" >> $GITHUB_ENV
 
       - name: Install cross-compiler
         if: matrix.apt != ''
@@ -50,7 +58,7 @@ jobs:
 
       - name: Build tiny_bclibc_${{ matrix.arch }}${{ matrix.suffix }}.mpy
         working-directory: micropython-natmod
-        run: make ARCH=${{ matrix.arch }} USE_FLOAT=${{ matrix.use_float }} MPY_DIR=${{ env.MPY_DIR }}
+        run: make ARCH=${{ matrix.arch }} USE_FLOAT=${{ matrix.use_float }} MPY_DIR="$MPY_DIR"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -73,8 +81,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Fetch MicroPython ${{ env.MPY_VERSION }}
-        run: wget -q "$MPY_TARBALL" -O mpy.tar.xz && tar xf mpy.tar.xz && rm mpy.tar.xz
+      - name: Fetch MicroPython ${{ env.MPY_TAG }}
+        run: |
+          VER="${MPY_TAG#v}"
+          wget -q "https://github.com/micropython/micropython/releases/download/${MPY_TAG}/micropython-${VER}.tar.xz" -O mpy.tar.xz
+          tar xf mpy.tar.xz && rm mpy.tar.xz
+          echo "MPY_DIR=$GITHUB_WORKSPACE/micropython-${VER}" >> $GITHUB_ENV
 
       - name: Install micropython unix build deps
         run: sudo apt-get install -y libffi-dev pkg-config
@@ -110,8 +122,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Fetch MicroPython ${{ env.MPY_VERSION }}
-        run: wget -q "$MPY_TARBALL" -O mpy.tar.xz && tar xf mpy.tar.xz && rm mpy.tar.xz
+      - name: Fetch MicroPython ${{ env.MPY_TAG }}
+        run: |
+          VER="${MPY_TAG#v}"
+          wget -q "https://github.com/micropython/micropython/releases/download/${MPY_TAG}/micropython-${VER}.tar.xz" -O mpy.tar.xz
+          tar xf mpy.tar.xz && rm mpy.tar.xz
+          echo "MPY_DIR=$GITHUB_WORKSPACE/micropython-${VER}" >> $GITHUB_ENV
 
       - name: Install 32-bit build deps
         run: |
@@ -144,8 +160,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Fetch MicroPython ${{ env.MPY_VERSION }}
-        run: wget -q "$MPY_TARBALL" -O mpy.tar.xz && tar xf mpy.tar.xz && rm mpy.tar.xz
+      - name: Fetch MicroPython ${{ env.MPY_TAG }}
+        run: |
+          VER="${MPY_TAG#v}"
+          wget -q "https://github.com/micropython/micropython/releases/download/${MPY_TAG}/micropython-${VER}.tar.xz" -O mpy.tar.xz
+          tar xf mpy.tar.xz && rm mpy.tar.xz
+          echo "MPY_DIR=$GITHUB_WORKSPACE/micropython-${VER}" >> $GITHUB_ENV
 
       - name: Install toolchain + QEMU
         run: |
@@ -182,8 +202,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Fetch MicroPython ${{ env.MPY_VERSION }}
-        run: wget -q "$MPY_TARBALL" -O mpy.tar.xz && tar xf mpy.tar.xz && rm mpy.tar.xz
+      - name: Fetch MicroPython ${{ env.MPY_TAG }}
+        run: |
+          VER="${MPY_TAG#v}"
+          wget -q "https://github.com/micropython/micropython/releases/download/${MPY_TAG}/micropython-${VER}.tar.xz" -O mpy.tar.xz
+          tar xf mpy.tar.xz && rm mpy.tar.xz
+          echo "MPY_DIR=$GITHUB_WORKSPACE/micropython-${VER}" >> $GITHUB_ENV
 
       - name: Install toolchain + QEMU
         run: |

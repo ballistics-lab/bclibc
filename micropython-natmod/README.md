@@ -264,7 +264,13 @@ See [tiny_bclibc_types.py](tiny_bclibc_types.py) for `Shot`, `Wind`, `Config`, `
 | xtensawin / xtensa | float only | newlib libm.a (via LINK_RUNTIME) | 0 |
 | rv32imc / rv64imc | float only | fdlibm single + libgcc soft-float | 0 |
 
+> **RISC-V note:** picolibc triggers a `mpy_ld.py` bug on current MicroPython.
+> fdlibm is used as a workaround until the fix lands upstream.
+> See [RISC-V_picolibc.md](RISC-V_picolibc.md) for details and the patch.
+
 BSS must be 0 — MicroPython natmod ABI does not allow uninitialized static data.
+
+See [sincosf_shim.md](sincosf_shim.md) for why `src/math_shim.c` is only compiled on x64/x86 and how to add it back for MCU targets if needed.
 
 ## Memory budget
 
