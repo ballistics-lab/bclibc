@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-06-26
+
 ### Fixed
 - `tiny_bclibc`: `TINY_BCLIBC_FAST_ZERO_FIND` returned wrong zero angle (~0.078° instead of ~0.143° for a 300 m zero).
   Root cause: `acc = 0.01` (a height tolerance in feet) was also used for the Ridder's angle-bracket
@@ -170,7 +172,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/ballistics-lab/bclibc/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/ballistics-lab/bclibc/compare/v1.0.5...v1.1.0
 [1.0.5]: https://github.com/ballistics-lab/bclibc/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/ballistics-lab/bclibc/compare/v1.0.3...v1.0.4
