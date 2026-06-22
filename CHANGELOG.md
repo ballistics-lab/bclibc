@@ -24,6 +24,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Experimental status
+- `tiny_bclibc` (C99 engine) and `micropython-natmod` are now explicitly marked **experimental**
+  in all `README.md` files (`tiny_bclibc/README.md`, `micropython-natmod/README.md`, root
+  `README.md`). APIs, binary layout, and build system may change without notice until
+  the features are stabilised.
+
+#### Float32 vs Float64 precision comparison (natmod)
+- Added `precision_run.py` (MicroPython worker) and `precision_compare.py` (CPython runner)
+  to `micropython-natmod/` for measuring accumulated trajectory deviation between the
+  `float32` (`-DTINY_BCLIBC_USE_FLOAT`) and `float64` natmod builds.
+- Test conditions: G7, BC=0.310, 168 gr, mv=2750 fps, T=15°C, P=1013.25 hPa, RH=0.5,
+  0–3000 m, output step=25 m (120 sample points), MicroPython v1.26 unix x64.
+  `range_step_ft` is the output sampling step only; internal RK4 sub-step is controlled
+  independently by `step_multiplier` (default 0.5).
+- Results (f32 − f64, double as reference):
+  - Max vertical drop deviation: **0.108 cm** at 2975 m
+  - Max velocity deviation: **0.0015 fps** (0.0005 m/s)
+  - Max Mach deviation: **1.32 × 10⁻⁶**
+  - `find_zero_angle` (300 m zero): **5 × 10⁻¹⁰ rad** (< 0.001 mrad)
+  - Float32 is sufficient for all supported MCU targets over distances up to 3000 m.
+- Documentation with full methodology added to `micropython-natmod/README.md`,
+  `tiny_bclibc/README.md`, and root `README.md`.
+
 #### `tiny_bclibc` — Pure C99 ballistics engine
 - New `tiny_bclibc/` subtree: header-only C99 port of the ballistics engine
   - `real_t` = `double` by default; `float` with `-DTINY_BCLIBC_USE_FLOAT`

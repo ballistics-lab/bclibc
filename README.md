@@ -14,7 +14,11 @@ High-performance ballistic trajectory solver with RK4 integration, Ridder's meth
 
 ---
 
-## tiny_bclibc — C99 engine
+## tiny_bclibc — C99 engine *(experimental)*
+
+> [!WARNING]
+> `tiny_bclibc` is an **experimental** feature. The API, CMake interface, and binary layout
+> may change without notice. Validate thoroughly before using in production.
 
 [`tiny_bclibc/`](tiny_bclibc/README.md) is a pure C99 reimplementation of the ballistic engine.
 Header-only by default (`static inline`); can also be compiled as a shared or static library
@@ -32,7 +36,11 @@ See [tiny_bclibc/README.md](tiny_bclibc/README.md) for full API and CMake option
 
 ---
 
-## MicroPython native module
+## MicroPython native module *(experimental)*
+
+> [!WARNING]
+> The MicroPython native module is an **experimental** feature. Build system, binary format,
+> and Python API may change without notice in future releases.
 
 [`micropython-natmod/`](micropython-natmod/README.md) wraps `tiny_bclibc` as a MicroPython
 `.mpy` native module. Supports all common MicroPython targets:
@@ -54,6 +62,11 @@ make x64                     # build tiny_bclibc_x64_d.mpy
 ln -sf tiny_bclibc_x64_d.mpy tiny_bclibc.mpy
 micropython test_bclibc.py   # run tests
 ```
+
+**Float32 vs Float64:** measured deviation over 3000 m (G7, BC=0.310, 168 gr @ 2750 fps,
+25 m output steps, x64 MicroPython unix port) — max drop error **0.108 cm** at 2975 m,
+max velocity error **0.0015 fps** — float32 is sufficient for all supported MCU targets.
+See [micropython-natmod/README.md](micropython-natmod/README.md) for full methodology and results.
 
 See [micropython-natmod/README.md](micropython-natmod/README.md) for full build, test, and API docs.
 

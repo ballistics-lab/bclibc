@@ -1,4 +1,8 @@
-# tiny_bclibc
+# tiny_bclibc *(experimental)*
+
+> [!WARNING]
+> `tiny_bclibc` is an **experimental** feature. The API, CMake interface, and binary layout
+> may change without notice until stabilised. Validate thoroughly before production use.
 
 Pure C99 ballistics engine — header-only by default, or compiled as a shared/static library.
 
@@ -80,6 +84,29 @@ cmake --build build
 
 All math macros (`TINY_BCLIBC_SIN`, `TINY_BCLIBC_SQRT`, etc.) resolve to the matching
 single- or double-precision libc functions automatically.
+
+### Float32 vs Float64 accumulated deviation
+
+Measured via the `micropython-natmod` comparison tool (see
+[`micropython-natmod/precision_compare.py`](../micropython-natmod/precision_compare.py)).
+
+**Test conditions:**
+- Shot: G7, BC=0.310, 168 gr, dia=0.308", mv=2750 fps, sight=0.125 ft (1.5"), twist=11"
+- Atmosphere: T=15°C, P=1013.25 hPa, RH=0.5, alt=0 ft
+- Range: 0–3000 m, output step=25 m (120 sample points)
+- Internal RK4 step: controlled by `step_multiplier=0.5` (independent of output step)
+- Host: MicroPython v1.26 unix port, x64, Python float=64-bit
+
+| Metric | Max deviation | At distance |
+|--------|--------------|-------------|
+| Vertical drop (height) | **0.108 cm** | 2975 m |
+| Velocity | **0.0015 fps** (0.0005 m/s) | — |
+| Mach number | **1.32 × 10⁻⁶** | — |
+| `find_zero_angle` (300 m zero) | **5 × 10⁻¹⁰ rad** (<0.001 mrad) | — |
+
+**Conclusion:** float32 accumulates ≈ 0.1 cm of drop error at 3000 m relative to float64.
+This is negligible compared to any practical uncertainty source (wind, BC variance, MV
+spread) and float32 is sufficient for all supported embedded targets.
 
 ## API
 

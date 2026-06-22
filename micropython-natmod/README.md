@@ -1,5 +1,11 @@
 # tiny_bclibc MicroPython natmod
 
+> [!WARNING]
+> **Experimental feature.** The MicroPython native module (`micropython-natmod/`) and the
+> underlying `tiny_bclibc` C99 engine are experimental. APIs, binary format, and build
+> system may change without notice in future releases. Do not use in production firmware
+> without thorough validation on your specific target.
+
 Native module (`.mpy`) that exposes the `tiny_bclibc` ballistics library to MicroPython.
 Each supported architecture produces its own file: `tiny_bclibc_<arch>[_d].mpy`.
 
@@ -326,3 +332,57 @@ firmware variant, frozen modules, and Wi-Fi stack (ESP32).
 
 For MCUs where the result list must fit in constrained RAM, stream results row by row
 using `integrate_at()` + a range loop instead of storing the full trajectory.
+
+## Float32 vs Float64 precision comparison
+
+### Test methodology
+
+The comparison runs the full trajectory integration twice — once with the float64 natmod
+(`tiny_bclibc_x64_d.mpy`, `-DTINY_BCLIBC_USE_FLOAT` **not** set) and once with the float32
+natmod (`tiny_bclibc_x64.mpy`, `-DTINY_BCLIBC_USE_FLOAT` defined) — and diffs the output
+row by row. `find_zero_angle` is also compared between the two builds.
+
+**Important:** `range_step_ft` in the `Request` is the *output sampling step* only.
+The internal RK4 integrator uses its own sub-step controlled by `step_multiplier` (default
+`0.5`) and is completely independent of the output step. Changing the output step does not
+affect integration accuracy.
+
+On the MicroPython unix port, Python `float` is 64-bit (double), so both natmods return
+full-width Python floats. The float32 values have float32 precision (significant bits
+truncated by the C layer), while float64 values have full double precision — the comparison
+is numerically valid.
+
+**Test conditions:**
+- Shot: G7, BC=0.310, 168 gr, dia=0.308", mv=2750 fps, sight=0.125 ft (1.5"), twist=11"
+- Atmosphere: T=15°C, P=1013.25 hPa, RH=0.5, alt=0 ft
+- Range: 0–3000 m, output step=25 m (120 sample points)
+- Internal RK4 step multiplier: 0.5 (default)
+- Host: MicroPython v1.26 unix port, x64, Python float=64-bit
+
+### Results
+
+| Metric | Max deviation | At |
+|--------|--------------|-----|
+| Vertical drop (`height_ft`) | **0.108 cm** | 2975 m |
+| Velocity | **0.0015 fps** (0.0005 m/s) | 1125 m |
+| Mach number | **1.32 × 10⁻⁶** | — |
+| `find_zero_angle` (300 m zero) | **5 × 10⁻¹⁰ rad** (< 0.001 mrad) | — |
+
+Drop deviation grows slowly with distance and changes sign around 1200–1300 m (float32
+overshoots slightly, then undershoots). At 3000 m the accumulated error is ≈ 0.1 cm —
+negligible against any real-world uncertainty source (wind, BC spread, muzzle velocity
+variation). Float32 is sufficient for all supported MCU targets.
+
+### Reproduction
+
+```bash
+# Build both precision variants (x64 host)
+make x64     # → tiny_bclibc_x64_d.mpy  (float64, default)
+make x64s    # → tiny_bclibc_x64.mpy    (float32)
+
+# Run comparison (requires CPython 3.10+)
+python3 precision_compare.py
+```
+
+See [`precision_compare.py`](precision_compare.py) (CPython runner) and
+[`precision_run.py`](precision_run.py) (MicroPython worker).
