@@ -8,6 +8,14 @@ Requires x64 host (8-byte pointers, real_t = double).
 """
 
 import sys, struct, math, array
+
+if sys.implementation.name != 'micropython':
+    try:
+        import pytest
+        pytest.skip("micropython-only", allow_module_level=True)
+    except ImportError:
+        raise SystemExit(0)
+
 import ffi
 import uctypes
 

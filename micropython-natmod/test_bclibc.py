@@ -10,6 +10,13 @@ import sys
 import math
 import array
 
+if sys.implementation.name != 'micropython':
+    try:
+        import pytest
+        pytest.skip("micropython-only", allow_module_level=True)
+    except ImportError:
+        raise SystemExit(0)
+
 _HERE = __file__.rsplit("/", 1)[0] if "/" in __file__ else "."
 sys.path.append(_HERE)
 

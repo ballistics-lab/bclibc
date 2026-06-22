@@ -4,7 +4,7 @@ MPY: soft reboot
 ============================================================
 tiny_bclibc Dual-Core Benchmark
 ============================================================
-Version: 1.1.0-11-g07794d0
+Version: 1.1.0-15-ga90143c
 Running on: RP2040 (dual-core)
 
 [Main] Starting Core1 benchmark thread...
@@ -18,8 +18,8 @@ Running on: RP2040 (dual-core)
 
 [Core1] ============================================================
 [Core1] Starting benchmarks on Core1
-[Core0] Heartbeat started (LED o[Core1] ============================================================n GPIO25)
-
+[Core0] Heartbeat started (LED on GPIO25)
+[Core1] ============================================================
 
 [Core1] --- integrate() (1 km, 10 m steps) ---
 [Core1] integrate() progress: 5/10
@@ -51,7 +51,7 @@ Running on: RP2040 (dual-core)
 [Core1] integrate_at() progress: 80/100
 [Core0] Heartbeat: RUNNING (600 blinks)
 [Core1] integrate_at() progress: 100/100
-[Core1]   Avg: 67.256 ms
+[Core1]   Avg: 67.257 ms
 [Core1]   ~15 calls/sec
 
 [Core1] --- find_zero_angle() (300 m zero) ---
@@ -88,8 +88,8 @@ Running on: RP2040 (dual-core)
 [Core0] Heartbeat: RUNNING (2150 blinks)
 [Core0] Heartbeat: RUNNING (2200 blinks)
 [Core1] find_zero_angle() progress: 10/10
-[Core1]   Avg: 15743.926 ms
-[Core1]   Elevation: 0.0779°
+[Core1]   Avg: 15858.986 ms
+[Core1]   Elevation: 0.1434°
 
 [Core1] --- find_apex() ---
 [Core0] Heartbeat: RUNNING (2250 blinks)
@@ -98,15 +98,15 @@ Running on: RP2040 (dual-core)
 [Core1] find_apex() progress: 10/50
 [Core1] find_apex() progress: 20/50
 [Core1] find_apex() progress: 30/50
+[Core0] Heartbeat: RUNNING (2400 blinks)
 [Core1] find_apex() progress: 40/50
 [Core1] find_apex() progress: 50/50
-[Core1]   Avg: 20.959 ms
-[Core1]   Apex: 302.1 ft
+[Core1]   Avg: 33.729 ms
+[Core1]   Apex: 532.1 ft
 
 [Core1] --- Memory usage (3 km trajectory) ---
-[Core0] Heartbeat: RUNNING (2400 blinks)
-[Core1]   Peak allocation: 10,128 B
-[Core1]   Free memory: 192,368 B → 182,336 B
+[Core1]   Peak allocation: 10,032 B
+[Core1]   Free memory: 192,352 B → 182,320 B
 
 [Core1] ============================================================
 [Core1] Benchmark Summary
@@ -125,8 +125,8 @@ All benchmarks completed successfully!
 Results: 6 benchmark categories
 
   integrate() 1km: 354.02 ms, 101 rows
-  integrate_at(): 67.256 ms, ~15 calls/sec
-  find_zero_angle(): 15743.926 ms, 0.0779°
+  integrate_at(): 67.257 ms, ~15 calls/sec
+  find_zero_angle(): 15858.986 ms, 0.1434°
 ============================================================
 Done!
 >>> 
