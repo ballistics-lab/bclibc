@@ -1,6 +1,82 @@
-# bclibc — C++ Ballistic Solver Engine
+# bclibc — Ballistic Solver Engine
 
-High-performance ballistic trajectory solver with RK4 and Euler integration, Ridder's method for zero-finding, and a stable C FFI layer for use from Dart/Flutter, Python, Rust, or any language with C bindings.
+High-performance ballistic trajectory solver with RK4 integration, Ridder's method for zero-finding, PCHIP drag curves, Coriolis, and spin drift.
+
+---
+
+## Repository structure
+
+| Directory | Description |
+|-----------|-------------|
+| `src/` / `include/` | C++ engine + `libbclibc_ffi` — Dart/Flutter, Python, Rust FFI |
+| [`tiny_bclibc/`](tiny_bclibc/README.md) | Pure C99 engine — header-only, embeddable on MCUs |
+| [`micropython-natmod/`](micropython-natmod/README.md) | MicroPython native module wrapping `tiny_bclibc` |
+
+---
+
+## tiny_bclibc — C99 engine *(experimental)*
+
+> [!WARNING]
+> `tiny_bclibc` is an **experimental** feature. The API, CMake interface, and binary layout
+> may change without notice. Validate thoroughly before using in production.
+
+[`tiny_bclibc/`](tiny_bclibc/README.md) is a pure C99 reimplementation of the ballistic engine.
+Header-only by default (`static inline`); can also be compiled as a shared or static library
+from a single TU (`src/tiny_bclibc_impl.c`).
+
+**Features:** RK4, PCHIP drag, CIPM-2007 atmosphere, Coriolis, spin drift, Ridder zero-finding,
+`float` or `double` precision, bare-metal / RTOS compatible (no TLS, no heap required).
+
+```cmake
+add_subdirectory(tiny_bclibc)
+target_link_libraries(my_target PRIVATE tiny_bclibc::headers)
+```
+
+See [tiny_bclibc/README.md](tiny_bclibc/README.md) for full API and CMake options.
+
+---
+
+## MicroPython native module *(experimental)*
+
+> [!WARNING]
+> The MicroPython native module is an **experimental** feature. Build system, binary format,
+> and Python API may change without notice in future releases.
+
+[`micropython-natmod/`](micropython-natmod/README.md) wraps `tiny_bclibc` as a MicroPython
+`.mpy` native module. Supports all common MicroPython targets:
+
+| Alias | Architecture | Target |
+|-------|-------------|--------|
+| `make x64` | x64 double | Host (Linux/macOS) |
+| `make x64s` | x64 single | Host (Linux/macOS) |
+| `make rp2040` | armv6m | Raspberry Pi Pico |
+| `make rp2350` | armv7emsp | RP2350 / STM32F4 |
+| `make stm32h7dp` | armv7emdp double | STM32H7 |
+| `make esp32s3` | xtensawin | ESP32-S3 |
+| `make esp32` | xtensa | ESP32 |
+| `make esp32c3` | rv32imc | ESP32-C3 / ESP32-C6 |
+
+```bash
+cd micropython-natmod
+make x64                     # build tiny_bclibc_x64_d.mpy
+ln -sf tiny_bclibc_x64_d.mpy tiny_bclibc.mpy
+micropython test_bclibc.py   # run tests
+```
+
+**Float32 vs Float64:** measured deviation over 3000 m (G7, BC=0.310, 168 gr @ 2750 fps,
+25 m output steps, x64 MicroPython unix port) — max drop error **0.108 cm** at 2975 m,
+max velocity error **0.0015 fps** — float32 is sufficient for all supported MCU targets.
+See [micropython-natmod/README.md](micropython-natmod/README.md) for full methodology and results.
+
+See [micropython-natmod/README.md](micropython-natmod/README.md) for full build, test, and API docs.
+
+---
+
+## C++ engine / libbclibc_ffi
+
+The `src/` / `include/` tree contains the original C++ engine with a stable C FFI layer
+(`libbclibc_ffi.so` / `.dll`) for use from Dart/Flutter, Python, Rust, and any language
+with C bindings.
 
 ---
 

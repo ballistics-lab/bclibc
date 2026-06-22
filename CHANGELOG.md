@@ -7,8 +7,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-06-26
+
+### Fixed
+- `tiny_bclibc`: `TINY_BCLIBC_FAST_ZERO_FIND` returned wrong zero angle (~0.078° instead of ~0.143° for a 300 m zero).
+  Root cause: `acc = 0.01` (a height tolerance in feet) was also used for the Ridder's angle-bracket
+  convergence checks (`|next_angle − mid_angle|` and `|high_angle − low_angle|`).  With `acc = 0.01 rad =
+  0.573°`, the bracket triggered premature convergence before the true zero angle (~0.0025 rad) was reached.
+  Fix: introduce a separate `angle_tol = 1e-5 rad` for the angle-difference checks; `acc` now governs only
+  height-error convergence (`|f_mid|`, `|f_next|`) as intended.
+- `bclibc` (C++ engine): same units mismatch in `find_zero_angle` — `cZeroFindingAccuracy` (height in ft) was
+  used for Ridder's angle-bracket convergence.  Introduced `kRiddersAngleTol = 1e-5 rad` to decouple them.
+  No observable regression at the default accuracy (`0.001`), but protects against incorrect results if a
+  larger accuracy value is supplied.
+- `test_bclibc.py` now asserts `find_zero_angle` returns within 1e-4 rad of the reference value
+  (0.002502 rad = 0.1434° for G7 BC=0.310, 168 gr, 2750 fps, 1.5 in sight, 300 m zero).
+  The test exits with a non-zero code when any assertion fails, making CI catch value regressions.
+
+### Added
+
+#### Experimental status
+- `tiny_bclibc` (C99 engine) and `micropython-natmod` are now explicitly marked **experimental**
+  in all `README.md` files (`tiny_bclibc/README.md`, `micropython-natmod/README.md`, root
+  `README.md`). APIs, binary layout, and build system may change without notice until
+  the features are stabilised.
+
+#### Float32 vs Float64 precision comparison (natmod)
+- Added `precision_run.py` (MicroPython worker) and `precision_compare.py` (CPython runner)
+  to `micropython-natmod/` for measuring accumulated trajectory deviation between the
+  `float32` (`-DTINY_BCLIBC_USE_FLOAT`) and `float64` natmod builds.
+- Test conditions: G7, BC=0.310, 168 gr, mv=2750 fps, T=15°C, P=1013.25 hPa, RH=0.5,
+  0–3000 m, output step=25 m (120 sample points), MicroPython v1.26 unix x64.
+  `range_step_ft` is the output sampling step only; internal RK4 sub-step is controlled
+  independently by `step_multiplier` (default 0.5).
+- Results (f32 − f64, double as reference):
+  - Max vertical drop deviation: **0.108 cm** at 2975 m
+  - Max velocity deviation: **0.0015 fps** (0.0005 m/s)
+  - Max Mach deviation: **1.32 × 10⁻⁶**
+  - `find_zero_angle` (300 m zero): **5 × 10⁻¹⁰ rad** (< 0.001 mrad)
+  - Float32 is sufficient for all supported MCU targets over distances up to 3000 m.
+- Documentation with full methodology added to `micropython-natmod/README.md`,
+  `tiny_bclibc/README.md`, and root `README.md`.
+
+#### `tiny_bclibc` — Pure C99 ballistics engine
+- New `tiny_bclibc/` subtree: header-only C99 port of the ballistics engine
+  - `real_t` = `double` by default; `float` with `-DTINY_BCLIBC_USE_FLOAT`
+  - Three usage modes: header-only (`static inline`), shared library, static library via single TU `src/tiny_bclibc_impl.c`
+  - Public API: `tiny_bclibc_build_shot_props`, `tiny_bclibc_integrate`, `tiny_bclibc_integrate_at`, `tiny_bclibc_find_zero_angle`, `tiny_bclibc_find_apex`, `tiny_bclibc_find_max_range`, `tiny_bclibc_last_error`
+  - CIPM-2007 atmosphere, PCHIP drag curves, Coriolis, spin drift, Ridder zero-finding, RK4 integration
+  - Bare-metal / RTOS compatible: `TINY_BCLIBC_NO_THREAD_LOCAL`, `TINY_BCLIBC_NO_ERR_BUF`
+  - CMake package with `tiny_bclibc::headers` / `tiny_bclibc::shared` / `tiny_bclibc::static` targets
+  - Identity test suite (`tests/test_identity.cpp`) verifying numerical agreement with the C++ engine
+
+#### `micropython-natmod` — MicroPython native module
+- New `micropython-natmod/` subtree: `.mpy` native module wrapping `tiny_bclibc`
+  - Supports 11 architectures: x64, x86, armv6m, armv7m, armv7emsp, armv7emdp, xtensa, xtensawin, rv32imc, rv64imc (single and double precision variants)
+  - Bundled math: `libm_dbl` (musl-derived, x64/x86 double), fdlibm (x64/x86 single, RISC-V); ARM/Xtensa uses newlib via `LINK_RUNTIME`
+  - `math_shim.c`: `sincos`/`sincosf` shim for GCC `-O2` merge optimisation
+  - `mem_shim.c`: `memset`/`memcpy` shim for bare-metal targets
+  - `math_shadow/math.h`: intercepts glibc `<math.h>` to prevent `__sin`/`__cos` signature conflict with musl libm_dbl
+  - `tiny_bclibc_types.py`: `Shot`, `Wind`, `Config`, `Request` data classes with `pack()`/`unpack()`
+  - `test_bclibc.py`: full test suite (integrate, find_zero_angle, find_apex, integrate_at, RAM test)
+  - `test_bclibc_ffi.py`: mirror test suite using MicroPython `ffi` module against `libtiny_bclibc.so` — works on any unix port architecture (aarch64, mipsel, …) without a native module
+  - `ci/run_qemu.py`: QEMU pty bridge for running natmod tests on emulated MCU targets; supports `--machine` and `--qemu-extra` for any QEMU ARM board
+- CI workflow `.github/workflows/natmod.yml`:
+  - Builds all arch/precision matrix in parallel
+  - Tests on x64 and x86 unix port (both precisions)
+  - Tests on QEMU Cortex-M3 (`MPS2_AN385` / armv7m)
+  - `workflow_dispatch` trigger with `mpy_tag` input to test against any MicroPython release
+- `TINY_BCLIBC_FAST_ZERO_FIND` compile-time flag for `find_zero_angle` on soft-float MCUs (Cortex-M0+, RISC-V without FPU):
+  - GSS bracket search uses 8× coarser RK4 step — reduces steps per trajectory ~8×
+  - GSS convergence threshold relaxed to `1e-2 rad` (~13 iterations vs ~25) — halves trajectory count
+  - Ridder's height-error tolerance `acc` relaxed to `0.01 ft` (3 mm) — within `float` precision floor; angle-bracket convergence uses a separate `1e-5 rad` constant, unchanged
+  - Final angle is computed by Ridder's at full `calc_step`; output accuracy is unchanged
+  - Enabled automatically by natmod `Makefile` when `USE_FLOAT=1`; independent of `TINY_BCLIBC_USE_FLOAT`
+- `micropython-natmod/RISC-V_picolibc.md`: documents two `mpy_ld.py` bugs triggered by picolibc on RISC-V and the patch in `patches/micropython/mpy_ld_srodata.patch`
+- `micropython-natmod/sincosf_shim.md`: documents why `src/math_shim.c` is compiled only for x64/x86
+
 ### Changed
-- Updated `Makefile`, `CMakeLists`, `build-libs` to be consistant and better structured
+- `README.md`: added repository structure overview; sections for `tiny_bclibc` and `micropython-natmod`
+- Updated `Makefile`, `CMakeLists`, `build-libs` to be consistent and better structured
+- natmod `math_shim.c` (`sincosf` shim) removed from RISC-V build — GCC does not generate `sincosf` calls on ARM/RISC-V with the flags used; saves 68 B of flash
+- natmod armv6m QEMU test (`MICROBIT` board) removed — MICROBIT firmware does not support loading native `.mpy` for Cortex-M0; build verification in the `build` job is sufficient
 
 ## [1.1.0] - 2026-05-26
 
@@ -92,7 +172,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/ballistics-lab/bclibc/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/ballistics-lab/bclibc/compare/v1.0.5...v1.1.0
 [1.0.5]: https://github.com/ballistics-lab/bclibc/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/ballistics-lab/bclibc/compare/v1.0.3...v1.0.4

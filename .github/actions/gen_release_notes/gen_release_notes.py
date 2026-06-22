@@ -143,7 +143,8 @@ def generate(version: str, repo: str, changelog_path: Path, package_name: str) -
         upgrade_section=f"## 🛠 Upgrade Notes\n\n{upgrade_notes}\n" if upgrade_notes else "",
         contributors_section=(
             f"## 📜 Contributors\n\nSpecial thanks to everyone who contributed to this release:\n\n{contributor_list}\n"
-            if contributors else ""
+            if contributors
+            else ""
         ),
         changelog_link=changelog_link,
     )
@@ -152,7 +153,10 @@ def generate(version: str, repo: str, changelog_path: Path, package_name: str) -
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print(f"Usage: {sys.argv[0]} <version> <repo> [changelog] [package_name]", file=sys.stderr)
+        print(
+            f"Usage: {sys.argv[0]} <version> <repo> [changelog] [package_name]",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     _version = sys.argv[1].lstrip("v")
