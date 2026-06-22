@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.1.1] - 2026-06-26
+## [1.1.3] - 2026-06-22
 
 ### Fixed
 - `tiny_bclibc`: `TINY_BCLIBC_FAST_ZERO_FIND` returned wrong zero angle (~0.078° instead of ~0.143° for a 300 m zero).
@@ -89,6 +89,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated `Makefile`, `CMakeLists`, `build-libs` to be consistent and better structured
 - natmod `math_shim.c` (`sincosf` shim) removed from RISC-V build — GCC does not generate `sincosf` calls on ARM/RISC-V with the flags used; saves 68 B of flash
 - natmod armv6m QEMU test (`MICROBIT` board) removed — MICROBIT firmware does not support loading native `.mpy` for Cortex-M0; build verification in the `build` job is sufficient
+
+## [1.1.2] - 2026-05-29
+
+### Fixed
+- `CMakeLists.txt`: removed `-ffast-math` from Release build flags; the flag broke trajectory event detection (apex, zero-angle) by relaxing IEEE 754 semantics required by the solver's sign-change logic.
+
+## [1.1.1] - 2026-05-29
+
+### Fixed
+- `BCLIBC_Atmosphere::update_density_factor_and_mach_for_altitude()`: added vacuum guard (`_p0 <= 0`) before the barometric formula; previously `_p0 = 0` (set by `from_conditions(p_hpa=0)`) caused `0/0 = NaN` for `density_delta`, propagating NaN drag through any vacuum trajectory where altitude changes by more than 30 ft from base.
+- `BCLIBC_Shot::to_shot_props()`: `BCLIBC_MachList` now move-constructed from `mach_v` instead of copy-constructed; eliminates one redundant O(N) heap allocation per shot.
 
 ## [1.1.0] - 2026-05-26
 
@@ -172,7 +183,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.3...HEAD
+[1.1.3]: https://github.com/ballistics-lab/bclibc/compare/v1.1.2...v1.1.3
+[1.1.2]: https://github.com/ballistics-lab/bclibc/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/ballistics-lab/bclibc/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/ballistics-lab/bclibc/compare/v1.0.5...v1.1.0
 [1.0.5]: https://github.com/ballistics-lab/bclibc/compare/v1.0.4...v1.0.5
