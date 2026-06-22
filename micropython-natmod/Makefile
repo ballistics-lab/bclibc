@@ -104,7 +104,7 @@ else ifeq ($(ARCH),$(filter $(ARCH),rv32imc rv64imc))
 # recognised + absolute LO12 relocation unhandled).  Use fdlibm + libgcc
 # soft-float directly until the upstream fix lands.
 # See micropython-natmod/RISC-V_picolibc.md for details and the patch.
-SRC          += $(_FDLIBM_SRCS) src/math_shim.c src/mem_shim.c
+SRC          += $(_FDLIBM_SRCS) src/mem_shim.c
 CFLAGS_EXTRA += $(_FDLIBM_FLAGS)
 
 else
