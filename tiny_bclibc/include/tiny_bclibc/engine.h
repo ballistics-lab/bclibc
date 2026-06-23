@@ -765,18 +765,15 @@ static inline void tiny_bclibc__set_error(const char *msg)
         return ctx.found ? ctx.slant_dist : REAL_C(0.0);
     }
 
-    /* ── find_zero_angle (Ridder's method) ───────────────────────────── */
+    /* ── find_zero_angle_ridders (fallback: GSS + Ridder's) ─────────── */
 
-    TINY_BCLIBC_FUNC int32_t tiny_bclibc_find_zero_angle(
+    TINY_BCLIBC_INTERNAL int32_t tiny_bclibc__find_zero_angle_ridders(
         const TINY_BCLIBC_ShotProps *props,
         real_t distance_ft,
         real_t *out_angle_rad)
     {
         if (!props || !out_angle_rad)
-        {
-            tiny_bclibc__set_error("tiny_bclibc_find_zero_angle: NULL argument");
             return TINY_BCLIBC_ERR_INVALID_ARG;
-        }
 
         /* Mutable copy для зміни barrel_elevation */
         TINY_BCLIBC_ShotProps p = *props;
@@ -981,6 +978,157 @@ static inline void tiny_bclibc__set_error(const char *msg)
         }
         *out_angle_rad = (low_angle + high_angle) / REAL_C(2.0);
         return TINY_BCLIBC_OK;
+    }
+
+    /* ── zero_angle_newton (primary: damped Newton-like iteration) ────── */
+    /*
+     * Matches BCLIBC_BaseEngine::zero_angle() in src/engine.cpp.
+     * Integrates only to target_x_ft each iteration — fast convergence
+     * (~3-5 iterations) without a full trajectory to max range.
+     */
+    TINY_BCLIBC_INTERNAL int32_t tiny_bclibc__zero_angle_newton(
+        TINY_BCLIBC_ShotProps *p,
+        real_t slant_range_ft,
+        real_t target_x_ft,
+        real_t look_angle_rad,
+        real_t *out_angle_rad)
+    {
+        real_t ca = TINY_BCLIBC_COS(look_angle_rad);
+        real_t sa = TINY_BCLIBC_SIN(look_angle_rad);
+
+#ifdef TINY_BCLIBC_USE_FLOAT
+        const real_t cZeroFindingAccuracy = REAL_C(1e-3);
+#else
+        const real_t cZeroFindingAccuracy = REAL_C(5e-6);
+#endif
+        const real_t ALLOWED_ZERO_ERROR_FT = REAL_C(1e-2);
+        const int32_t cMaxIterations = 40;
+
+        int32_t iterations = 0;
+        real_t range_error_ft     = REAL_C(9e9);
+        real_t prev_range_error_ft  = REAL_C(9e9);
+        real_t height_error_ft    = cZeroFindingAccuracy * REAL_C(2.0);
+        real_t prev_height_error_ft = REAL_C(9e9);
+        real_t damping_factor     = REAL_C(1.0);
+        const real_t damping_rate = REAL_C(0.7);
+        real_t last_correction    = REAL_C(0.0);
+
+        while (iterations < cMaxIterations)
+        {
+            TINY_BCLIBC_BaseTrajData raw;
+            TINY_BCLIBC_TrajectoryData full;
+            int32_t rc = tiny_bclibc_integrate_at(p, TINY_BCLIBC_KEY_POS_X, target_x_ft, &raw, &full);
+            if (rc != TINY_BCLIBC_OK || raw.time == REAL_C(0.0))
+                return TINY_BCLIBC_ERR_ZERO_FINDING;
+
+            /* Degenerate: bullet barely moves — nudge elevation */
+            if (REAL_C(2.0) * raw.px < target_x_ft &&
+                p->barrel_elevation == REAL_C(0.0) && look_angle_rad < REAL_C(1.5))
+            {
+                p->barrel_elevation = REAL_C(0.01);
+                iterations++;
+                continue;
+            }
+
+            real_t height_diff_ft = raw.py * ca - raw.px * sa;
+            real_t look_dist_ft   = raw.px * ca + raw.py * sa;
+            range_error_ft  = TINY_BCLIBC_FABS(look_dist_ft - slant_range_ft);
+            height_error_ft = TINY_BCLIBC_FABS(height_diff_ft);
+
+            real_t traj_angle  = TINY_BCLIBC_ATAN2(raw.vy, raw.vx);
+            real_t sensitivity = TINY_BCLIBC_TAN(p->barrel_elevation - look_angle_rad) *
+                                 TINY_BCLIBC_TAN(traj_angle - look_angle_rad);
+            real_t denominator = (sensitivity < REAL_C(-0.5))
+                                 ? look_dist_ft
+                                 : look_dist_ft * (REAL_C(1.0) + sensitivity);
+            if (TINY_BCLIBC_FABS(denominator) <= REAL_C(1e-9))
+                return TINY_BCLIBC_ERR_ZERO_FINDING;
+
+            real_t correction = -height_diff_ft / denominator;
+
+            if (range_error_ft > ALLOWED_ZERO_ERROR_FT)
+            {
+                if (range_error_ft > prev_range_error_ft - REAL_C(1e-6))
+                    return TINY_BCLIBC_ERR_ZERO_FINDING;
+            }
+            else if (height_error_ft > TINY_BCLIBC_FABS(prev_height_error_ft))
+            {
+                damping_factor *= damping_rate;
+                if (damping_factor < REAL_C(0.3))
+                    return TINY_BCLIBC_ERR_ZERO_FINDING;
+                p->barrel_elevation -= last_correction;
+                correction = last_correction;
+            }
+            else if (damping_factor < REAL_C(1.0))
+            {
+                damping_factor = REAL_C(1.0);
+            }
+
+            prev_range_error_ft  = range_error_ft;
+            prev_height_error_ft = height_error_ft;
+
+            if (height_error_ft <= cZeroFindingAccuracy && range_error_ft <= ALLOWED_ZERO_ERROR_FT)
+            {
+                *out_angle_rad = p->barrel_elevation;
+                return TINY_BCLIBC_OK;
+            }
+
+            real_t applied = correction * damping_factor;
+            p->barrel_elevation += applied;
+            last_correction = applied;
+            iterations++;
+        }
+
+        if (height_error_ft <= cZeroFindingAccuracy && range_error_ft <= ALLOWED_ZERO_ERROR_FT)
+        {
+            *out_angle_rad = p->barrel_elevation;
+            return TINY_BCLIBC_OK;
+        }
+        return TINY_BCLIBC_ERR_ZERO_FINDING;
+    }
+
+    /* ── find_zero_angle (public: Newton primary + Ridder's fallback) ─── */
+    /*
+     * Matches BCLIBC_BaseEngine::zero_angle_with_fallback() in src/engine.cpp.
+     */
+    TINY_BCLIBC_FUNC int32_t tiny_bclibc_find_zero_angle(
+        const TINY_BCLIBC_ShotProps *props,
+        real_t distance_ft,
+        real_t *out_angle_rad)
+    {
+        if (!props || !out_angle_rad)
+        {
+            tiny_bclibc__set_error("tiny_bclibc_find_zero_angle: NULL argument");
+            return TINY_BCLIBC_ERR_INVALID_ARG;
+        }
+
+        real_t la = props->look_angle;
+        real_t ca = TINY_BCLIBC_COS(la), sa = TINY_BCLIBC_SIN(la);
+        real_t tx = distance_ft * ca;
+        real_t ty = distance_ft * sa;
+        real_t sh = -props->cant_cosine * props->sight_height;
+        const real_t ZERO_ERR_FT = REAL_C(0.5);
+
+        if (TINY_BCLIBC_FABS(distance_ft) < ZERO_ERR_FT)
+        {
+            *out_angle_rad = la;
+            return TINY_BCLIBC_OK;
+        }
+        if (TINY_BCLIBC_FABS(distance_ft) < REAL_C(2.0) * TINY_BCLIBC_FABS(sh))
+        {
+            *out_angle_rad = TINY_BCLIBC_ATAN2(ty + sh, tx);
+            return TINY_BCLIBC_OK;
+        }
+        (void)ty;
+
+        /* Primary: Newton-like damped iteration */
+        TINY_BCLIBC_ShotProps p_newton = *props;
+        if (tiny_bclibc__zero_angle_newton(&p_newton, distance_ft, tx, la, out_angle_rad) == TINY_BCLIBC_OK)
+            return TINY_BCLIBC_OK;
+
+        /* Fallback: GSS + Ridder's (guaranteed bracket method) */
+        tiny_bclibc__set_error("tiny_bclibc_find_zero_angle: Newton failed, using Ridder's fallback");
+        return tiny_bclibc__find_zero_angle_ridders(props, distance_ft, out_angle_rad);
     }
 
     /* ── find_max_range ───────────────────────────────────────────────── */
