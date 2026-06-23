@@ -16,8 +16,8 @@ from machine import Pin
 _HERE = __file__.rsplit("/", 1)[0] if "/" in __file__ else "."
 sys.path.append(_HERE)
 
-import tiny_bclibc as bclibc
-from tiny_bclibc_types import Shot, Request, DRAG_G7
+import tiny_bclibc as bc
+from tiny_bclibc import Shot, Request, DRAG_G7
 
 # ── Global variables for inter-core communication ──────────────────────────
 benchmark_result = None
@@ -43,13 +43,13 @@ SHOT = Shot(
 REQUEST_1KM = Request(
     range_limit_ft=1000.0 * 3.28084,
     range_step_ft=10.0 * 3.28084,
-    filter_flags=bclibc.TRAJ_FLAG_RANGE,
+    filter_flags=bc.TRAJ_FLAG_RANGE,
 )
 
 REQUEST_3KM = Request(
     range_limit_ft=3000.0 * 3.28084,
     range_step_ft=100.0 * 3.28084,
-    filter_flags=bclibc.TRAJ_FLAG_RANGE,
+    filter_flags=bc.TRAJ_FLAG_RANGE,
 )
 
 # ── Heartbeat on Core0 ──────────────────────────────────────────────────────
@@ -94,16 +94,13 @@ def heartbeat():
 
 def bench_integrate(req, iterations=10):
     """Benchmark integrate() function."""
-    shot_buf = SHOT.pack()
-    req_buf = req.pack()
-
     times = []
     rows_count = 0
 
     for i in range(iterations):
         gc.collect()
         start = time.ticks_us()
-        rows, reason = bclibc.integrate(shot_buf, req_buf)
+        rows, reason = bc.integrate(SHOT, req)
         end = time.ticks_us()
         times.append(time.ticks_diff(end, start))
         rows_count = len(rows)
@@ -128,7 +125,6 @@ def bench_integrate(req, iterations=10):
 
 def bench_integrate_at(iterations=100):
     """Benchmark integrate_at() function."""
-    shot_buf = SHOT.pack()
     targets = [100.0, 500.0, 1000.0, 1500.0, 2000.0]  # feet
 
     times = []
@@ -138,7 +134,7 @@ def bench_integrate_at(iterations=100):
         for target in targets:
             gc.collect()
             start = time.ticks_us()
-            raw, full = bclibc.integrate_at(shot_buf, bclibc.INTERP_POS_X, target)
+            raw, full = bc.integrate_at(SHOT, bc.INTERP_POS_X, target)
             end = time.ticks_us()
             times.append(time.ticks_diff(end, start))
             total_calls += 1
@@ -161,7 +157,6 @@ def bench_integrate_at(iterations=100):
 
 def bench_find_zero_angle(iterations=50):
     """Benchmark find_zero_angle() function."""
-    shot_buf = SHOT.pack()
     zero_dist_ft = 300.0 * 3.28084
 
     times = []
@@ -170,7 +165,7 @@ def bench_find_zero_angle(iterations=50):
     for i in range(iterations):
         gc.collect()
         start = time.ticks_us()
-        elev = bclibc.find_zero_angle(shot_buf, zero_dist_ft)
+        elev = bc.find_zero_angle(SHOT, zero_dist_ft)
         end = time.ticks_us()
         times.append(time.ticks_diff(end, start))
         results.append(elev)
@@ -193,29 +188,27 @@ def bench_find_zero_angle(iterations=50):
 
 def bench_find_apex(iterations=50):
     """Benchmark find_apex() function."""
-    shot_buf = SHOT.pack()
     zero_dist_ft = 300.0 * 3.28084
-    elev = bclibc.find_zero_angle(shot_buf, zero_dist_ft)
+    elev = bc.find_zero_angle(SHOT, zero_dist_ft)
 
     zeroed = Shot(
-        bc=SHOT.bc,
-        weight_grain=SHOT.weight_grain,
-        diameter_inch=SHOT.diameter_inch,
-        length_inch=SHOT.length_inch,
-        muzzle_velocity_fps=SHOT.muzzle_velocity_fps,
-        sight_height_ft=SHOT.sight_height_ft,
-        twist_inch=SHOT.twist_inch,
+        bc=0.310,
+        weight_grain=168.0,
+        diameter_inch=0.308,
+        length_inch=1.2,
+        muzzle_velocity_fps=2750.0,
+        sight_height_ft=0.125,
+        twist_inch=11.0,
         barrel_elevation_rad=elev,
         drag_type=DRAG_G7,
     )
-    zeroed_buf = zeroed.pack()
 
     times = []
 
     for i in range(iterations):
         gc.collect()
         start = time.ticks_us()
-        apex = bclibc.find_apex(zeroed_buf)
+        apex = bc.find_apex(zeroed)
         end = time.ticks_us()
         times.append(time.ticks_diff(end, start))
 
@@ -242,13 +235,7 @@ def bench_memory_usage():
     mem_before = gc.mem_alloc()
     mem_free_before = gc.mem_free()
 
-    shot_buf = SHOT.pack()
-    req_buf = REQUEST_3KM.pack()
-
-    gc.collect()
-    mem_after_pack = gc.mem_alloc()
-
-    rows, reason = bclibc.integrate(shot_buf, req_buf)
+    rows, reason = bc.integrate(SHOT, REQUEST_3KM)
     mem_after_integrate = gc.mem_alloc()
 
     result = len(rows)
@@ -258,12 +245,11 @@ def bench_memory_usage():
 
     return {
         "mem_before": mem_before,
-        "mem_after_pack": mem_after_pack,
         "mem_after_integrate": mem_after_integrate,
         "mem_after_gc": mem_after_gc,
         "mem_free_before": mem_free_before,
         "mem_free_after": mem_free_after,
-        "rows": len(rows),
+        "rows": result,
         "reason": reason,
         "peak_alloc": mem_after_integrate - mem_before,
     }
@@ -358,7 +344,7 @@ def main():
     print("=" * 60)
     print("tiny_bclibc Dual-Core Benchmark")
     print("=" * 60)
-    print(f"Version: {bclibc.version()}")
+    print(f"Version: {bc.version()}")
     print("Running on: RP2040 (dual-core)")
     print()
     print("[Main] Starting Core1 benchmark thread...")

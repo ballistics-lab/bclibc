@@ -30,13 +30,13 @@ else
 _PREC_SUFFIX := _d
 endif
 
-MOD         = tiny_bclibc_$(ARCH)$(_PREC_SUFFIX)
+MOD         = _tiny_bclibc_$(ARCH)$(_PREC_SUFFIX)
 BCLIBC_ROOT = ..
 BUILD       = build-$(ARCH)$(_PREC_SUFFIX)
 VERSION_H   = generated/bclibc_mp/version.h
 VERSION_IN  = version.h.in
 
-SRC = src/bclibc_mp.c
+SRC = src/tiny_bclibc_mp.c
 
 # ── Shared math-library sources ───────────────────────────────────────────────
 #
@@ -171,7 +171,7 @@ $(VERSION_H): $(VERSION_IN)
 	        -e 's/@BCLIBC_MP_VERSION@/$(_VER)/g' \
 	        $< > $@
 
-$(BUILD)/src/bclibc_mp.o: $(VERSION_H)
+$(BUILD)/src/tiny_bclibc_mp.o: $(VERSION_H)
 
 # ── Convenience aliases ────────────────────────────────────────────────────────
 .PHONY: x64 x64s x86 x86s rp2040 rp2350 stm32f4 stm32h7 stm32h7dp esp32s3 esp32 esp32c3 esp32c6 clean
@@ -210,4 +210,4 @@ esp32c3 esp32c6:
 	$(MAKE) ARCH=rv32imc
 
 clean:
-	rm -rf build-* tiny_bclibc_*.mpy generated
+	rm -rf build-* _tiny_bclibc_*.mpy generated

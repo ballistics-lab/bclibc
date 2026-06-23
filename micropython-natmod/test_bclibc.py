@@ -23,8 +23,8 @@ if sys.implementation.name != "micropython":
 _HERE = __file__.rsplit("/", 1)[0] if "/" in __file__ else "."
 sys.path.append(_HERE)
 
-import tiny_bclibc as bclibc
-from tiny_bclibc_types import Shot, Request, Wind, Config, DRAG_G7, DRAG_CUSTOM
+import tiny_bclibc as bc
+from tiny_bclibc import Shot, Request, Wind, Config, DRAG_G7, DRAG_CUSTOM
 
 # ── Custom drag table (same values as built-in G7) ────────────────────────
 G7_MACH = array.array(
@@ -233,7 +233,7 @@ SHOT_CUSTOM = Shot(
 REQUEST = Request(
     range_limit_ft=1500.0,
     range_step_ft=300.0,
-    filter_flags=bclibc.TRAJ_FLAG_RANGE,
+    filter_flags=bc.TRAJ_FLAG_RANGE,
 )
 
 ZERO_DIST_FT = 300.0 * 3.28084  # 300 m in feet
@@ -256,24 +256,24 @@ def _fail(name, msg=""):
 # ── Tests ──────────────────────────────────────────────────────────────────────
 
 print("=== bclibc natmod test ===")
-print("version:", bclibc.version())
+print("version:", bc.version())
 
 # -- Scalar helpers -------------------------------------------------------------
 print("\n--- scalar helpers ---")
 
-e = bclibc.calculate_energy(168.0, 2750.0)
+e = bc.calculate_energy(168.0, 2750.0)
 if abs(e - 2820.83) < 1.0:
     _pass("calculate_energy")
 else:
     _fail("calculate_energy", e)
 
-c = bclibc.get_correction(300.0, -2.0)
+c = bc.get_correction(300.0, -2.0)
 if abs(c) < 0.1:
     _pass("get_correction (at zero)")
 else:
     _fail("get_correction", c)
 
-ogw = bclibc.calculate_ogw(168.0, 2750.0)
+ogw = bc.calculate_ogw(168.0, 2750.0)
 if 800 < ogw < 1000:
     _pass("calculate_ogw")
 else:
@@ -308,7 +308,7 @@ except Exception as ex:
 # -- Integration (built-in G7) -------------------------------------------------
 print("\n--- integrate (builtin G7, 1500 ft, step 300) ---")
 try:
-    rows, reason = bclibc.integrate(SHOT.pack(), REQUEST.pack())
+    rows, reason = bc.integrate(SHOT, REQUEST)
     if len(rows) >= 2:
         _pass("integrate — {} rows, stop reason {}".format(len(rows), reason))
     else:
@@ -322,7 +322,7 @@ except Exception as ex:
 # -- Integration (custom array drag table) ------------------------------------
 print("\n--- integrate (custom array G7, 1500 ft, step 300) ---")
 try:
-    rows2, reason2 = bclibc.integrate(SHOT_CUSTOM.pack(), REQUEST.pack())
+    rows2, reason2 = bc.integrate(SHOT_CUSTOM, REQUEST)
     if len(rows2) >= 2:
         _pass("integrate custom — {} rows, stop reason {}".format(len(rows2), reason2))
     else:
@@ -340,7 +340,7 @@ _ZERO_300M_TOL = 1e-4
 print("\n--- find_zero_angle (300 m zero) ---")
 elev = None
 try:
-    elev = bclibc.find_zero_angle(SHOT.pack(), ZERO_DIST_FT)
+    elev = bc.find_zero_angle(SHOT, ZERO_DIST_FT)
     _pass("find_zero_angle elev_rad={:.6f}  ({:.4f} deg)".format(elev, math.degrees(elev)))
     if abs(elev - _ZERO_300M_REF) > _ZERO_300M_TOL:
         _fail(
@@ -355,7 +355,7 @@ except Exception as ex:
 # -- find_zero_angle at 100 m -------------------------------------------------
 print("\n--- find_zero_angle (100 m zero) ---")
 try:
-    elev_100m = bclibc.find_zero_angle(SHOT.pack(), ZERO_DIST_100M_FT)
+    elev_100m = bc.find_zero_angle(SHOT, ZERO_DIST_100M_FT)
     elev_100m_mrad = math.degrees(elev_100m) * math.pi / 180 * 1000  # rad → mrad
     _pass(
         "find_zero_angle 100m  elev_rad={:.6f}  ({:.4f} deg  {:.2f} mrad)".format(
@@ -376,17 +376,17 @@ print("\n--- find_apex (zeroed shot) ---")
 try:
     _elev = elev if elev is not None else 0.002442
     zeroed = Shot(
-        bc=SHOT.bc,
-        weight_grain=SHOT.weight_grain,
-        diameter_inch=SHOT.diameter_inch,
-        length_inch=SHOT.length_inch,
-        muzzle_velocity_fps=SHOT.muzzle_velocity_fps,
-        sight_height_ft=SHOT.sight_height_ft,
-        twist_inch=SHOT.twist_inch,
+        bc=0.310,
+        weight_grain=168.0,
+        diameter_inch=0.308,
+        length_inch=1.2,
+        muzzle_velocity_fps=2750.0,
+        sight_height_ft=0.125,
+        twist_inch=11.0,
         barrel_elevation_rad=_elev,
         drag_type=DRAG_G7,
     )
-    apex = bclibc.find_apex(zeroed.pack())
+    apex = bc.find_apex(zeroed)
     _pass("find_apex dist_ft={:.1f}  height_ft={:.1f}".format(apex[1], apex[4]))
 except Exception as ex:
     _fail("find_apex", ex)
@@ -394,7 +394,7 @@ except Exception as ex:
 # -- integrate_at --------------------------------------------------------------
 print("\n--- integrate_at (POS_X = 1000 ft) ---")
 try:
-    raw, full = bclibc.integrate_at(SHOT.pack(), bclibc.INTERP_POS_X, 1000.0)
+    raw, full = bc.integrate_at(SHOT, bc.INTERP_POS_X, 1000.0)
     _pass("integrate_at dist_ft={:.1f}  vel_fps={:.1f}".format(full[1], full[2]))
 except Exception as ex:
     _fail("integrate_at", ex)
@@ -404,9 +404,9 @@ except Exception as ex:
 print("\n--- integrate_stream (collect all points) ---")
 try:
     collected = []
-    total_s, reason_s = bclibc.integrate_stream(SHOT.pack(), REQUEST.pack(),
-                                                lambda row: collected.append(row))
-    rows_ref, _ = bclibc.integrate(SHOT.pack(), REQUEST.pack())
+    total_s, reason_s = bc.integrate_stream(SHOT, REQUEST,
+                                             lambda row: collected.append(row))
+    rows_ref, _ = bc.integrate(SHOT, REQUEST)
     if len(collected) == len(rows_ref):
         _pass("integrate_stream — {} points (total={})".format(len(collected), total_s))
     else:
@@ -419,17 +419,17 @@ try:
     REQ_5KM = Request(
         range_limit_ft=5000.0 * 3.28084,
         range_step_ft=300.0 * 3.28084,
-        filter_flags=bclibc.TRAJ_FLAG_RANGE,
+        filter_flags=bc.TRAJ_FLAG_RANGE,
     )
-    T_ENERGY = bclibc.T_ENERGY
+    T_ENERGY = bc.T_ENERGY
     stopped_at = [None]
     count_e = [0]
     def _cb_energy(row):
         count_e[0] += 1
         if row[T_ENERGY] < 1000.0:
-            stopped_at[0] = row[bclibc.T_DISTANCE]
+            stopped_at[0] = row[bc.T_DISTANCE]
             return True
-    _, reason_e = bclibc.integrate_stream(SHOT.pack(), REQ_5KM.pack(), _cb_energy)
+    _, reason_e = bc.integrate_stream(SHOT, REQ_5KM, _cb_energy)
     if reason_e == 5 and stopped_at[0] is not None:
         _pass("integrate_stream stop — energy<1000 at {:.0f} ft after {} pts".format(stopped_at[0], count_e[0]))
     else:
@@ -445,13 +445,11 @@ try:
     REQ_3KM = Request(
         range_limit_ft=3000.0 * 3.28084,
         range_step_ft=100.0 * 3.28084,
-        filter_flags=bclibc.TRAJ_FLAG_RANGE,
+        filter_flags=bc.TRAJ_FLAG_RANGE,
     )
-    shot_buf = SHOT.pack()
-    req_buf = REQ_3KM.pack()
     gc.collect()
     mem_before = gc.mem_alloc()
-    rows_3km, _ = bclibc.integrate(shot_buf, req_buf)
+    rows_3km, _ = bc.integrate(SHOT, REQ_3KM)
     mem_after = gc.mem_alloc()
     gc.collect()
     mem_after_gc = gc.mem_alloc()

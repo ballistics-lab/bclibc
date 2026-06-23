@@ -17,8 +17,8 @@ import sys
 _HERE = __file__.rsplit("/", 1)[0] if "/" in __file__ else "."
 sys.path.append(_HERE)
 
-import tiny_bclibc as bclibc
-from tiny_bclibc_types import Shot, Request, DRAG_G7
+import tiny_bclibc as bc
+from tiny_bclibc import Shot, Request, DRAG_G7
 
 SHOT = Shot(
     bc=0.310,
@@ -60,17 +60,17 @@ print(
 
 # ── find_zero_angle ────────────────────────────────────────────────────────────
 zero_dist_ft = ZERO_M * _FT_PER_M
-elev_rad = bclibc.find_zero_angle(SHOT.pack(), zero_dist_ft)
+elev_rad = bc.find_zero_angle(SHOT, zero_dist_ft)
 print("zero_angle\t{:.10f}".format(elev_rad))
 
 # ── Trajectory integration ─────────────────────────────────────────────────────
 REQUEST = Request(
     range_limit_ft=LIMIT_M * _FT_PER_M,
     range_step_ft=STEP_M * _FT_PER_M,
-    filter_flags=bclibc.TRAJ_FLAG_RANGE,
+    filter_flags=bc.TRAJ_FLAG_RANGE,
 )
 
-rows, _reason = bclibc.integrate(SHOT.pack(), REQUEST.pack())
+rows, _reason = bc.integrate(SHOT, REQUEST)
 
 # row layout: (time_s, dist_ft, vel_fps, mach, height_ft, windage_ft, ...)
 print("dist_m\tvel_fps\theight_ft\tmach\ttime_s\twindage_ft")

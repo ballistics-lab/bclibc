@@ -32,7 +32,7 @@ if struct.calcsize("P") != 8:
 _HERE = __file__.rsplit("/", 1)[0] if "/" in __file__ else "."
 sys.path.append(_HERE)
 
-from tiny_bclibc_types import Shot, Request, DRAG_G1, DRAG_G7, DRAG_CUSTOM
+from tiny_bclibc import Shot, Request, DRAG_G1, DRAG_G7, DRAG_CUSTOM
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 TRAJ_FLAG_RANGE = 8
