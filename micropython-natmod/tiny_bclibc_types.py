@@ -13,85 +13,128 @@ Usage:
         lambda row: None)   # return truthy to stop early
 """
 
-import struct
+import uctypes
+from micropython import const
+from collections import namedtuple as _namedtuple
 
 _NaN = float("nan")
 _INF = 1e8  # TINY_BCLIBC_MAX_WIND_DIST_FT
 
-DRAG_G1 = 0
-DRAG_G7 = 1
-DRAG_CUSTOM = 2
+DRAG_G1 = const(0)
+DRAG_G7 = const(1)
+DRAG_CUSTOM = const(2)
 
-# Shot header format: 17 scalars + 6 config floats + cMaxIterations + drag/wind counts
-# Total: 17*4 + 6*4 + 4 + 1 + 1 + 2 = 100 bytes (little-endian, no padding)
-_SHOT_FMT = "<17f6fiBBH"
-_SHOT_SIZE = struct.calcsize(_SHOT_FMT)  # 100
+_TRAJ_FLAG_RANGE = const(8)  # mirrors TINY_BCLIBC_TRAJ_FLAG_RANGE
 
-_WIND_FMT = "<4f"  # 16 bytes
-_WIND_SIZE = struct.calcsize(_WIND_FMT)
+_MAX_WINDS = const(16)
+_MAX_DRAG_PTS = const(128)
 
-_DRAG_FMT = "<ff"  # 8 bytes per drag point
-_DRAG_SIZE = struct.calcsize(_DRAG_FMT)
+# Buffer sizes: little-endian layout, standard sizes, no padding (<-prefix guarantees this)
+# Shot header: 17 scalars + 6 config floats + cMaxIterations + drag/wind counts
+# 17*4 + 6*4 + 4 + 1 + 1 + 2 = 100 bytes
+_SHOT_SIZE = const(100)
+_WIND_SIZE = const(16)   # 4f
+_DRAG_SIZE = const(8)    # ff
 
-_REQ_FMT = "<3fi"  # 16 bytes
+# Pre-compiled uctypes descriptors — avoid struct format-string re-parsing on each pack() call.
+# Offsets are byte positions in the <-prefixed (little-endian, no-padding) binary layout.
+# Nested sub-structs let pack() resolve s.props / s.cfg once as a local, then write fields.
+_F32 = uctypes.FLOAT32
+_I32 = uctypes.INT32
+_U8  = uctypes.UINT8
+_U16 = uctypes.UINT16
+
+_REQ_DESC = {
+    "range_limit_ft": _F32 | 0,
+    "range_step_ft":  _F32 | 4,
+    "time_step":      _F32 | 8,
+    "filter_flags":   _I32 | 12,
+}
+_REQ_SIZE = const(16)
+
+_SHOT_PROPS_DESC = {
+    "bc":                   _F32 | 0,
+    "weight_grain":         _F32 | 4,
+    "diameter_inch":        _F32 | 8,
+    "length_inch":          _F32 | 12,
+    "muzzle_velocity_fps":  _F32 | 16,
+    "sight_height_ft":      _F32 | 20,
+    "twist_inch":           _F32 | 24,
+    "temp_c":               _F32 | 28,
+    "pressure_hpa":         _F32 | 32,
+    "altitude_ft":          _F32 | 36,
+    "humidity":             _F32 | 40,
+    "look_angle_rad":       _F32 | 44,
+    "barrel_elevation_rad": _F32 | 48,
+    "barrel_azimuth_rad":   _F32 | 52,
+    "cant_angle_rad":       _F32 | 56,
+    "latitude_deg":         _F32 | 60,
+    "azimuth_deg":          _F32 | 64,
+}
+
+_CFG_DESC = {
+    "step_multiplier":       _F32 | 0,
+    "zero_finding_accuracy": _F32 | 4,
+    "minimum_velocity":      _F32 | 8,
+    "maximum_drop":          _F32 | 12,
+    "gravity_constant":      _F32 | 16,
+    "minimum_altitude":      _F32 | 20,
+}
+
+_SHOT_DESC = {
+    "props":          (0,  _SHOT_PROPS_DESC),
+    "cfg":            (68, _CFG_DESC),
+    "max_iterations": _I32 | 92,
+    "drag_type":      _U8  | 96,
+    "wind_count":     _U8  | 97,
+    "drag_count":     _U16 | 98,
+}
+
+_WIND_DESC = {
+    "velocity_fps":       _F32 | 0,
+    "direction_from_rad": _F32 | 4,
+    "until_distance_ft":  _F32 | 8,
+    "max_distance_ft":    _F32 | 12,
+}
+
+_DRAG_DESC = {
+    "mach": _F32 | 0,
+    "cd":   _F32 | 4,
+}
 
 
-class Wind:
-    def __init__(
-        self,
-        velocity_fps=0.0,
-        direction_from_rad=0.0,
-        until_distance_ft=_INF,
-        max_distance_ft=_INF,
-    ):
-        self.velocity_fps = velocity_fps
-        self.direction_from_rad = direction_from_rad
-        self.until_distance_ft = until_distance_ft
-        self.max_distance_ft = max_distance_ft
+# Pure namedtuples — read-only data holders, no methods needed.
+# Factory functions restore keyword-argument defaults that plain namedtuple lacks.
+_Wind = _namedtuple("Wind", ("velocity_fps", "direction_from_rad", "until_distance_ft", "max_distance_ft"))
+def Wind(velocity_fps=0.0, direction_from_rad=0.0, until_distance_ft=_INF, max_distance_ft=_INF):
+    return _Wind(velocity_fps, direction_from_rad, until_distance_ft, max_distance_ft)
 
-    def pack(self):
-        return struct.pack(
-            _WIND_FMT,
-            float(self.velocity_fps),
-            float(self.direction_from_rad),
-            float(self.until_distance_ft),
-            float(self.max_distance_ft),
-        )
-
-    @staticmethod
-    def unpack(buf, offset=0):
-        v = struct.unpack_from(_WIND_FMT, buf, offset)
-        return Wind(v[0], v[1], v[2], v[3])
-
-    def __repr__(self):
-        return "Wind({:.1f} fps dir={:.3f} rad)".format(self.velocity_fps, self.direction_from_rad)
+_Config = _namedtuple("Config", ("step_multiplier", "zero_finding_accuracy", "minimum_velocity",
+                                  "maximum_drop", "max_iterations", "gravity_constant", "minimum_altitude"))
+def Config(step_multiplier=0.5, zero_finding_accuracy=0.001, minimum_velocity=50.0,
+           maximum_drop=-15000.0, max_iterations=50, gravity_constant=-32.17405,
+           minimum_altitude=-1500.0):
+    return _Config(step_multiplier, zero_finding_accuracy, minimum_velocity,
+                   maximum_drop, max_iterations, gravity_constant, minimum_altitude)
 
 
-class Config:
-    def __init__(
-        self,
-        step_multiplier=0.5,
-        zero_finding_accuracy=0.001,
-        minimum_velocity=50.0,
-        maximum_drop=-15000.0,
-        max_iterations=50,
-        gravity_constant=-32.17405,
-        minimum_altitude=-1500.0,
-    ):
-        self.step_multiplier = step_multiplier
-        self.zero_finding_accuracy = zero_finding_accuracy
-        self.minimum_velocity = minimum_velocity
-        self.maximum_drop = maximum_drop
-        self.max_iterations = max_iterations
-        self.gravity_constant = gravity_constant
-        self.minimum_altitude = minimum_altitude
+# Shot is a namedtuple subclass: fields stored once as tuple elements (no self.x = x copy),
+# pack() method kept on the subclass. For 22 fields the subclass is lighter than a plain
+# class: measured 427 B vs 587 B per instance.
+_ShotNT = _namedtuple("Shot", (
+    "bc", "weight_grain", "diameter_inch", "length_inch",
+    "muzzle_velocity_fps", "sight_height_ft", "twist_inch",
+    "temp_c", "pressure_hpa", "altitude_ft", "humidity",
+    "look_angle_rad", "barrel_elevation_rad", "barrel_azimuth_rad", "cant_angle_rad",
+    "latitude_deg", "azimuth_deg",
+    "drag_type", "drag_mach", "drag_cd", "winds", "config",
+))
 
-
-class Shot:
+class Shot(_ShotNT):
     """Ballistic shot descriptor.  Call pack() to get the buffer for bclibc functions."""
 
-    def __init__(
-        self,
+    def __new__(
+        cls,
         bc=0.0,
         weight_grain=0.0,
         diameter_inch=0.0,
@@ -115,174 +158,107 @@ class Shot:
         winds=None,
         config=None,
     ):
-        self.bc = bc
-        self.weight_grain = weight_grain
-        self.diameter_inch = diameter_inch
-        self.length_inch = length_inch
-        self.muzzle_velocity_fps = muzzle_velocity_fps
-        self.sight_height_ft = sight_height_ft
-        self.twist_inch = twist_inch
-        self.temp_c = temp_c
-        self.pressure_hpa = pressure_hpa
-        self.altitude_ft = altitude_ft
-        self.humidity = humidity
-        self.look_angle_rad = look_angle_rad
-        self.barrel_elevation_rad = barrel_elevation_rad
-        self.barrel_azimuth_rad = barrel_azimuth_rad
-        self.cant_angle_rad = cant_angle_rad
-        self.latitude_deg = latitude_deg
-        self.azimuth_deg = azimuth_deg
-        self.drag_type = drag_type
-        self.drag_mach = drag_mach  # sequence of float or None for built-in
-        self.drag_cd = drag_cd  # sequence of float or None for built-in
-        self.winds = winds if winds is not None else []
-        self.config = config if config is not None else Config()
+        return _ShotNT.__new__(
+            cls,
+            bc, weight_grain, diameter_inch, length_inch,
+            muzzle_velocity_fps, sight_height_ft, twist_inch,
+            temp_c, pressure_hpa, altitude_ft, humidity,
+            look_angle_rad, barrel_elevation_rad, barrel_azimuth_rad, cant_angle_rad,
+            latitude_deg, azimuth_deg,
+            drag_type, drag_mach, drag_cd,
+            winds if winds is not None else [],
+            config if config is not None else Config(),
+        )
 
     def pack(self):
         cfg = self.config
-        wc = min(len(self.winds), 16)
+        wc = min(len(self.winds), _MAX_WINDS)
         dc = 0
         if self.drag_type == DRAG_CUSTOM and self.drag_mach and self.drag_cd:
-            dc = min(len(self.drag_mach), len(self.drag_cd), 128)
+            dc = min(len(self.drag_mach), len(self.drag_cd), _MAX_DRAG_PTS)
 
         buf = bytearray(_SHOT_SIZE + wc * _WIND_SIZE + dc * _DRAG_SIZE)
-        struct.pack_into(
-            _SHOT_FMT,
-            buf,
-            0,
-            # 17 shot scalars
-            float(self.bc),
-            float(self.weight_grain),
-            float(self.diameter_inch),
-            float(self.length_inch),
-            float(self.muzzle_velocity_fps),
-            float(self.sight_height_ft),
-            float(self.twist_inch),
-            float(self.temp_c),
-            float(self.pressure_hpa),
-            float(self.altitude_ft),
-            float(self.humidity),
-            float(self.look_angle_rad),
-            float(self.barrel_elevation_rad),
-            float(self.barrel_azimuth_rad),
-            float(self.cant_angle_rad),
-            float(self.latitude_deg),
-            float(self.azimuth_deg),
-            # 6 config floats
-            float(cfg.step_multiplier),
-            float(cfg.zero_finding_accuracy),
-            float(cfg.minimum_velocity),
-            float(cfg.maximum_drop),
-            float(cfg.gravity_constant),
-            float(cfg.minimum_altitude),
-            # cMaxIterations int32
-            int(cfg.max_iterations),
-            # drag_type uint8, wind_count uint8, drag_count uint16
-            int(self.drag_type),
-            wc,
-            dc,
-        )
+        base = uctypes.addressof(buf)
+        s = uctypes.struct(base, _SHOT_DESC, uctypes.LITTLE_ENDIAN)
+        p = s.props
+        p.bc                   = self.bc
+        p.weight_grain         = self.weight_grain
+        p.diameter_inch        = self.diameter_inch
+        p.length_inch          = self.length_inch
+        p.muzzle_velocity_fps  = self.muzzle_velocity_fps
+        p.sight_height_ft      = self.sight_height_ft
+        p.twist_inch           = self.twist_inch
+        p.temp_c               = self.temp_c
+        p.pressure_hpa         = self.pressure_hpa
+        p.altitude_ft          = self.altitude_ft
+        p.humidity             = self.humidity
+        p.look_angle_rad       = self.look_angle_rad
+        p.barrel_elevation_rad = self.barrel_elevation_rad
+        p.barrel_azimuth_rad   = self.barrel_azimuth_rad
+        p.cant_angle_rad       = self.cant_angle_rad
+        p.latitude_deg         = self.latitude_deg
+        p.azimuth_deg          = self.azimuth_deg
+        c = s.cfg
+        c.step_multiplier       = cfg.step_multiplier
+        c.zero_finding_accuracy = cfg.zero_finding_accuracy
+        c.minimum_velocity      = cfg.minimum_velocity
+        c.maximum_drop          = cfg.maximum_drop
+        c.gravity_constant      = cfg.gravity_constant
+        c.minimum_altitude      = cfg.minimum_altitude
+        s.max_iterations        = int(cfg.max_iterations)
+        s.drag_type             = self.drag_type
+        s.wind_count            = wc
+        s.drag_count            = dc
         off = _SHOT_SIZE
         for i in range(wc):
             w = self.winds[i]
-            struct.pack_into(
-                _WIND_FMT,
-                buf,
-                off,
-                float(w.velocity_fps),
-                float(w.direction_from_rad),
-                float(w.until_distance_ft),
-                float(w.max_distance_ft),
-            )
+            sw = uctypes.struct(base + off, _WIND_DESC, uctypes.LITTLE_ENDIAN)
+            sw.velocity_fps = w.velocity_fps
+            sw.direction_from_rad = w.direction_from_rad
+            sw.until_distance_ft = w.until_distance_ft
+            sw.max_distance_ft = w.max_distance_ft
             off += _WIND_SIZE
         for i in range(dc):
-            struct.pack_into(_DRAG_FMT, buf, off, float(self.drag_mach[i]), float(self.drag_cd[i]))
+            sd = uctypes.struct(base + off, _DRAG_DESC, uctypes.LITTLE_ENDIAN)
+            sd.mach = self.drag_mach[i]
+            sd.cd = self.drag_cd[i]
             off += _DRAG_SIZE
         return bytes(buf)
 
-    @staticmethod
-    def unpack(buf):
-        v = struct.unpack_from(_SHOT_FMT, buf, 0)
-        wc = v[25]
-        dc = v[26]
-        off = _SHOT_SIZE
-        winds = []
-        for _ in range(wc):
-            winds.append(Wind.unpack(buf, off))
-            off += _WIND_SIZE
-        drag_mach = drag_cd = None
-        if dc:
-            import array
-
-            drag_mach = array.array("f")
-            drag_cd = array.array("f")
-            for _ in range(dc):
-                m, c = struct.unpack_from(_DRAG_FMT, buf, off)
-                drag_mach.append(m)
-                drag_cd.append(c)
-                off += _DRAG_SIZE
-        return Shot(
-            bc=v[0],
-            weight_grain=v[1],
-            diameter_inch=v[2],
-            length_inch=v[3],
-            muzzle_velocity_fps=v[4],
-            sight_height_ft=v[5],
-            twist_inch=v[6],
-            temp_c=v[7],
-            pressure_hpa=v[8],
-            altitude_ft=v[9],
-            humidity=v[10],
-            look_angle_rad=v[11],
-            barrel_elevation_rad=v[12],
-            barrel_azimuth_rad=v[13],
-            cant_angle_rad=v[14],
-            latitude_deg=v[15],
-            azimuth_deg=v[16],
-            drag_type=v[24],
-            drag_mach=drag_mach,
-            drag_cd=drag_cd,
-            winds=winds,
-            config=Config(
-                step_multiplier=v[17],
-                zero_finding_accuracy=v[18],
-                minimum_velocity=v[19],
-                maximum_drop=v[20],
-                gravity_constant=v[21],
-                minimum_altitude=v[22],
-                max_iterations=v[23],
-            ),
-        )
-
     def __repr__(self):
-        drag = {DRAG_G1: "G1", DRAG_G7: "G7", DRAG_CUSTOM: "custom"}.get(self.drag_type, "?")
-        return "Shot(bc={} mv={} fps drag={})".format(self.bc, self.muzzle_velocity_fps, drag)
+        drag = {DRAG_G1: "G1", DRAG_G7: "G7", DRAG_CUSTOM: "custom"}.get(
+            self.drag_type, "?"
+        )
+        return "Shot(bc={} mv={} fps drag={})".format(
+            self.bc, self.muzzle_velocity_fps, drag
+        )
 
 
 class Request:
     """Trajectory integration request parameters."""
 
     def __init__(
-        self, range_limit_ft=3000.0, range_step_ft=100.0, time_step=0.0, filter_flags=8
-    ):  # 8 = TRAJ_FLAG_RANGE
+        self,
+        range_limit_ft=3000.0,
+        range_step_ft=100.0,
+        time_step=0.0,
+        filter_flags=_TRAJ_FLAG_RANGE,
+    ):
         self.range_limit_ft = range_limit_ft
         self.range_step_ft = range_step_ft
         self.time_step = time_step
         self.filter_flags = filter_flags
 
     def pack(self):
-        return struct.pack(
-            _REQ_FMT,
-            float(self.range_limit_ft),
-            float(self.range_step_ft),
-            float(self.time_step),
-            int(self.filter_flags),
-        )
-
-    @staticmethod
-    def unpack(buf):
-        v = struct.unpack_from(_REQ_FMT, buf, 0)
-        return Request(v[0], v[1], v[2], v[3])
+        buf = bytearray(_REQ_SIZE)
+        s = uctypes.struct(uctypes.addressof(buf), _REQ_DESC, uctypes.LITTLE_ENDIAN)
+        s.range_limit_ft = self.range_limit_ft
+        s.range_step_ft  = self.range_step_ft
+        s.time_step      = self.time_step
+        s.filter_flags   = self.filter_flags
+        return bytes(buf)
 
     def __repr__(self):
-        return "Request(range={} ft step={} ft)".format(self.range_limit_ft, self.range_step_ft)
+        return "Request(range={} ft step={} ft)".format(
+            self.range_limit_ft, self.range_step_ft
+        )

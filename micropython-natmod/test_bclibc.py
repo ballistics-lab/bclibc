@@ -24,7 +24,7 @@ _HERE = __file__.rsplit("/", 1)[0] if "/" in __file__ else "."
 sys.path.append(_HERE)
 
 import tiny_bclibc as bclibc
-from tiny_bclibc_types import Shot, Request, DRAG_G7, DRAG_CUSTOM
+from tiny_bclibc_types import Shot, Request, Wind, Config, DRAG_G7, DRAG_CUSTOM
 
 # ── Custom drag table (same values as built-in G7) ────────────────────────
 G7_MACH = array.array(
@@ -278,6 +278,32 @@ if 800 < ogw < 1000:
     _pass("calculate_ogw")
 else:
     _fail("calculate_ogw", ogw)
+
+# -- Wind / Config namedtuple ---------------------------------------------------
+print("\n--- Wind / Config namedtuple ---")
+try:
+    import gc
+    w = Wind(10.0, 1.5)
+    if w.velocity_fps == 10.0 and w[0] == 10.0 and w.until_distance_ft == 1e8:
+        _pass("Wind namedtuple — attr + index + defaults")
+    else:
+        _fail("Wind namedtuple", w)
+    cfg = Config(max_iterations=100)
+    if cfg.max_iterations == 100 and cfg.step_multiplier == 0.5:
+        _pass("Config namedtuple — kwarg + defaults")
+    else:
+        _fail("Config namedtuple", cfg)
+    gc.collect()
+    bw = gc.mem_alloc()
+    winds = [Wind(float(i), 0.0) for i in range(100)]
+    aw = gc.mem_alloc(); del winds; gc.collect()
+    bc2 = gc.mem_alloc()
+    cfgs = [Config() for _ in range(100)]
+    ac = gc.mem_alloc(); del cfgs; gc.collect()
+    _pass("Wind RAM={} B/inst  Config RAM={} B/inst".format(
+        (aw - bw) // 100, (ac - bc2) // 100))
+except Exception as ex:
+    _fail("Wind/Config namedtuple", ex)
 
 # -- Integration (built-in G7) -------------------------------------------------
 print("\n--- integrate (builtin G7, 1500 ft, step 300) ---")
