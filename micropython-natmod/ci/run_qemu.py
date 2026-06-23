@@ -63,6 +63,8 @@ def inject_modules(native_mpy: bytes, wrapper_mpy: bytes) -> bytes:
         b"sys.path.insert(0,'/__remote')\n"
         b"import _tiny_bclibc\n"
         b"import tiny_bclibc\n"
+        b"del __native,__wrapper\n"
+        b"import gc;gc.collect()\n"
     )
 
 
