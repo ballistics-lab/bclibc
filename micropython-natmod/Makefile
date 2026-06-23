@@ -2,6 +2,7 @@
 #
 #   make                       → x64 (double, default)
 #   make ARCH=x86              → x86 32-bit (double, default)
+#   make ARCH=aarch64          → AArch64 Linux host (double, default)
 #   make ARCH=armv6m           → RP2040 / Cortex-M0+
 #   make ARCH=armv7m           → Cortex-M3
 #   make ARCH=armv7emsp        → Cortex-M4F / M7 single-precision FPU
@@ -86,8 +87,8 @@ _LIBM_DBL_FLAGS := -I$(MPY_DIR)/lib/libm_dbl \
                    -I src/math_shadow
 
 # ── Math library selection ────────────────────────────────────────────────────
-ifeq ($(ARCH),$(filter $(ARCH),x64 x86))
-# Host: glibc libm.a uses IFUNC internals that can't be linked in a natmod.
+ifeq ($(ARCH),$(filter $(ARCH),x64 x86 aarch64))
+# Host (Linux): glibc libm.a uses IFUNC internals that can't be linked in a natmod.
 # GCC -O2 merges sin()+cos() → sincos() (GNU ext) → math_shim.c provides it.
 ifeq ($(PRECISION),single)
 SRC          += $(_FDLIBM_SRCS) src/math_shim.c
@@ -175,13 +176,19 @@ $(VERSION_H): $(VERSION_IN)
 $(BUILD)/src/tiny_bclibc_mp.o: $(VERSION_H)
 
 # ── Convenience aliases ────────────────────────────────────────────────────────
-.PHONY: x64 x64sp x86 x86sp rp2040 rp2350 stm32f4 armv7m stm32h7 stm32h7dp esp32s3 esp32 esp32c3 esp32c6 rv64 dist clean
+.PHONY: x64 x64sp x86 x86sp aarch64 aarch64sp rp2040 rp2350 stm32f4 armv7m stm32h7 stm32h7dp esp32s3 esp32 esp32c3 esp32c6 rv64 dist clean
 
 x64:
 	$(MAKE) ARCH=x64 PRECISION=double dist
 
 x64sp:
 	$(MAKE) ARCH=x64 PRECISION=single dist
+
+aarch64:
+	$(MAKE) ARCH=aarch64 PRECISION=double dist
+
+aarch64sp:
+	$(MAKE) ARCH=aarch64 PRECISION=single dist
 
 x86:
 	$(MAKE) ARCH=x86 PRECISION=double dist
