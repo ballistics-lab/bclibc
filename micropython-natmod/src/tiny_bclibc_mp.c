@@ -7,15 +7,12 @@
  *   from bclibc_types import Shot, Request, Wind, Config
  *
  *   bclibc.version()
- *   bclibc.integrate(shot.pack(), request.pack())         -> (list[tuple], int)
- *   bclibc.integrate_stream(shot.pack(), request.pack(), cb)  -> (int total, int reason)
- *   bclibc.find_zero_angle(shot.pack(), dist_ft)          -> float
- *   bclibc.find_apex(shot.pack())                         -> tuple
- *   bclibc.find_max_range(shot.pack(), lo_rad, hi_rad)    -> (float_ft, float_rad)
- *   bclibc.integrate_at(shot.pack(), key, target)         -> (tuple_base, tuple_full)
- *   bclibc.get_correction(dist_ft, off_ft)                -> float
- *   bclibc.calculate_energy(wt_gr, vel_fps)               -> float
- *   bclibc.calculate_ogw(wt_gr, vel_fps)                  -> float
+ *   bclibc.integrate(shot._buf, shot._holder, req._buf)              -> (list[tuple], int)
+ *   bclibc.integrate_stream(shot._buf, shot._holder, req._buf, cb)  -> (int total, int reason)
+ *   bclibc.find_zero_angle(shot._buf, shot._holder, dist_ft)        -> float
+ *   bclibc.find_apex(shot._buf, shot._holder)                       -> tuple
+ *   bclibc.find_max_range(shot._buf, shot._holder, lo, hi)          -> (float_ft, float_rad)
+ *   bclibc.integrate_at(shot._buf, shot._holder, key, target)       -> (tuple_base, tuple_full)
  *
  * All shot/request arguments are packed binary buffers produced by
  * bclibc_types.Shot.pack() / Request.pack() — no dict parsing.
@@ -159,27 +156,31 @@ static mp_obj_t base_traj_to_tuple(const TINY_BCLIBC_BaseTrajData *r)
     return mp_obj_new_tuple(8, items);
 }
 
-/* ── ShotHolder (heap-allocated to avoid ~6 KB stack frame on MCU) ──────── */
+/* ── ShotHolder (Python-owned, pre-allocated per Shot instance) ──────────── */
 
 typedef struct
 {
     TINY_BCLIBC_Shot shot;
-    real_t mach_data[MAX_DRAG_PTS];
-    real_t cd_data[MAX_DRAG_PTS];
-    TINY_BCLIBC_Wind winds[MAX_WINDS];
+    real_t mach_data[MAX_DRAG_PTS]; /* custom drag only */
+    real_t cd_data[MAX_DRAG_PTS];   /* custom drag only */
+#ifndef TINY_BCLIBC_USE_FLOAT
+    TINY_BCLIBC_Wind winds[MAX_WINDS]; /* double build: convert float32 → double */
+#endif
     TINY_BCLIBC_CurvePoint curve_buf[MAX_DRAG_PTS];
 } ShotHolder;
 
 /* ── Buffer → ShotProps ─────────────────────────────────────────────────── */
 
-static int32_t build_props_buf(mp_obj_t shot_obj, ShotHolder *h, TINY_BCLIBC_ShotProps *out)
+static int32_t build_props_buf(mp_obj_t shot_obj, mp_obj_t holder_obj, TINY_BCLIBC_ShotProps *out)
 {
-    mp_buffer_info_t bi;
+    mp_buffer_info_t bi, hi;
     mp_get_buffer_raise(shot_obj, &bi, MP_BUFFER_READ);
-    if (bi.len < SHOT_HDR_SIZE)
+    mp_get_buffer_raise(holder_obj, &hi, MP_BUFFER_WRITE);
+    if (bi.len < SHOT_HDR_SIZE || hi.len < sizeof(ShotHolder))
         return TINY_BCLIBC_ERR_INVALID_ARG;
 
     const uint8_t *p = (const uint8_t *)bi.buf;
+    ShotHolder *h = (ShotHolder *)hi.buf;
     TINY_BCLIBC_Shot *s = &h->shot;
 
     /* 17 scalar floats at offsets 0, 4, 8, ... 64 */
@@ -201,7 +202,7 @@ static int32_t build_props_buf(mp_obj_t shot_obj, ShotHolder *h, TINY_BCLIBC_Sho
     s->latitude_deg = (real_t)_rdf(p, 60);
     s->azimuth_deg = (real_t)_rdf(p, 64);
 
-    /* 6 config floats at offsets 68..88, then cMaxIterations int32 at 92 */
+    /* 6 config floats at offsets 68..88 (Python order), cMaxIterations int32 at 92 */
     s->config.cStepMultiplier = (real_t)_rdf(p, 68);
     s->config.cZeroFindingAccuracy = (real_t)_rdf(p, 72);
     s->config.cMinimumVelocity = (real_t)_rdf(p, 76);
@@ -229,13 +230,13 @@ static int32_t build_props_buf(mp_obj_t shot_obj, ShotHolder *h, TINY_BCLIBC_Sho
 
     /* drag table */
     if (drag_type == 0u)
-    { /* G1 */
+    { /* G1 — static table, zero-copy */
         s->mach_data = g1_mach;
         s->cd_data = g1_cd;
         s->drag_table_size = G1_N;
     }
     else if (drag_type == 2u)
-    { /* custom */
+    { /* custom — de-interleave {mach,cd} pairs into holder arrays */
         int32_t n = (int32_t)drag_count;
         if (n > MAX_DRAG_PTS)
             n = MAX_DRAG_PTS;
@@ -250,7 +251,7 @@ static int32_t build_props_buf(mp_obj_t shot_obj, ShotHolder *h, TINY_BCLIBC_Sho
         s->drag_table_size = n;
     }
     else
-    { /* G7 (default) */
+    { /* G7 — static table, zero-copy */
         s->mach_data = g7_mach;
         s->cd_data = g7_cd;
         s->drag_table_size = G7_N;
@@ -260,6 +261,11 @@ static int32_t build_props_buf(mp_obj_t shot_obj, ShotHolder *h, TINY_BCLIBC_Sho
     int32_t wn = (int32_t)wind_count;
     if (wn > MAX_WINDS)
         wn = MAX_WINDS;
+#ifdef TINY_BCLIBC_USE_FLOAT
+    /* float build: TINY_BCLIBC_Wind = {float×4} matches Python buffer layout exactly */
+    s->winds = (const TINY_BCLIBC_Wind *)(p + winds_off);
+#else
+    /* double build: convert float32 → double per field */
     for (int32_t i = 0; i < wn; i++)
     {
         uint32_t off = winds_off + (uint32_t)i * 16u;
@@ -269,6 +275,7 @@ static int32_t build_props_buf(mp_obj_t shot_obj, ShotHolder *h, TINY_BCLIBC_Sho
         h->winds[i].max_distance_ft = (real_t)_rdf(p, off + 12u);
     }
     s->winds = h->winds;
+#endif
     s->wind_count = wn;
 
     return tiny_bclibc_build_shot_props(s, h->curve_buf, out);
@@ -295,84 +302,46 @@ static mp_obj_t mp_bclibc_version(void)
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(mp_bclibc_version_obj, mp_bclibc_version);
 
-static mp_obj_t mp_bclibc_get_correction(mp_obj_t dist_arg, mp_obj_t off_arg)
+static mp_obj_t mp_bclibc_find_zero_angle(mp_obj_t shot_arg, mp_obj_t holder_arg, mp_obj_t dist_arg)
 {
-    return mp_obj_new_float(tiny_bclibc_get_correction(
-        (real_t)mp_obj_get_float(dist_arg),
-        (real_t)mp_obj_get_float(off_arg)));
-}
-static MP_DEFINE_CONST_FUN_OBJ_2(mp_bclibc_get_correction_obj, mp_bclibc_get_correction);
-
-static mp_obj_t mp_bclibc_calculate_energy(mp_obj_t wt_arg, mp_obj_t vel_arg)
-{
-    return mp_obj_new_float(tiny_bclibc_calculate_energy(
-        (real_t)mp_obj_get_float(wt_arg),
-        (real_t)mp_obj_get_float(vel_arg)));
-}
-static MP_DEFINE_CONST_FUN_OBJ_2(mp_bclibc_calculate_energy_obj, mp_bclibc_calculate_energy);
-
-static mp_obj_t mp_bclibc_calculate_ogw(mp_obj_t wt_arg, mp_obj_t vel_arg)
-{
-    return mp_obj_new_float(tiny_bclibc_calculate_ogw(
-        (real_t)mp_obj_get_float(wt_arg),
-        (real_t)mp_obj_get_float(vel_arg)));
-}
-static MP_DEFINE_CONST_FUN_OBJ_2(mp_bclibc_calculate_ogw_obj, mp_bclibc_calculate_ogw);
-
-static mp_obj_t mp_bclibc_find_zero_angle(mp_obj_t shot_arg, mp_obj_t dist_arg)
-{
-    ShotHolder *h = (ShotHolder *)m_malloc(sizeof(ShotHolder));
     TINY_BCLIBC_ShotProps props;
-    int32_t rc = build_props_buf(shot_arg, h, &props);
+    int32_t rc = build_props_buf(shot_arg, holder_arg, &props);
     if (rc != TINY_BCLIBC_OK)
-    {
-        m_free(h);
         mp_raise_msg(&mp_type_ValueError, _tiny_bclibc_err_str(rc));
-    }
     real_t angle = REAL_C(0.0);
     rc = tiny_bclibc_find_zero_angle(&props, (real_t)mp_obj_get_float(dist_arg), &angle);
-    m_free(h);
     if (rc != TINY_BCLIBC_OK)
         mp_raise_msg(&mp_type_ValueError, _tiny_bclibc_err_str(rc));
     return mp_obj_new_float((double)angle);
 }
-static MP_DEFINE_CONST_FUN_OBJ_2(mp_bclibc_find_zero_angle_obj, mp_bclibc_find_zero_angle);
+static MP_DEFINE_CONST_FUN_OBJ_3(mp_bclibc_find_zero_angle_obj, mp_bclibc_find_zero_angle);
 
-static mp_obj_t mp_bclibc_find_apex(mp_obj_t shot_arg)
+static mp_obj_t mp_bclibc_find_apex(mp_obj_t shot_arg, mp_obj_t holder_arg)
 {
-    ShotHolder *h = (ShotHolder *)m_malloc(sizeof(ShotHolder));
     TINY_BCLIBC_ShotProps props;
-    int32_t rc = build_props_buf(shot_arg, h, &props);
+    int32_t rc = build_props_buf(shot_arg, holder_arg, &props);
     if (rc != TINY_BCLIBC_OK)
-    {
-        m_free(h);
         mp_raise_msg(&mp_type_ValueError, _tiny_bclibc_err_str(rc));
-    }
     TINY_BCLIBC_TrajectoryData out;
     rc = tiny_bclibc_find_apex(&props, &out);
-    m_free(h);
     if (rc != TINY_BCLIBC_OK)
         mp_raise_msg(&mp_type_ValueError, _tiny_bclibc_err_str(rc));
     return traj_to_tuple(&out);
 }
-static MP_DEFINE_CONST_FUN_OBJ_1(mp_bclibc_find_apex_obj, mp_bclibc_find_apex);
+static MP_DEFINE_CONST_FUN_OBJ_2(mp_bclibc_find_apex_obj, mp_bclibc_find_apex);
 
-static mp_obj_t mp_bclibc_find_max_range(mp_obj_t shot_arg, mp_obj_t lo_arg, mp_obj_t hi_arg)
+static mp_obj_t mp_bclibc_find_max_range(size_t n_args, const mp_obj_t *args)
 {
-    ShotHolder *h = (ShotHolder *)m_malloc(sizeof(ShotHolder));
+    /* args: shot, holder, lo, hi */
     TINY_BCLIBC_ShotProps props;
-    int32_t rc = build_props_buf(shot_arg, h, &props);
+    int32_t rc = build_props_buf(args[0], args[1], &props);
     if (rc != TINY_BCLIBC_OK)
-    {
-        m_free(h);
         mp_raise_msg(&mp_type_ValueError, _tiny_bclibc_err_str(rc));
-    }
     real_t out_range = REAL_C(0.0), out_angle = REAL_C(0.0);
     rc = tiny_bclibc_find_max_range(&props,
-                                    (real_t)mp_obj_get_float(lo_arg),
-                                    (real_t)mp_obj_get_float(hi_arg),
+                                    (real_t)mp_obj_get_float(args[2]),
+                                    (real_t)mp_obj_get_float(args[3]),
                                     &out_range, &out_angle);
-    m_free(h);
     if (rc != TINY_BCLIBC_OK)
         mp_raise_msg(&mp_type_ValueError, _tiny_bclibc_err_str(rc));
     mp_obj_t items[2] = {
@@ -381,54 +350,37 @@ static mp_obj_t mp_bclibc_find_max_range(mp_obj_t shot_arg, mp_obj_t lo_arg, mp_
     };
     return mp_obj_new_tuple(2, items);
 }
-static MP_DEFINE_CONST_FUN_OBJ_3(mp_bclibc_find_max_range_obj, mp_bclibc_find_max_range);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_bclibc_find_max_range_obj, 4, 4, mp_bclibc_find_max_range);
 
-static mp_obj_t mp_bclibc_integrate(mp_obj_t shot_arg, mp_obj_t req_arg)
+static mp_obj_t mp_bclibc_integrate(size_t n_args, const mp_obj_t *args)
 {
-    ShotHolder *h = (ShotHolder *)m_malloc(sizeof(ShotHolder));
+    /* args: shot, holder, req, traj_buf */
     TINY_BCLIBC_ShotProps props;
-    int32_t rc = build_props_buf(shot_arg, h, &props);
+    int32_t rc = build_props_buf(args[0], args[1], &props);
     if (rc != TINY_BCLIBC_OK)
-    {
-        m_free(h);
         mp_raise_msg(&mp_type_ValueError, _tiny_bclibc_err_str(rc));
-    }
 
     TINY_BCLIBC_TrajectoryRequest req;
-    parse_req(req_arg, &req);
+    parse_req(args[2], &req);
 
-    int32_t cap = (int32_t)(req.range_limit_ft / req.range_step_ft) + 64;
-    TINY_BCLIBC_TrajectoryData *buf = (TINY_BCLIBC_TrajectoryData *)m_malloc(
-        (size_t)cap * sizeof(TINY_BCLIBC_TrajectoryData));
+    mp_buffer_info_t tbi;
+    mp_get_buffer_raise(args[3], &tbi, MP_BUFFER_WRITE);
+    TINY_BCLIBC_TrajectoryData *buf = (TINY_BCLIBC_TrajectoryData *)tbi.buf;
+    int32_t cap = (int32_t)(tbi.len / sizeof(TINY_BCLIBC_TrajectoryData));
 
     int32_t written = 0, total = 0, reason = 0;
     rc = tiny_bclibc_integrate(&props, &req, buf, cap, &written, &total, &reason);
-
-    if (rc == TINY_BCLIBC_ERR_BUF_TOO_SMALL)
-    {
-        m_free(buf);
-        buf = (TINY_BCLIBC_TrajectoryData *)m_malloc(
-            (size_t)total * sizeof(TINY_BCLIBC_TrajectoryData));
-        rc = tiny_bclibc_integrate(&props, &req, buf, total, &written, &total, &reason);
-    }
-
-    m_free(h);
-
     if (rc != TINY_BCLIBC_OK)
-    {
-        m_free(buf);
         mp_raise_msg(&mp_type_ValueError, _tiny_bclibc_err_str(rc));
-    }
 
     mp_obj_t list = mp_obj_new_list(0, NULL);
     for (int32_t i = 0; i < written; i++)
         mp_obj_list_append(list, traj_to_tuple(&buf[i]));
-    m_free(buf);
 
     mp_obj_t result[2] = {list, mp_obj_new_int((mp_int_t)reason)};
     return mp_obj_new_tuple(2, result);
 }
-static MP_DEFINE_CONST_FUN_OBJ_2(mp_bclibc_integrate_obj, mp_bclibc_integrate);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_bclibc_integrate_obj, 4, 4, mp_bclibc_integrate);
 
 /* ── integrate_stream ────────────────────────────────────────────────────── */
 
@@ -445,24 +397,20 @@ static int32_t mp_stream_cb(const TINY_BCLIBC_TrajectoryData *pt, void *ctx_)
     return mp_obj_is_true(ret) ? TINY_BCLIBC_TERM_HANDLER_STOP : 0;
 }
 
-static mp_obj_t mp_bclibc_integrate_stream(mp_obj_t shot_arg, mp_obj_t req_arg, mp_obj_t cb_arg)
+static mp_obj_t mp_bclibc_integrate_stream(size_t n_args, const mp_obj_t *args)
 {
-    ShotHolder *h = (ShotHolder *)m_malloc(sizeof(ShotHolder));
+    /* args: shot, holder, req, cb */
     TINY_BCLIBC_ShotProps props;
-    int32_t rc = build_props_buf(shot_arg, h, &props);
+    int32_t rc = build_props_buf(args[0], args[1], &props);
     if (rc != TINY_BCLIBC_OK)
-    {
-        m_free(h);
         mp_raise_msg(&mp_type_ValueError, _tiny_bclibc_err_str(rc));
-    }
 
     TINY_BCLIBC_TrajectoryRequest req;
-    parse_req(req_arg, &req);
+    parse_req(args[2], &req);
 
-    StreamCbCtx cb_ctx = {cb_arg};
+    StreamCbCtx cb_ctx = {args[3]};
     int32_t total = 0, reason = 0;
     rc = tiny_bclibc_integrate_stream(&props, &req, mp_stream_cb, &cb_ctx, &total, &reason);
-    m_free(h);
 
     if (rc != TINY_BCLIBC_OK)
         mp_raise_msg(&mp_type_ValueError, _tiny_bclibc_err_str(rc));
@@ -470,31 +418,27 @@ static mp_obj_t mp_bclibc_integrate_stream(mp_obj_t shot_arg, mp_obj_t req_arg, 
     mp_obj_t result[2] = {mp_obj_new_int(total), mp_obj_new_int(reason)};
     return mp_obj_new_tuple(2, result);
 }
-static MP_DEFINE_CONST_FUN_OBJ_3(mp_bclibc_integrate_stream_obj, mp_bclibc_integrate_stream);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_bclibc_integrate_stream_obj, 4, 4, mp_bclibc_integrate_stream);
 
-static mp_obj_t mp_bclibc_integrate_at(mp_obj_t shot_arg, mp_obj_t key_arg, mp_obj_t tgt_arg)
+static mp_obj_t mp_bclibc_integrate_at(size_t n_args, const mp_obj_t *args)
 {
-    ShotHolder *h = (ShotHolder *)m_malloc(sizeof(ShotHolder));
+    /* args: shot, holder, key, target */
     TINY_BCLIBC_ShotProps props;
-    int32_t rc = build_props_buf(shot_arg, h, &props);
+    int32_t rc = build_props_buf(args[0], args[1], &props);
     if (rc != TINY_BCLIBC_OK)
-    {
-        m_free(h);
         mp_raise_msg(&mp_type_ValueError, _tiny_bclibc_err_str(rc));
-    }
     TINY_BCLIBC_BaseTrajData raw;
     TINY_BCLIBC_TrajectoryData full;
     rc = tiny_bclibc_integrate_at(&props,
-                                  (int32_t)mp_obj_get_int(key_arg),
-                                  (real_t)mp_obj_get_float(tgt_arg),
+                                  (int32_t)mp_obj_get_int(args[2]),
+                                  (real_t)mp_obj_get_float(args[3]),
                                   &raw, &full);
-    m_free(h);
     if (rc != TINY_BCLIBC_OK)
         mp_raise_msg(&mp_type_ValueError, _tiny_bclibc_err_str(rc));
     mp_obj_t result[2] = {base_traj_to_tuple(&raw), traj_to_tuple(&full)};
     return mp_obj_new_tuple(2, result);
 }
-static MP_DEFINE_CONST_FUN_OBJ_3(mp_bclibc_integrate_at_obj, mp_bclibc_integrate_at);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_bclibc_integrate_at_obj, 4, 4, mp_bclibc_integrate_at);
 
 /* ── Module entry point ──────────────────────────────────────────────────── */
 
@@ -502,6 +446,8 @@ mp_obj_t mpy_init(mp_obj_fun_bc_t *self, size_t n_args, size_t n_kw, mp_obj_t *a
 {
     MP_DYNRUNTIME_INIT_ENTRY
 
+    mp_store_global(MP_QSTR_SHOT_HOLDER_SIZE, MP_OBJ_NEW_SMALL_INT((mp_int_t)sizeof(ShotHolder)));
+    mp_store_global(MP_QSTR_TRAJ_DATA_SIZE, MP_OBJ_NEW_SMALL_INT((mp_int_t)sizeof(TINY_BCLIBC_TrajectoryData)));
     mp_store_global(MP_QSTR_version, MP_OBJ_FROM_PTR(&mp_bclibc_version_obj));
     mp_store_global(MP_QSTR_integrate, MP_OBJ_FROM_PTR(&mp_bclibc_integrate_obj));
     mp_store_global(MP_QSTR_integrate_stream, MP_OBJ_FROM_PTR(&mp_bclibc_integrate_stream_obj));
@@ -509,9 +455,6 @@ mp_obj_t mpy_init(mp_obj_fun_bc_t *self, size_t n_args, size_t n_kw, mp_obj_t *a
     mp_store_global(MP_QSTR_find_apex, MP_OBJ_FROM_PTR(&mp_bclibc_find_apex_obj));
     mp_store_global(MP_QSTR_find_max_range, MP_OBJ_FROM_PTR(&mp_bclibc_find_max_range_obj));
     mp_store_global(MP_QSTR_integrate_at, MP_OBJ_FROM_PTR(&mp_bclibc_integrate_at_obj));
-    mp_store_global(MP_QSTR_get_correction, MP_OBJ_FROM_PTR(&mp_bclibc_get_correction_obj));
-    mp_store_global(MP_QSTR_calculate_energy, MP_OBJ_FROM_PTR(&mp_bclibc_calculate_energy_obj));
-    mp_store_global(MP_QSTR_calculate_ogw, MP_OBJ_FROM_PTR(&mp_bclibc_calculate_ogw_obj));
 
     /* Trajectory flag constants */
     mp_store_global(MP_QSTR_TRAJ_FLAG_NONE, MP_OBJ_NEW_SMALL_INT(TINY_BCLIBC_TRAJ_FLAG_NONE));

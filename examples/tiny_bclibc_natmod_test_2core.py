@@ -463,15 +463,17 @@ def run_tests_on_core1():
         try:
             stream_rows = []
             total_s, _ = bc.integrate_stream(
-                SHOT, REQUEST,
-                lambda row: stream_rows.append(row)
+                SHOT, REQUEST, lambda row: stream_rows.append(row)
             )
             rows_ref, _ = bc.integrate(SHOT, REQUEST)
             if len(stream_rows) == len(rows_ref):
                 _pass(f"integrate_stream — {len(stream_rows)} points (total={total_s})")
                 test_results["passed"] += 1
             else:
-                _fail("integrate_stream", f"stream={len(stream_rows)} vs integrate={len(rows_ref)}")
+                _fail(
+                    "integrate_stream",
+                    f"stream={len(stream_rows)} vs integrate={len(rows_ref)}",
+                )
                 test_results["failed"] += 1
         except Exception as ex:
             _fail("integrate_stream", ex)
@@ -499,10 +501,15 @@ def run_tests_on_core1():
 
             _, reason_e = bc.integrate_stream(SHOT, REQ_5KM, _cb_energy)
             if reason_e == 5 and stopped_at[0] is not None:  # TERM_HANDLER_STOP
-                _pass(f"integrate_stream stop — energy<1000 at {stopped_at[0]:.0f} ft after {count_e[0]} pts reason={reason_e}")
+                _pass(
+                    f"integrate_stream stop — energy<1000 at {stopped_at[0]:.0f} ft after {count_e[0]} pts reason={reason_e}"
+                )
                 test_results["passed"] += 1
             else:
-                _fail("integrate_stream stop", f"reason={reason_e} stopped_at={stopped_at[0]}")
+                _fail(
+                    "integrate_stream stop",
+                    f"reason={reason_e} stopped_at={stopped_at[0]}",
+                )
                 test_results["failed"] += 1
         except Exception as ex:
             _fail("integrate_stream stop", ex)

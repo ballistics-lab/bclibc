@@ -258,50 +258,37 @@ def _fail(name, msg=""):
 print("=== bclibc natmod test ===")
 print("version:", bc.version())
 
-# -- Scalar helpers -------------------------------------------------------------
-print("\n--- scalar helpers ---")
-
-e = bc.calculate_energy(168.0, 2750.0)
-if abs(e - 2820.83) < 1.0:
-    _pass("calculate_energy")
-else:
-    _fail("calculate_energy", e)
-
-c = bc.get_correction(300.0, -2.0)
-if abs(c) < 0.1:
-    _pass("get_correction (at zero)")
-else:
-    _fail("get_correction", c)
-
-ogw = bc.calculate_ogw(168.0, 2750.0)
-if 800 < ogw < 1000:
-    _pass("calculate_ogw")
-else:
-    _fail("calculate_ogw", ogw)
-
 # -- Wind / Config namedtuple ---------------------------------------------------
 print("\n--- Wind / Config namedtuple ---")
 try:
     import gc
+
     w = Wind(10.0, 1.5)
-    if w.velocity_fps == 10.0 and w[0] == 10.0 and w.until_distance_ft == 1e8:
-        _pass("Wind namedtuple — attr + index + defaults")
+    if w._s.velocity_fps == 10.0 and w._s.until_distance_ft == 1e8:
+        _pass("Wind (_buf,_s) — field access + defaults")
     else:
-        _fail("Wind namedtuple", w)
+        _fail("Wind (_buf,_s)", (w._s.velocity_fps, w._s.until_distance_ft))
     cfg = Config(max_iterations=100)
-    if cfg.max_iterations == 100 and cfg.step_multiplier == 0.5:
-        _pass("Config namedtuple — kwarg + defaults")
+    if cfg._s.max_iterations == 100 and cfg._s.step_multiplier == 0.5:
+        _pass("Config (_buf,_s) — kwarg + defaults")
     else:
-        _fail("Config namedtuple", cfg)
+        _fail("Config (_buf,_s)", (cfg._s.max_iterations, cfg._s.step_multiplier))
     gc.collect()
     bw = gc.mem_alloc()
     winds = [Wind(float(i), 0.0) for i in range(100)]
-    aw = gc.mem_alloc(); del winds; gc.collect()
+    aw = gc.mem_alloc()
+    del winds
+    gc.collect()
     bc2 = gc.mem_alloc()
     cfgs = [Config() for _ in range(100)]
-    ac = gc.mem_alloc(); del cfgs; gc.collect()
-    _pass("Wind RAM={} B/inst  Config RAM={} B/inst".format(
-        (aw - bw) // 100, (ac - bc2) // 100))
+    ac = gc.mem_alloc()
+    del cfgs
+    gc.collect()
+    _pass(
+        "Wind RAM={} B/inst  Config RAM={} B/inst".format(
+            (aw - bw) // 100, (ac - bc2) // 100
+        )
+    )
 except Exception as ex:
     _fail("Wind/Config namedtuple", ex)
 
@@ -313,7 +300,11 @@ try:
         _pass("integrate — {} rows, stop reason {}".format(len(rows), reason))
     else:
         _fail("integrate", "expected >=2 rows, got " + str(len(rows)))
-    print("  {:>8s}  {:>8s}  {:>8s}  {:>8s}".format("dist_ft", "vel_fps", "height_ft", "mach"))
+    print(
+        "  {:>8s}  {:>8s}  {:>8s}  {:>8s}".format(
+            "dist_ft", "vel_fps", "height_ft", "mach"
+        )
+    )
     for r in rows:
         print("  {:>8.0f}  {:>8.1f}  {:>8.3f}  {:>8.3f}".format(r[1], r[2], r[4], r[3]))
 except Exception as ex:
@@ -341,7 +332,9 @@ print("\n--- find_zero_angle (300 m zero) ---")
 elev = None
 try:
     elev = bc.find_zero_angle(SHOT, ZERO_DIST_FT)
-    _pass("find_zero_angle elev_rad={:.6f}  ({:.4f} deg)".format(elev, math.degrees(elev)))
+    _pass(
+        "find_zero_angle elev_rad={:.6f}  ({:.4f} deg)".format(elev, math.degrees(elev))
+    )
     if abs(elev - _ZERO_300M_REF) > _ZERO_300M_TOL:
         _fail(
             "find_zero_angle value",
@@ -404,13 +397,17 @@ except Exception as ex:
 print("\n--- integrate_stream (collect all points) ---")
 try:
     collected = []
-    total_s, reason_s = bc.integrate_stream(SHOT, REQUEST,
-                                             lambda row: collected.append(row))
+    total_s, reason_s = bc.integrate_stream(
+        SHOT, REQUEST, lambda row: collected.append(row)
+    )
     rows_ref, _ = bc.integrate(SHOT, REQUEST)
     if len(collected) == len(rows_ref):
         _pass("integrate_stream — {} points (total={})".format(len(collected), total_s))
     else:
-        _fail("integrate_stream", "stream={} vs integrate={}".format(len(collected), len(rows_ref)))
+        _fail(
+            "integrate_stream",
+            "stream={} vs integrate={}".format(len(collected), len(rows_ref)),
+        )
 except Exception as ex:
     _fail("integrate_stream", ex)
 
@@ -424,16 +421,25 @@ try:
     T_ENERGY = bc.T_ENERGY
     stopped_at = [None]
     count_e = [0]
+
     def _cb_energy(row):
         count_e[0] += 1
         if row[T_ENERGY] < 1000.0:
             stopped_at[0] = row[bc.T_DISTANCE]
             return True
+
     _, reason_e = bc.integrate_stream(SHOT, REQ_5KM, _cb_energy)
     if reason_e == 5 and stopped_at[0] is not None:
-        _pass("integrate_stream stop — energy<1000 at {:.0f} ft after {} pts".format(stopped_at[0], count_e[0]))
+        _pass(
+            "integrate_stream stop — energy<1000 at {:.0f} ft after {} pts".format(
+                stopped_at[0], count_e[0]
+            )
+        )
     else:
-        _fail("integrate_stream stop", "reason={} stopped_at={}".format(reason_e, stopped_at[0]))
+        _fail(
+            "integrate_stream stop",
+            "reason={} stopped_at={}".format(reason_e, stopped_at[0]),
+        )
 except Exception as ex:
     _fail("integrate_stream stop", ex)
 
@@ -455,8 +461,16 @@ try:
     mem_after_gc = gc.mem_alloc()
     delta = mem_after - mem_before
     delta_gc = mem_after_gc - mem_before
-    _pass("integrate 3 km — {} rows  alloc={} B  alloc_after_gc={} B".format(len(rows_3km), delta, delta_gc))
-    print("  mem_before={} B  mem_peak={} B  mem_after_gc={} B".format(mem_before, mem_after, mem_after_gc))
+    _pass(
+        "integrate 3 km — {} rows  alloc={} B  alloc_after_gc={} B".format(
+            len(rows_3km), delta, delta_gc
+        )
+    )
+    print(
+        "  mem_before={} B  mem_peak={} B  mem_after_gc={} B".format(
+            mem_before, mem_after, mem_after_gc
+        )
+    )
 except Exception as ex:
     _fail("RAM integrate 3 km", ex)
 

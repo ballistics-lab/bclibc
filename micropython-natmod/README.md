@@ -100,9 +100,9 @@ make ARCH=x64 USE_FLOAT=1         # single on host
 make -C "$MPY_DIR/ports/unix" VARIANT=standard
 MPY="$MPY_DIR/ports/unix/build-standard/micropython"
 
-# Build natmod and symlink
+# Build natmod and symlink the private module
 make x64        # or: make x64s / make x86 / make x86s
-ln -sf tiny_bclibc_x64_d.mpy tiny_bclibc.mpy
+ln -sf _tiny_bclibc_x64_d.mpy _tiny_bclibc.mpy
 
 # Run tests (natmod)
 $MPY test_bclibc.py
@@ -152,7 +152,7 @@ make -C "$MPY_DIR/ports/qemu" BOARD=MPS2_AN385
 
 # Build natmod
 make ARCH=armv7m
-ln -sf tiny_bclibc_armv7m.mpy tiny_bclibc.mpy
+ln -sf _tiny_bclibc_armv7m.mpy _tiny_bclibc.mpy
 
 # Run tests through the QEMU pty bridge
 python3 ci/run_qemu.py \
@@ -174,7 +174,7 @@ make -C "$MPY_DIR/ports/qemu" BOARD=MICROBIT
 
 # Build natmod
 make ARCH=armv6m
-ln -sf tiny_bclibc_armv6m.mpy tiny_bclibc.mpy
+ln -sf _tiny_bclibc_armv6m.mpy _tiny_bclibc.mpy
 
 # Run tests through the QEMU pty bridge
 python3 ci/run_qemu.py \
@@ -187,39 +187,54 @@ python3 ci/run_qemu.py \
 ## Module API
 
 ```python
-import tiny_bclibc
-from tiny_bclibc_types import Shot, Request, Wind, Config, DRAG_G1, DRAG_G7, DRAG_CUSTOM
+import tiny_bclibc as bc
+from tiny_bclibc import Shot, Request, Wind, Config, DRAG_G1, DRAG_G7, DRAG_CUSTOM
 
-tiny_bclibc.version()              # → "1.2.3"
+bc.version()              # → "1.2.3"
 
-# Scalar helpers
-tiny_bclibc.calculate_energy(weight_grain, velocity_fps)   # → ft·lbf (float)
-tiny_bclibc.calculate_ogw(weight_grain, velocity_fps)       # → optimal game weight (float)
-tiny_bclibc.get_correction(distance_ft, drop_ft)            # → angle correction (rad)
+# ── Constructors ──────────────────────────────────────────────────────────────
+shot = Shot(bc=0.310, weight_grain=168.0, muzzle_velocity_fps=2750.0)
+req  = Request(range_limit_ft=3000.0, range_step_ft=100.0)
 
-# Trajectory integration — buffered
-rows, stop_reason = tiny_bclibc.integrate(shot.pack(), request.pack())
+# Wind: field access via ._s (zero-copy uctypes struct backed by ._buf)
+w = Wind(velocity_fps=10.0, direction_from_rad=1.57)
+w._s.velocity_fps        # read field
+w._s.direction_from_rad  # read/write field
+
+# Config: same pattern
+cfg = Config(max_iterations=100)
+cfg._s.step_multiplier   # read/write field
+
+# Shot with winds and custom config
+shot = Shot(
+    bc=0.310, weight_grain=168.0, muzzle_velocity_fps=2750.0,
+    winds=[Wind(10.0, 0.0)],
+    config=Config(max_iterations=50),
+)
+
+# ── Trajectory integration — buffered ────────────────────────────────────────
+rows, stop_reason = bc.integrate(shot, req)
 # rows: list of 16-tuples — use T_* indices to access fields
 
-# Trajectory integration — streaming (no buffer allocation)
+# ── Trajectory integration — streaming (no per-point allocation) ─────────────
 def on_point(row):
     # called once per filtered output point; return truthy to stop early
-    print(row[tiny_bclibc.T_DISTANCE], row[tiny_bclibc.T_VELOCITY])
-total, stop_reason = tiny_bclibc.integrate_stream(shot.pack(), request.pack(), on_point)
+    print(row[bc.T_DISTANCE], row[bc.T_VELOCITY])
+total, stop_reason = bc.integrate_stream(shot, req, on_point)
 
-# Zero-angle search
-elevation_rad = tiny_bclibc.find_zero_angle(shot.pack(), zero_distance_ft)
+# ── Zero-angle search ─────────────────────────────────────────────────────────
+elevation_rad = bc.find_zero_angle(shot, zero_distance_ft)
 
-# Maximum range (golden-section search over [low_deg, high_deg])
-range_ft, angle_rad = tiny_bclibc.find_max_range(shot.pack(), low_deg, high_deg)
+# ── Maximum range (golden-section search over [low_rad, high_rad]) ────────────
+range_ft, angle_rad = bc.find_max_range(shot, low_rad, high_rad)
 
-# Single-point interpolation
-raw, full = tiny_bclibc.integrate_at(shot.pack(), tiny_bclibc.INTERP_POS_X, distance_ft)
+# ── Single-point interpolation ────────────────────────────────────────────────
+raw, full = bc.integrate_at(shot, bc.INTERP_POS_X, distance_ft)
 # raw: 8-tuple (time, px, py, pz, vx, vy, vz, mach)
 # full: same 16-tuple as integrate() rows
 
-# Apex
-apex = tiny_bclibc.find_apex(shot.pack())   # → single trajectory row 16-tuple
+# ── Apex ──────────────────────────────────────────────────────────────────────
+apex = bc.find_apex(shot)   # → single trajectory row 16-tuple
 
 # ── Trajectory flag constants ─────────────────────────────────────────────────
 tiny_bclibc.TRAJ_FLAG_NONE       # 0
@@ -261,7 +276,7 @@ tiny_bclibc.T_OGW            # 14 — optimal game weight (lb)
 tiny_bclibc.T_FLAG           # 15 — TRAJ_FLAG_* bitmask
 ```
 
-See [tiny_bclibc_types.py](tiny_bclibc_types.py) for `Shot`, `Wind`, `Config`, `Request` constructors and `.pack()` / `.unpack()`.
+See [tiny_bclibc.py](tiny_bclibc.py) for `Shot`, `Wind`, `Config`, `Request` constructors.
 
 ### `integrate` vs `integrate_stream`
 
