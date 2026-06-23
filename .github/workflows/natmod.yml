@@ -243,53 +243,10 @@ jobs:
   # verifies that the armv6m .mpy is correctly generated; hardware testing on
   # actual RP2040 hardware is outside the scope of this CI.
 
-  # ── Experimental: aarch64 native .mpy ─────────────────────────────────────
-  # Tests whether mpy_ld.py supports aarch64 as a link target and whether the
-  # resulting .mpy loads on the AArch64 unix MicroPython port.
-  test-aarch64:
-    name: test (aarch64${{ matrix.suffix }} / native .mpy — experimental)
-    if: ${{ !cancelled() }}
-    runs-on: ubuntu-24.04-arm
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { suffix: _sp, target: aarch64sp, dir: sp }
-          - { suffix: _dp, target: aarch64,   dir: dp }
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Fetch MicroPython ${{ env.MPY_TAG }}
-        run: |
-          VER="${MPY_TAG#v}"
-          wget -q "https://github.com/micropython/micropython/releases/download/${MPY_TAG}/micropython-${VER}.tar.xz" -O mpy.tar.xz
-          tar xf mpy.tar.xz && rm mpy.tar.xz
-          echo "MPY_DIR=$GITHUB_WORKSPACE/micropython-${VER}" >> $GITHUB_ENV
-
-      - name: Install deps
-        run: |
-          sudo apt-get install -y libffi-dev pkg-config
-          pip install pyelftools ar
-
-      - name: Build mpy-cross
-        run: make -C "$MPY_DIR/mpy-cross"
-
-      - name: Build natmod (aarch64${{ matrix.suffix }})
-        working-directory: micropython-natmod
-        run: make ${{ matrix.target }} MPY_DIR="$MPY_DIR"
-
-      - name: Build MicroPython unix (aarch64)
-        run: make -C "$MPY_DIR/ports/unix" VARIANT=standard
-
-      - name: Symlink modules
-        working-directory: micropython-natmod
-        run: |
-          ln -sf build/aarch64_${{ matrix.dir }}/_tiny_bclibc.mpy _tiny_bclibc.mpy
-          ln -sf build/aarch64_${{ matrix.dir }}/tiny_bclibc.mpy  tiny_bclibc.mpy
-
-      - name: Run tests
-        working-directory: micropython-natmod
-        run: "$MPY_DIR/ports/unix/build-standard/micropython test_bclibc.py"
+  # aarch64: dynruntime.mk in MicroPython ≤ v1.28 explicitly does not support
+  # aarch64 as a native module link target. Jobs removed until upstream adds
+  # support. Makefile targets (make aarch64 / make aarch64sp) are kept for
+  # future use once a compatible MicroPython version is available.
 
   # ── Experimental: armhf native .mpy via Docker/QEMU ───────────────────────
   # Probes what native arch the armhf unix port reports (sys.implementation._mpy)
@@ -321,7 +278,7 @@ jobs:
           apt-get install -y -q --no-install-recommends \
             build-essential libffi-dev pkg-config python3 python3-pip \
             gcc-arm-none-eabi libnewlib-arm-none-eabi
-          pip3 install -q pyelftools ar
+          pip3 install -q --break-system-packages pyelftools ar
           MPY_DIR="/work/micropython-${MPY_VER}"
           make -C "$MPY_DIR/mpy-cross"
           make -C "$MPY_DIR/ports/unix" VARIANT=standard
