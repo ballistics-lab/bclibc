@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       mpy_tag:
-        description: 'MicroPython release tag (e.g. v1.28.0)'
+        description: "MicroPython release tag (e.g. v1.28.0)"
         required: false
-        default: 'v1.28.0'
+        default: "v1.28.0"
 
 env:
   MPY_TAG: ${{ github.event.inputs.mpy_tag || 'v1.28.0' }}
@@ -26,18 +26,53 @@ jobs:
       matrix:
         include:
           # ── Single precision (float) — default for all MCU archs ─────────
-          - {arch: x64,       precision: single, suffix: _sp}
-          - {arch: x86,       precision: single, suffix: _sp, apt: gcc-multilib}
-          - {arch: armv6m,    precision: single, suffix: _sp, apt: gcc-arm-none-eabi libnewlib-arm-none-eabi}
-          - {arch: armv7m,    precision: single, suffix: _sp, apt: gcc-arm-none-eabi libnewlib-arm-none-eabi}
-          - {arch: armv7emsp, precision: single, suffix: _sp, apt: gcc-arm-none-eabi libnewlib-arm-none-eabi}
-          - {arch: armv7emdp, precision: single, suffix: _sp, apt: gcc-arm-none-eabi libnewlib-arm-none-eabi}
-          - {arch: rv32imc,   precision: single, suffix: _sp, apt: gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf}
-          - {arch: rv64imc,   precision: single, suffix: _sp, apt: gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf}
+          - { arch: x64, suffix: _sp, target: x64sp }
+          - { arch: x86, suffix: _sp, target: x86sp, apt: gcc-multilib }
+          - {
+              arch: armv6m,
+              suffix: _sp,
+              target: rp2040,
+              apt: gcc-arm-none-eabi libnewlib-arm-none-eabi,
+            }
+          - {
+              arch: armv7m,
+              suffix: _sp,
+              target: armv7m,
+              apt: gcc-arm-none-eabi libnewlib-arm-none-eabi,
+            }
+          - {
+              arch: armv7emsp,
+              suffix: _sp,
+              target: rp2350,
+              apt: gcc-arm-none-eabi libnewlib-arm-none-eabi,
+            }
+          - {
+              arch: armv7emdp,
+              suffix: _sp,
+              target: stm32h7,
+              apt: gcc-arm-none-eabi libnewlib-arm-none-eabi,
+            }
+          - {
+              arch: rv32imc,
+              suffix: _sp,
+              target: esp32c3,
+              apt: gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf,
+            }
+          - {
+              arch: rv64imc,
+              suffix: _sp,
+              target: rv64,
+              apt: gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf,
+            }
           # ── Double precision — host (x64/x86) and armv7emdp (hw double FPU)
-          - {arch: x64,       precision: double, suffix: _dp}
-          - {arch: x86,       precision: double, suffix: _dp, apt: gcc-multilib}
-          - {arch: armv7emdp, precision: double, suffix: _dp, apt: gcc-arm-none-eabi libnewlib-arm-none-eabi}
+          - { arch: x64, suffix: _dp, target: x64 }
+          - { arch: x86, suffix: _dp, target: x86, apt: gcc-multilib }
+          - {
+              arch: armv7emdp,
+              suffix: _dp,
+              target: stm32h7dp,
+              apt: gcc-arm-none-eabi libnewlib-arm-none-eabi,
+            }
 
     steps:
       - uses: actions/checkout@v6
@@ -56,9 +91,12 @@ jobs:
       - name: Install Python tools
         run: pip install pyelftools ar
 
-      - name: Build ${{ matrix.arch }}${{ matrix.suffix }}
+      - name: Build mpy-cross
+        run: make -C "$MPY_DIR/mpy-cross"
+
+      - name: Build ${{ matrix.target }}
         working-directory: micropython-natmod
-        run: make ARCH=${{ matrix.arch }} PRECISION=${{ matrix.precision }} MPY_DIR="$MPY_DIR"
+        run: make ${{ matrix.target }} MPY_DIR="$MPY_DIR"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -76,8 +114,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {suffix: _sp, precision: single}
-          - {suffix: _dp, precision: double}
+          - { suffix: _sp, precision: single }
+          - { suffix: _dp, precision: double }
     steps:
       - uses: actions/checkout@v6
 
@@ -119,8 +157,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {suffix: _sp, precision: single}
-          - {suffix: _dp, precision: double}
+          - { suffix: _sp, precision: single }
+          - { suffix: _dp, precision: double }
     steps:
       - uses: actions/checkout@v6
 
