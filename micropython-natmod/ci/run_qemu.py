@@ -69,7 +69,9 @@ def inject_modules(native_mpy: bytes, wrapper_mpy: bytes) -> bytes:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("firmware", help="Path to firmware.elf")
     ap.add_argument(
         "natmod_dir",
@@ -80,7 +82,9 @@ def main() -> None:
         default="mps2-an385",
         help="QEMU -machine value (default: mps2-an385)",
     )
-    ap.add_argument("--qemu-extra", default="", help="Extra QEMU arguments inserted before -serial")
+    ap.add_argument(
+        "--qemu-extra", default="", help="Extra QEMU arguments inserted before -serial"
+    )
     args = ap.parse_args()
 
     native_data = read_file(os.path.join(args.natmod_dir, "_tiny_bclibc.mpy"))
