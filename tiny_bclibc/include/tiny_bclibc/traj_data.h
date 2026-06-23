@@ -11,7 +11,7 @@ extern "C"
 {
 #endif
 
-    /* ── Базові дані точки траєкторії ─────────────────────────────────
+    /* ── Base trajectory point data ───────────────────────────────────
      *  9 × real_t = 72 B (double) / 36 B (float)
      */
     typedef struct TINY_BCLIBC_BaseTrajData
@@ -22,7 +22,7 @@ extern "C"
         real_t mach;
     } TINY_BCLIBC_BaseTrajData;
 
-    /* ── Ключ інтерполяції для BaseTrajData ──────────────────────────── */
+    /* ── Interpolation key for BaseTrajData ─────────────────────────── */
     typedef enum TINY_BCLIBC_InterpKey
     {
         TINY_BCLIBC_KEY_TIME = 0,
@@ -60,20 +60,20 @@ extern "C"
         }
     }
 
-    /* 3-point PCHIP інтерполяція всіх полів BaseTrajData */
+    /* 3-point PCHIP interpolation of all BaseTrajData fields */
     TINY_BCLIBC_INLINE_FUNC void
     TINY_BCLIBC_BaseTrajData_interpolate(int32_t key, real_t key_val,
-                                     const TINY_BCLIBC_BaseTrajData *p0,
-                                     const TINY_BCLIBC_BaseTrajData *p1,
-                                     const TINY_BCLIBC_BaseTrajData *p2,
-                                     TINY_BCLIBC_BaseTrajData *out)
+                                         const TINY_BCLIBC_BaseTrajData *p0,
+                                         const TINY_BCLIBC_BaseTrajData *p1,
+                                         const TINY_BCLIBC_BaseTrajData *p2,
+                                         TINY_BCLIBC_BaseTrajData *out)
     {
         real_t x0 = TINY_BCLIBC_BaseTrajData_get(p0, key);
         real_t x1 = TINY_BCLIBC_BaseTrajData_get(p1, key);
         real_t x2 = TINY_BCLIBC_BaseTrajData_get(p2, key);
 
 #define TINY_BCLIBC__INTERP_FIELD(field, k) \
-    out->field = (key == (k)) ? key_val \
+    out->field = (key == (k)) ? key_val     \
                               : tiny_bclibc_interpolate3pt(key_val, x0, x1, x2, p0->field, p1->field, p2->field)
 
         TINY_BCLIBC__INTERP_FIELD(time, TINY_BCLIBC_KEY_TIME);
@@ -87,7 +87,7 @@ extern "C"
 #undef TINY_BCLIBC__INTERP_FIELD
     }
 
-    /* ── Повні дані точки траєкторії ─────────────────────────────────
+    /* ── Full trajectory point data ──────────────────────────────────
      *  15 × real_t + int32 = 124 B (double) / 64 B (float)
      */
     typedef struct TINY_BCLIBC_TrajectoryData
@@ -110,7 +110,7 @@ extern "C"
         int32_t flag;
     } TINY_BCLIBC_TrajectoryData;
 
-    /* ── Запит на інтеграцію ─────────────────────────────────────────── */
+    /* ── Integration request ────────────────────────────────────────── */
     typedef struct TINY_BCLIBC_TrajectoryRequest
     {
         real_t range_limit_ft;
@@ -119,12 +119,12 @@ extern "C"
         int32_t filter_flags;
     } TINY_BCLIBC_TrajectoryRequest;
 
-    /* ── Фабрика TrajectoryData з BaseTrajData + ShotProps ──────────── */
+    /* ── TrajectoryData factory from BaseTrajData + ShotProps ───────── */
     TINY_BCLIBC_INLINE_FUNC void
     TINY_BCLIBC_TrajectoryData_from_props(const TINY_BCLIBC_ShotProps *props,
-                                      const TINY_BCLIBC_BaseTrajData *base,
-                                      int32_t flag,
-                                      TINY_BCLIBC_TrajectoryData *out)
+                                          const TINY_BCLIBC_BaseTrajData *base,
+                                          int32_t flag,
+                                          TINY_BCLIBC_TrajectoryData *out)
     {
         TINY_BCLIBC_V3dT range_v = TINY_BCLIBC_V3dT_make(base->px, base->py, base->pz);
         TINY_BCLIBC_V3dT vel_v = TINY_BCLIBC_V3dT_make(base->vx, base->vy, base->vz);
@@ -135,7 +135,7 @@ extern "C"
 
         real_t density_ratio, mach_fps;
         TINY_BCLIBC_Atmosphere_update_density_mach(&props->atmo,
-                                               props->alt0 + base->py, &density_ratio, &mach_fps);
+                                                   props->alt0 + base->py, &density_ratio, &mach_fps);
 
         real_t traj_angle = TINY_BCLIBC_ATAN2(vel_v.y, vel_v.x);
         real_t la_cos = TINY_BCLIBC_COS(props->look_angle);

@@ -13,11 +13,11 @@ extern "C"
 #endif
 
     /* ════════════════════════════════════════════════════════════════════
-     *  Буфер помилок
+     *  Errors buffer
      * ════════════════════════════════════════════════════════════════════ */
 
 #if defined(TINY_BCLIBC_BUILD_SHARED)
-    /* В compiled-режимі — один справжній thread-local глобал у tiny_bclibc_impl.c */
+    /* In compiled-mode — one true thread-local global in tiny_bclibc_impl.c */
     extern TINY_BCLIBC_THREAD_LOCAL char tiny_bclibc__s_error[512];
 
     TINY_BCLIBC_FUNC const char *tiny_bclibc_last_error(void);
@@ -39,7 +39,7 @@ static inline const char *tiny_bclibc_last_error(void) { return "tiny_bclibc err
 static inline void tiny_bclibc__set_error(const char *msg) { (void)msg; }
 
 #else
-/* Header-only: static local → per-TU буфер */
+/* Header-only: static local → per-TU buffer */
 TINY_BCLIBC_INLINE_FUNC const char *tiny_bclibc_last_error(void)
 {
     static TINY_BCLIBC_THREAD_LOCAL char buf[512];
@@ -60,7 +60,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
 #endif /* TINY_BCLIBC_BUILD_SHARED */
 
     /* ════════════════════════════════════════════════════════════════════
-     *  Утиліти (завжди inline)
+     *  Utils (always inline)
      * ════════════════════════════════════════════════════════════════════ */
 
     TINY_BCLIBC_INLINE_FUNC real_t tiny_bclibc_get_correction(real_t distance_ft, real_t offset_ft)
@@ -81,10 +81,10 @@ static inline void tiny_bclibc__set_error(const char *msg)
     }
 
     /* ════════════════════════════════════════════════════════════════════
-     *  Внутрішні RK4-функції (завжди static inline)
+     *  Internal RK4 functions (always static inline)
      * ════════════════════════════════════════════════════════════════════ */
 
-    /* Прискорення снаряду: a = gravity+coriolis − km*|v_rel|*v_rel */
+    /* Projectile acceleration: a = gravity+coriolis − km*|v_rel|*v_rel */
     static inline void tiny_bclibc__calc_dvdt(
         TINY_BCLIBC_V3dT v_rel,
         TINY_BCLIBC_V3dT gravity_plus_coriolis,
@@ -96,15 +96,18 @@ static inline void tiny_bclibc__set_error(const char *msg)
         acc->z = gravity_plus_coriolis.z - km * v_mag * v_rel.z;
     }
 
-    /* ── Контекст для on_step callback ──────────────────────────────── */
+    /* ── Context for on_step callback ───────────────────────────────── */
     typedef int32_t (*tiny_bclibc__OnStep)(const TINY_BCLIBC_BaseTrajData *pt, void *ctx);
 
-    /* ── Контроль зупинки ───────────────────────────────────────────── */
+    /* ── Streaming callback — returns 0 to continue, TINY_BCLIBC_TERM_HANDLER_STOP to stop ── */
+    typedef int32_t (*tiny_bclibc_StreamCb)(const TINY_BCLIBC_TrajectoryData *pt, void *ctx);
+
+    /* ── Stop control ────────────────────────────────────────────────── */
     typedef struct tiny_bclibc__StopCtrl
     {
         real_t range_limit_ft;
         real_t min_velocity_fps;
-        real_t max_drop_ft; /* вже зі знаком і поправкою на sight_height */
+        real_t max_drop_ft; /* signed and corrected for sight_height */
         real_t min_altitude_ft;
         real_t initial_altitude_ft;
         int32_t step_count;
@@ -112,16 +115,16 @@ static inline void tiny_bclibc__set_error(const char *msg)
     } tiny_bclibc__StopCtrl;
 
     static inline void tiny_bclibc__stop_ctrl_init(tiny_bclibc__StopCtrl *sc,
-                                               const TINY_BCLIBC_ShotProps *props,
-                                               real_t range_limit_ft,
-                                               real_t min_vel, real_t max_drop, real_t min_alt,
-                                               int32_t *reason_out)
+                                                   const TINY_BCLIBC_ShotProps *props,
+                                                   real_t range_limit_ft,
+                                                   real_t min_vel, real_t max_drop, real_t min_alt,
+                                                   int32_t *reason_out)
     {
         sc->range_limit_ft = range_limit_ft;
         sc->min_velocity_fps = min_vel;
         sc->max_drop_ft = -TINY_BCLIBC_FABS(max_drop) + ((-props->cant_cosine * props->sight_height) < REAL_C(0.0)
-                                                         ? -props->cant_cosine * props->sight_height
-                                                         : REAL_C(0.0));
+                                                             ? -props->cant_cosine * props->sight_height
+                                                             : REAL_C(0.0));
         sc->min_altitude_ft = min_alt;
         sc->initial_altitude_ft = props->alt0;
         sc->step_count = 0;
@@ -129,7 +132,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
     }
 
     static inline void tiny_bclibc__stop_ctrl_check(tiny_bclibc__StopCtrl *sc,
-                                                const TINY_BCLIBC_BaseTrajData *pt)
+                                                    const TINY_BCLIBC_BaseTrajData *pt)
     {
         if (*sc->reason_out != TINY_BCLIBC_TERM_NO_TERMINATE)
             return;
@@ -158,7 +161,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         }
     }
 
-    /* ── Головний RK4-цикл ──────────────────────────────────────────── */
+    /* ── Main RK4 loop ───────────────────────────────────────────────── */
     TINY_BCLIBC_INTERNAL int32_t tiny_bclibc__run_rk4(
         const TINY_BCLIBC_ShotProps *props,
         const TINY_BCLIBC_TrajectoryRequest *req,
@@ -178,14 +181,14 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
         tiny_bclibc__StopCtrl sc;
         tiny_bclibc__stop_ctrl_init(&sc, props, range_limit,
-                                props->calc_step > REAL_C(0.0) ? REAL_C(0.0) : REAL_C(50.0),
-                                REAL_C(-15000.0), REAL_C(-1500.0), out_reason);
-        /* використовуємо config для зупинки */
+                                    props->calc_step > REAL_C(0.0) ? REAL_C(0.0) : REAL_C(50.0),
+                                    REAL_C(-15000.0), REAL_C(-1500.0), out_reason);
+        /* use config for stop control */
 
-        TINY_BCLIBC_WindSock ws = props->wind_sock; /* локальна копія */
+        TINY_BCLIBC_WindSock ws = props->wind_sock; /* local copy */
 
         TINY_BCLIBC_V3dT gravity = TINY_BCLIBC_V3dT_make(REAL_C(0.0), props->calc_step > REAL_C(0.0) ? REAL_C(-32.17405) : REAL_C(-32.17405), REAL_C(0.0));
-        /* gravity.y = cGravityConstant — але ми не маємо config тут, використаємо константу */
+        /* gravity.y = cGravityConstant — no config available here, use constant */
         gravity = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(-32.17405), REAL_C(0.0));
 
         TINY_BCLIBC_V3dT wind = ws.last_vector;
@@ -208,16 +211,16 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
         while (*out_reason == TINY_BCLIBC_TERM_NO_TERMINATE)
         {
-            /* оновити вітер */
+            /* update wind */
             if (pos.x >= ws.next_range)
                 wind = TINY_BCLIBC_WindSock_vector_for_range(&ws, pos.x);
 
-            /* атмосфера */
+            /* atmosphere */
             real_t density_ratio, mach_fps;
             TINY_BCLIBC_Atmosphere_update_density_mach(&props->atmo,
-                                                   props->alt0 + pos.y, &density_ratio, &mach_fps);
+                                                       props->alt0 + pos.y, &density_ratio, &mach_fps);
 
-            /* поточна точка */
+            /* current point */
             real_t inv_mach = (mach_fps != REAL_C(0.0)) ? (REAL_C(1.0) / mach_fps) : REAL_C(1.0);
             TINY_BCLIBC_V3dT v_rel = TINY_BCLIBC_V3dT_make(vel.x - wind.x, vel.y - wind.y, vel.z - wind.z);
             real_t rel_speed = TINY_BCLIBC_SQRT(v_rel.x * v_rel.x + v_rel.y * v_rel.y + v_rel.z * v_rel.z);
@@ -247,7 +250,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
             /* km = density_ratio * drag_by_mach */
             real_t km = density_ratio * TINY_BCLIBC_ShotProps_drag_by_mach(props, cur_mach);
 
-            /* Коріоліс */
+            /* Coriolis */
             TINY_BCLIBC_V3dT gpc = gravity;
             if (!props->coriolis.flat_fire_only)
             {
@@ -304,11 +307,11 @@ static inline void tiny_bclibc__set_error(const char *msg)
             time += dt;
         }
 
-        /* фінальна точка */
+        /* final point */
         {
             real_t density_ratio, mach_fps;
             TINY_BCLIBC_Atmosphere_update_density_mach(&props->atmo,
-                                                   props->alt0 + pos.y, &density_ratio, &mach_fps);
+                                                       props->alt0 + pos.y, &density_ratio, &mach_fps);
             real_t inv_mach = (mach_fps != REAL_C(0.0)) ? REAL_C(1.0) / mach_fps : REAL_C(1.0);
             TINY_BCLIBC_V3dT v_rel = TINY_BCLIBC_V3dT_make(vel.x - wind.x, vel.y - wind.y, vel.z - wind.z);
             real_t rel_speed = TINY_BCLIBC_SQRT(v_rel.x * v_rel.x + v_rel.y * v_rel.y + v_rel.z * v_rel.z);
@@ -363,10 +366,10 @@ static inline void tiny_bclibc__set_error(const char *msg)
         out->curve_count = shot->drag_table_size;
 
         out->atmo = TINY_BCLIBC_Atmosphere_from_conditions(shot->temp_c, shot->pressure_hpa,
-                                                       shot->altitude_ft, shot->humidity);
+                                                           shot->altitude_ft, shot->humidity);
         out->coriolis = TINY_BCLIBC_Coriolis_from_lat_az(shot->latitude_deg,
-                                                     shot->muzzle_velocity_fps,
-                                                     shot->azimuth_deg);
+                                                         shot->muzzle_velocity_fps,
+                                                         shot->azimuth_deg);
         out->wind_sock = TINY_BCLIBC_WindSock_make(shot->winds, shot->wind_count);
 
         out->stability_coefficient = TINY_BCLIBC_ShotProps_calc_stability(out);
@@ -374,7 +377,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
     }
 
     /* ════════════════════════════════════════════════════════════════════
-     *  tiny_bclibc_integrate  — контекст для on_step
+     *  tiny_bclibc_integrate  — context for on_step
      * ════════════════════════════════════════════════════════════════════ */
 
     typedef struct tiny_bclibc__IntegrateCtx
@@ -388,19 +391,30 @@ static inline void tiny_bclibc__set_error(const char *msg)
         real_t next_range_dist;
         real_t time_of_last;
         /* filter state */
-        TINY_BCLIBC_BaseTrajData win[3]; /* ковзне вікно */
+        TINY_BCLIBC_BaseTrajData win[3]; /* sliding window */
         int32_t win_n;
         int32_t active_flags;
         real_t look_angle_tan;
         int32_t initialized;
+        /* streaming - if specified, emit calls cb instead of writing to buf */
+        tiny_bclibc_StreamCb stream_cb;
+        void *stream_ctx;
+        int32_t stream_stop;
     } tiny_bclibc__IntegrateCtx;
 
     static inline void tiny_bclibc__integrate_emit(tiny_bclibc__IntegrateCtx *c,
-                                               const TINY_BCLIBC_BaseTrajData *pt,
-                                               int32_t flag)
+                                                   const TINY_BCLIBC_BaseTrajData *pt,
+                                                   int32_t flag)
     {
         c->total++;
-        if (c->buf && c->written < c->capacity)
+        if (c->stream_cb)
+        {
+            TINY_BCLIBC_TrajectoryData full;
+            TINY_BCLIBC_TrajectoryData_from_props(c->props, pt, flag, &full);
+            if (c->stream_cb(&full, c->stream_ctx) != 0)
+                c->stream_stop = TINY_BCLIBC_TERM_HANDLER_STOP;
+        }
+        else if (c->buf && c->written < c->capacity)
         {
             TINY_BCLIBC_TrajectoryData_from_props(c->props, pt, flag, &c->buf[c->written]);
             c->written++;
@@ -408,13 +422,13 @@ static inline void tiny_bclibc__set_error(const char *msg)
     }
 
     static inline void tiny_bclibc__try_interp_emit(tiny_bclibc__IntegrateCtx *c,
-                                                int32_t key, real_t key_val, int32_t flag)
+                                                    int32_t key, real_t key_val, int32_t flag)
     {
         if (c->win_n < 3)
             return;
         TINY_BCLIBC_BaseTrajData r;
         TINY_BCLIBC_BaseTrajData_interpolate(key, key_val,
-                                         &c->win[0], &c->win[1], &c->win[2], &r);
+                                             &c->win[0], &c->win[1], &c->win[2], &r);
         tiny_bclibc__integrate_emit(c, &r, flag);
     }
 
@@ -424,12 +438,12 @@ static inline void tiny_bclibc__set_error(const char *msg)
         const TINY_BCLIBC_TrajectoryRequest *req = c->req;
         int32_t can_interp = (c->win_n >= 3);
 
-        /* ── ініціалізація (перша точка) ── */
+        /* ── initialiation (first point) ── */
         if (!c->initialized)
         {
             c->initialized = 1;
             int32_t ff = req->filter_flags;
-            /* якщо старт вище нуля — не шукаємо ZERO_UP */
+            /* if the start is above zero, we do not search ZERO_UP */
             if ((ff & TINY_BCLIBC_TRAJ_FLAG_ZERO_UP) && pt->py >= REAL_C(0.0))
                 ff &= ~TINY_BCLIBC_TRAJ_FLAG_ZERO_UP;
             if ((ff & TINY_BCLIBC_TRAJ_FLAG_ZERO) && pt->py < REAL_C(0.0))
@@ -440,16 +454,16 @@ static inline void tiny_bclibc__set_error(const char *msg)
             }
             c->active_flags = ff;
             c->look_angle_tan = TINY_BCLIBC_SIN(c->props->look_angle) / TINY_BCLIBC_COS(c->props->look_angle);
-            /* перша точка завжди виходить */
+            /* the first point always comes out */
             if (req->range_step_ft > REAL_C(0.0) || req->time_step > REAL_C(0.0))
                 tiny_bclibc__integrate_emit(c, pt, TINY_BCLIBC_TRAJ_FLAG_RANGE);
-            /* ковзне вікно */
+            /* sliding window */
             c->win[0] = *pt;
             c->win_n = 1;
             return 0;
         }
 
-        /* ── оновити ковзне вікно ── */
+        /* ── update sliding window ── */
         if (c->win_n < 3)
         {
             c->win[c->win_n++] = *pt;
@@ -478,7 +492,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 else if (can_interp)
                 {
                     TINY_BCLIBC_BaseTrajData_interpolate(TINY_BCLIBC_KEY_POS_X, rd,
-                                                     &c->win[0], &c->win[1], &c->win[2], &r);
+                                                         &c->win[0], &c->win[1], &c->win[2], &r);
                 }
                 else
                     break;
@@ -496,7 +510,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 c->time_of_last += req->time_step;
                 TINY_BCLIBC_BaseTrajData r;
                 TINY_BCLIBC_BaseTrajData_interpolate(TINY_BCLIBC_KEY_TIME, c->time_of_last,
-                                                 &c->win[0], &c->win[1], &c->win[2], &r);
+                                                     &c->win[0], &c->win[1], &c->win[2], &r);
                 tiny_bclibc__integrate_emit(c, &r, TINY_BCLIBC_TRAJ_FLAG_RANGE);
             }
         }
@@ -536,11 +550,11 @@ static inline void tiny_bclibc__set_error(const char *msg)
             }
         }
 
-        return 0;
+        return c->stream_stop;
     }
 
     /* ════════════════════════════════════════════════════════════════════
-     *  Публічний API
+     *  Public API
      * ════════════════════════════════════════════════════════════════════ */
 
     TINY_BCLIBC_FUNC int32_t tiny_bclibc_integrate(
@@ -565,7 +579,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         ctx.buf = out_buf;
         ctx.capacity = buf_capacity;
 
-        /* Модифікована копія ShotProps з config для зупинки */
+        /* Modified copy of ShotProps with config for break */
         int32_t reason = TINY_BCLIBC_TERM_NO_TERMINATE;
         int32_t rc = tiny_bclibc__run_rk4(props, req, tiny_bclibc__integrate_on_step, &ctx, &reason);
 
@@ -578,6 +592,37 @@ static inline void tiny_bclibc__set_error(const char *msg)
         if (out_buf && ctx.total > buf_capacity && buf_capacity > 0)
             return TINY_BCLIBC_ERR_BUF_TOO_SMALL;
         return TINY_BCLIBC_OK;
+    }
+
+    /* ── integrate_stream ────────────────────────────────────────────── */
+
+    TINY_BCLIBC_FUNC int32_t tiny_bclibc_integrate_stream(
+        const TINY_BCLIBC_ShotProps *props,
+        const TINY_BCLIBC_TrajectoryRequest *req,
+        tiny_bclibc_StreamCb cb,
+        void *cb_ctx,
+        int32_t *out_total,
+        int32_t *out_reason)
+    {
+        if (!props || !req || !cb || !out_total || !out_reason)
+        {
+            tiny_bclibc__set_error("tiny_bclibc_integrate_stream: NULL argument");
+            return TINY_BCLIBC_ERR_INVALID_ARG;
+        }
+
+        tiny_bclibc__IntegrateCtx ctx;
+        memset(&ctx, 0, sizeof(ctx));
+        ctx.props = props;
+        ctx.req = req;
+        ctx.stream_cb = cb;
+        ctx.stream_ctx = cb_ctx;
+
+        int32_t reason = TINY_BCLIBC_TERM_NO_TERMINATE;
+        int32_t rc = tiny_bclibc__run_rk4(props, req, tiny_bclibc__integrate_on_step, &ctx, &reason);
+
+        *out_total = ctx.total;
+        *out_reason = reason;
+        return rc;
     }
 
     /* ── integrate_at ─────────────────────────────────────────────────── */
@@ -596,7 +641,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
     {
         tiny_bclibc__AtCtx *c = (tiny_bclibc__AtCtx *)ctx_;
         if (c->found)
-            return 1; /* ранній вихід */
+            return 1; /* early return */
 
         if (c->n < 3)
         {
@@ -619,7 +664,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         if (crossed)
         {
             TINY_BCLIBC_BaseTrajData_interpolate(c->key, c->target,
-                                             &c->win[0], &c->win[1], &c->win[2], &c->result);
+                                                 &c->win[0], &c->win[1], &c->win[2], &c->result);
             c->found = 1;
             return 1;
         }
@@ -666,7 +711,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
     /* ── find_apex ────────────────────────────────────────────────────── */
 
     TINY_BCLIBC_FUNC int32_t tiny_bclibc_find_apex(const TINY_BCLIBC_ShotProps *props,
-                                           TINY_BCLIBC_TrajectoryData *out)
+                                                   TINY_BCLIBC_TrajectoryData *out)
     {
         if (!props || !out)
         {
@@ -684,7 +729,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         return TINY_BCLIBC_OK;
     }
 
-    /* ── error_at_distance (внутрішня) ───────────────────────────────── */
+    /* ── error_at_distance (internal) ───────────────────────────────── */
     static inline real_t tiny_bclibc__error_at_distance(
         TINY_BCLIBC_ShotProps *props_mut,
         real_t angle_rad,
@@ -702,7 +747,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         return (raw.py - target_y_ft) - TINY_BCLIBC_FABS(raw.px - target_x_ft);
     }
 
-    /* ── range_for_angle (внутрішня) ─────────────────────────────────── */
+    /* ── range_for_angle (internal) ─────────────────────────────────── */
     typedef struct tiny_bclibc__ZeroCrossCtx
     {
         real_t la_cos, la_sin;
@@ -765,20 +810,17 @@ static inline void tiny_bclibc__set_error(const char *msg)
         return ctx.found ? ctx.slant_dist : REAL_C(0.0);
     }
 
-    /* ── find_zero_angle (Ridder's method) ───────────────────────────── */
+    /* ── find_zero_angle_ridders (fallback: GSS + Ridder's) ─────────── */
 
-    TINY_BCLIBC_FUNC int32_t tiny_bclibc_find_zero_angle(
+    TINY_BCLIBC_INTERNAL int32_t tiny_bclibc__find_zero_angle_ridders(
         const TINY_BCLIBC_ShotProps *props,
         real_t distance_ft,
         real_t *out_angle_rad)
     {
         if (!props || !out_angle_rad)
-        {
-            tiny_bclibc__set_error("tiny_bclibc_find_zero_angle: NULL argument");
             return TINY_BCLIBC_ERR_INVALID_ARG;
-        }
 
-        /* Mutable copy для зміни barrel_elevation */
+        /* Mutable copy for barrel_elevation change */
         TINY_BCLIBC_ShotProps p = *props;
 
         real_t la = p.look_angle;
@@ -799,7 +841,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
             return TINY_BCLIBC_OK;
         }
 
-        /* Знайти max range для визначення bracket */
+        /* Find max range to resolve bracket */
         real_t inv_phi = REAL_C(0.6180339887498949);
         real_t inv_phi_sq = REAL_C(0.38196601125010515);
         real_t a = REAL_C(0.0), b = REAL_C(1.5707963267948966); /* 0..90 deg */
@@ -814,7 +856,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
 #ifdef TINY_BCLIBC_FAST_ZERO_FIND
         const real_t GSS_H_TOL = REAL_C(1e-2);
 #else
-        const real_t GSS_H_TOL = REAL_C(1e-5);
+    const real_t GSS_H_TOL = REAL_C(1e-5);
 #endif
 
         /* FAST_ZERO_FIND: coarser step for GSS bracket search only.
@@ -892,7 +934,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
 #ifdef TINY_BCLIBC_FAST_ZERO_FIND
         const real_t acc = REAL_C(0.01);
 #else
-        const real_t acc = REAL_C(0.001);
+    const real_t acc = REAL_C(0.001);
 #endif
         /* Angle bracket convergence in radians — independent of acc (which is in
          * feet).  1e-5 rad ≈ 0.0006° gives sub-milliradian accuracy on any
@@ -981,6 +1023,162 @@ static inline void tiny_bclibc__set_error(const char *msg)
         }
         *out_angle_rad = (low_angle + high_angle) / REAL_C(2.0);
         return TINY_BCLIBC_OK;
+    }
+
+    /* ── zero_angle_newton (primary: damped Newton-like iteration) ────── */
+    /*
+     * Matches BCLIBC_BaseEngine::zero_angle() in src/engine.cpp.
+     * Integrates only to target_x_ft each iteration — fast convergence
+     * (~3-5 iterations) without a full trajectory to max range.
+     */
+    TINY_BCLIBC_INTERNAL int32_t tiny_bclibc__zero_angle_newton(
+        TINY_BCLIBC_ShotProps *p,
+        real_t slant_range_ft,
+        real_t target_x_ft,
+        real_t look_angle_rad,
+        real_t *out_angle_rad)
+    {
+        real_t ca = TINY_BCLIBC_COS(look_angle_rad);
+        real_t sa = TINY_BCLIBC_SIN(look_angle_rad);
+
+#if defined(TINY_BCLIBC_SINGLE_PRECISION) || defined(TINY_BCLIBC_USE_FLOAT)
+        const real_t cZeroFindingAccuracy = REAL_C(1e-3);
+#else
+    const real_t cZeroFindingAccuracy = REAL_C(5e-6);
+#endif
+        const real_t ALLOWED_ZERO_ERROR_FT = REAL_C(1e-2);
+        const int32_t cMaxIterations = 40;
+
+        int32_t iterations = 0;
+        real_t range_error_ft = REAL_C(9e9);
+        real_t prev_range_error_ft = REAL_C(9e9);
+        real_t height_error_ft = cZeroFindingAccuracy * REAL_C(2.0);
+        real_t prev_height_error_ft = REAL_C(9e9);
+        real_t damping_factor = REAL_C(1.0);
+        const real_t damping_rate = REAL_C(0.7);
+        real_t last_correction = REAL_C(0.0);
+
+        while (iterations < cMaxIterations)
+        {
+            TINY_BCLIBC_BaseTrajData raw;
+            TINY_BCLIBC_TrajectoryData full;
+            int32_t rc = tiny_bclibc_integrate_at(p, TINY_BCLIBC_KEY_POS_X, target_x_ft, &raw, &full);
+            if (rc != TINY_BCLIBC_OK || raw.time == REAL_C(0.0))
+                return TINY_BCLIBC_ERR_ZERO_FINDING;
+
+            /* Degenerate: bullet barely moves — nudge elevation */
+            if (REAL_C(2.0) * raw.px < target_x_ft &&
+                p->barrel_elevation == REAL_C(0.0) && look_angle_rad < REAL_C(1.5))
+            {
+                p->barrel_elevation = REAL_C(0.01);
+                iterations++;
+                continue;
+            }
+
+            real_t height_diff_ft = raw.py * ca - raw.px * sa;
+            real_t look_dist_ft = raw.px * ca + raw.py * sa;
+            range_error_ft = TINY_BCLIBC_FABS(look_dist_ft - slant_range_ft);
+            height_error_ft = TINY_BCLIBC_FABS(height_diff_ft);
+
+            real_t traj_angle = TINY_BCLIBC_ATAN2(raw.vy, raw.vx);
+            real_t d_el = p->barrel_elevation - look_angle_rad;
+            real_t d_tr = traj_angle - look_angle_rad;
+            real_t cos_el = TINY_BCLIBC_COS(d_el), cos_tr = TINY_BCLIBC_COS(d_tr);
+            real_t denom_prod = cos_el * cos_tr;
+            real_t sensitivity = (TINY_BCLIBC_FABS(denom_prod) > REAL_C(1e-12))
+                                     ? (TINY_BCLIBC_SIN(d_el) * TINY_BCLIBC_SIN(d_tr)) / denom_prod
+                                     : REAL_C(0.0);
+            real_t denominator = (sensitivity < REAL_C(-0.5))
+                                     ? look_dist_ft
+                                     : look_dist_ft * (REAL_C(1.0) + sensitivity);
+            if (TINY_BCLIBC_FABS(denominator) <= REAL_C(1e-9))
+                return TINY_BCLIBC_ERR_ZERO_FINDING;
+
+            real_t correction = -height_diff_ft / denominator;
+
+            if (range_error_ft > ALLOWED_ZERO_ERROR_FT)
+            {
+                if (range_error_ft > prev_range_error_ft - REAL_C(1e-6))
+                    return TINY_BCLIBC_ERR_ZERO_FINDING;
+            }
+            else if (height_error_ft > TINY_BCLIBC_FABS(prev_height_error_ft))
+            {
+                damping_factor *= damping_rate;
+                if (damping_factor < REAL_C(0.3))
+                    return TINY_BCLIBC_ERR_ZERO_FINDING;
+                p->barrel_elevation -= last_correction;
+                correction = last_correction;
+            }
+            else if (damping_factor < REAL_C(1.0))
+            {
+                damping_factor = REAL_C(1.0);
+            }
+
+            prev_range_error_ft = range_error_ft;
+            prev_height_error_ft = height_error_ft;
+
+            if (height_error_ft <= cZeroFindingAccuracy && range_error_ft <= ALLOWED_ZERO_ERROR_FT)
+            {
+                *out_angle_rad = p->barrel_elevation;
+                return TINY_BCLIBC_OK;
+            }
+
+            real_t applied = correction * damping_factor;
+            p->barrel_elevation += applied;
+            last_correction = applied;
+            iterations++;
+        }
+
+        if (height_error_ft <= cZeroFindingAccuracy && range_error_ft <= ALLOWED_ZERO_ERROR_FT)
+        {
+            *out_angle_rad = p->barrel_elevation;
+            return TINY_BCLIBC_OK;
+        }
+        return TINY_BCLIBC_ERR_ZERO_FINDING;
+    }
+
+    /* ── find_zero_angle (public: Newton primary + Ridder's fallback) ─── */
+    /*
+     * Matches BCLIBC_BaseEngine::zero_angle_with_fallback() in src/engine.cpp.
+     */
+    TINY_BCLIBC_FUNC int32_t tiny_bclibc_find_zero_angle(
+        const TINY_BCLIBC_ShotProps *props,
+        real_t distance_ft,
+        real_t *out_angle_rad)
+    {
+        if (!props || !out_angle_rad)
+        {
+            tiny_bclibc__set_error("tiny_bclibc_find_zero_angle: NULL argument");
+            return TINY_BCLIBC_ERR_INVALID_ARG;
+        }
+
+        real_t la = props->look_angle;
+        real_t ca = TINY_BCLIBC_COS(la), sa = TINY_BCLIBC_SIN(la);
+        real_t tx = distance_ft * ca;
+        real_t ty = distance_ft * sa;
+        real_t sh = -props->cant_cosine * props->sight_height;
+        const real_t ZERO_ERR_FT = REAL_C(0.5);
+
+        if (TINY_BCLIBC_FABS(distance_ft) < ZERO_ERR_FT)
+        {
+            *out_angle_rad = la;
+            return TINY_BCLIBC_OK;
+        }
+        if (TINY_BCLIBC_FABS(distance_ft) < REAL_C(2.0) * TINY_BCLIBC_FABS(sh))
+        {
+            *out_angle_rad = TINY_BCLIBC_ATAN2(ty + sh, tx);
+            return TINY_BCLIBC_OK;
+        }
+        (void)ty;
+
+        /* Primary: Newton-like damped iteration */
+        TINY_BCLIBC_ShotProps p_newton = *props;
+        if (tiny_bclibc__zero_angle_newton(&p_newton, distance_ft, tx, la, out_angle_rad) == TINY_BCLIBC_OK)
+            return TINY_BCLIBC_OK;
+
+        /* Fallback: GSS + Ridder's (guaranteed bracket method) */
+        tiny_bclibc__set_error("tiny_bclibc_find_zero_angle: Newton failed, using Ridder's fallback");
+        return tiny_bclibc__find_zero_angle_ridders(props, distance_ft, out_angle_rad);
     }
 
     /* ── find_max_range ───────────────────────────────────────────────── */

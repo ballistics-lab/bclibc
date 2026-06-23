@@ -6,8 +6,16 @@
 #pragma GCC optimize("O0")
 #include <math.h>
 
-#ifdef TINY_BCLIBC_USE_FLOAT
-void sincosf(float x, float *s, float *c) { *s = sinf(x); *c = cosf(x); }
+#if defined(MP_BCLIBC_SINGLE_PRECISION) || defined(TINY_BCLIBC_USE_FLOAT)
+void sincosf(float x, float *s, float *c)
+{
+    *s = sinf(x);
+    *c = cosf(x);
+}
 #else
-void sincos(double x, double *s, double *c) { *s = sin(x); *c = cos(x); }
+void sincos(double x, double *s, double *c)
+{
+    *s = sin(x);
+    *c = cos(x);
+}
 #endif

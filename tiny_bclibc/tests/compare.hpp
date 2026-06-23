@@ -6,7 +6,7 @@
 #include <string>
 
 #include "bclibc/traj_data.hpp"
-#include "tbclibc/traj_data.h"
+#include "tiny_bclibc/traj_data.h"
 
 namespace identity
 {
@@ -34,7 +34,7 @@ namespace identity
     // Compare one full TrajectoryData point.
     // Returns true if all fields within tolerance.
     inline bool compare_point(const bclibc::BCLIBC_TrajectoryData &bc,
-                               const TBCLIBC_TrajectoryData &tb,
+                               const TINY_BCLIBC_TrajectoryData &tb,
                                int idx, double tol = kAbsTol, bool verbose = false)
     {
         bool ok = true;
@@ -69,7 +69,7 @@ namespace identity
     // Compare full trajectories (must be same length, matched by index).
     inline bool compare_trajectories(
         const std::vector<bclibc::BCLIBC_TrajectoryData> &bc_traj,
-        const std::vector<TBCLIBC_TrajectoryData>        &tb_traj,
+        const std::vector<TINY_BCLIBC_TrajectoryData>        &tb_traj,
         const char *label, double tol = kAbsTol)
     {
         std::printf("\n=== %s ===\n", label);

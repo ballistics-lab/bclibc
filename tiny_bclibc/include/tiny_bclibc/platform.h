@@ -4,8 +4,8 @@
 #include <math.h>
 #include <stdint.h>
 
-/* ── Числовий тип ─────────────────────────────────────────────────── */
-#ifdef TINY_BCLIBC_USE_FLOAT
+/* ── Numeric type ───────────────────────────────────────────────────── */
+#if defined(TINY_BCLIBC_SINGLE_PRECISION) || defined(TINY_BCLIBC_USE_FLOAT)
 typedef float real_t;
 #define TINY_BCLIBC_SQRT sqrtf
 #define TINY_BCLIBC_FABS fabsf
@@ -27,13 +27,13 @@ typedef double real_t;
 #define REAL_C(x) x
 #endif
 
-/* ── Видимість / linkage публічних функцій ──────────────────────────
+/* ── Visibility / linkage of public functions ───────────────────────
  *
- *  (нічого)              → header-only: static inline
- *  TINY_BCLIBC_BUILD_SHARED  → компіляція .so/.dll: export символи
- *  TINY_BCLIBC_USE_SHARED    → споживання .so/.dll: import символи
+ *  (nothing)             → header-only: static inline
+ *  TINY_BCLIBC_BUILD_SHARED  → building .so/.dll: export symbols
+ *  TINY_BCLIBC_USE_SHARED    → consuming .so/.dll: import symbols
  *
- *  Дрібні helpers (v3d, interp) — завжди TINY_BCLIBC_INLINE_FUNC.
+ *  Small helpers (v3d, interp) — always TINY_BCLIBC_INLINE_FUNC.
  */
 #if defined(TINY_BCLIBC_BUILD_SHARED)
 #ifdef _WIN32
@@ -52,18 +52,18 @@ typedef double real_t;
 #define TINY_BCLIBC_FUNC static inline
 #endif
 
-/* Завжди inline — для tiny helpers (v3d, interp, утиліти) */
+/* Always inline — for tiny helpers (v3d, interp, utilities) */
 #define TINY_BCLIBC_INLINE_FUNC static inline
 
-/* ── Великі внутрішні функції (engine.h) ────────────────────────────
+/* ── Large internal functions (engine.h) ────────────────────────────
  *  TINY_BCLIBC_INTERNAL: static + noinline.
  *
- *  Без цього -O2/-O3 inline-ує tiny_bclibc__run_rk4 (~4 KB) в кожну з
- *  5 публічних функцій → 20 KB дублікату в .so та native .mpy модулі.
- *  noinline гарантує один екземпляр незалежно від прапорів збірки.
+ *  Without this -O2/-O3 inlines tiny_bclibc__run_rk4 (~4 KB) into each
+ *  of the 5 public functions → 20 KB of duplicate code in .so and native .mpy.
+ *  noinline guarantees a single instance regardless of build flags.
  *
- *  Маленькі helpers (v3d, interp, atmosphere_update) лишаються
- *  TINY_BCLIBC_INLINE_FUNC — вони крихітні і профітують від inline.
+ *  Small helpers (v3d, interp, atmosphere_update) remain
+ *  TINY_BCLIBC_INLINE_FUNC — they are tiny and benefit from inlining.
  */
 #if defined(__GNUC__) || defined(__clang__)
 #define TINY_BCLIBC_NOINLINE __attribute__((noinline))
@@ -75,8 +75,8 @@ typedef double real_t;
 #define TINY_BCLIBC_INTERNAL TINY_BCLIBC_NOINLINE static
 
 /* ── Thread-local storage ────────────────────────────────────────────
- *  Bare-metal без RTOS → визначити TINY_BCLIBC_NO_THREAD_LOCAL перед включенням.
- *  Можна також визначити TINY_BCLIBC_THREAD_LOCAL вручну до включення цього файлу.
+ *  Bare-metal without RTOS → define TINY_BCLIBC_NO_THREAD_LOCAL before including.
+ *  You can also define TINY_BCLIBC_THREAD_LOCAL manually before including this file.
  */
 #ifndef TINY_BCLIBC_THREAD_LOCAL
 #if defined(TINY_BCLIBC_NO_THREAD_LOCAL)

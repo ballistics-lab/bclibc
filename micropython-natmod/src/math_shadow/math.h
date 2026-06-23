@@ -10,9 +10,9 @@
  * aliases while processing the real header, then undo so libm.h can declare
  * the musl kernel prototypes without conflict. */
 
-#define __sin  _glibc_sin1arg
-#define __cos  _glibc_cos1arg
-#define __tan  _glibc_tan1arg
+#define __sin _glibc_sin1arg
+#define __cos _glibc_cos1arg
+#define __tan _glibc_tan1arg
 
 #include_next <math.h>
 

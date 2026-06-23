@@ -19,8 +19,8 @@ from machine import Pin
 _HERE = __file__.rsplit("/", 1)[0] if "/" in __file__ else "."
 sys.path.append(_HERE)
 
-import tiny_bclibc as bclibc
-from tiny_bclibc_types import Shot, Request, DRAG_G7, DRAG_CUSTOM
+import tiny_bclibc as bc
+from tiny_bclibc import Shot, Request, DRAG_G7, DRAG_CUSTOM
 
 # ── Global variables ──────────────────────────────────────────────────────────
 test_complete = False
@@ -237,7 +237,7 @@ SHOT_CUSTOM = Shot(
 REQUEST = Request(
     range_limit_ft=1500.0,
     range_step_ft=300.0,
-    filter_flags=bclibc.TRAJ_FLAG_RANGE,
+    filter_flags=bc.TRAJ_FLAG_RANGE,
 )
 
 ZERO_DIST_FT = 300.0 * 3.28084
@@ -311,7 +311,7 @@ def run_tests_on_core1():
     print("\n[Core1] ============================================================")
     print("[Core1] Starting integration tests on Core1")
     print("[Core1] ============================================================")
-    print(f"[Core1] Version: {bclibc.version()}")
+    print(f"[Core1] Version: {bc.version()}")
 
     test_results = {"passed": 0, "failed": 0, "total": 0, "details": []}
     total_tests = 0
@@ -325,15 +325,17 @@ def run_tests_on_core1():
     # find_zero_angle 100m: 1 test
     # find_apex: 1 test
     # integrate_at: 1 test
+    # integrate_stream collect: 1 test
+    # integrate_stream early stop: 1 test
     # RAM usage: 1 test
-    total_tests = 10
+    total_tests = 12
     print(f"[Core1] Total tests: {total_tests}")
 
     try:
         # ── Scalar helpers ──────────────────────────────────────────────────
         print("\n[Core1] --- scalar helpers ---")
 
-        e = bclibc.calculate_energy(168.0, 2750.0)
+        e = bc.calculate_energy(168.0, 2750.0)
         if abs(e - 2820.83) < 1.0:
             _pass("calculate_energy")
             test_results["passed"] += 1
@@ -341,7 +343,7 @@ def run_tests_on_core1():
             _fail("calculate_energy", e)
             test_results["failed"] += 1
 
-        c = bclibc.get_correction(300.0, -2.0)
+        c = bc.get_correction(300.0, -2.0)
         if abs(c) < 0.1:
             _pass("get_correction (at zero)")
             test_results["passed"] += 1
@@ -349,7 +351,7 @@ def run_tests_on_core1():
             _fail("get_correction", c)
             test_results["failed"] += 1
 
-        ogw = bclibc.calculate_ogw(168.0, 2750.0)
+        ogw = bc.calculate_ogw(168.0, 2750.0)
         if 800 < ogw < 1000:
             _pass("calculate_ogw")
             test_results["passed"] += 1
@@ -360,7 +362,7 @@ def run_tests_on_core1():
         # ── Integration (built-in G7) ──────────────────────────────────────
         print("\n[Core1] --- integrate (builtin G7, 1500 ft, step 300) ---")
         try:
-            rows, reason = bclibc.integrate(SHOT.pack(), REQUEST.pack())
+            rows, reason = bc.integrate(SHOT, REQUEST)
             if len(rows) >= 2:
                 _pass(f"integrate — {len(rows)} rows, stop reason {reason}")
                 test_results["passed"] += 1
@@ -381,7 +383,7 @@ def run_tests_on_core1():
         # ── Integration (custom array drag table) ──────────────────────────
         print("\n[Core1] --- integrate (custom array G7, 1500 ft, step 300) ---")
         try:
-            rows2, reason2 = bclibc.integrate(SHOT_CUSTOM.pack(), REQUEST.pack())
+            rows2, reason2 = bc.integrate(SHOT_CUSTOM, REQUEST)
             if len(rows2) >= 2:
                 _pass(f"integrate custom — {len(rows2)} rows, stop reason {reason2}")
                 test_results["passed"] += 1
@@ -396,7 +398,7 @@ def run_tests_on_core1():
         print("\n[Core1] --- find_zero_angle (300 m zero) ---")
         elev = None
         try:
-            elev = bclibc.find_zero_angle(SHOT.pack(), ZERO_DIST_FT)
+            elev = bc.find_zero_angle(SHOT, ZERO_DIST_FT)
             _pass(
                 f"find_zero_angle elev_rad={elev:.6f}  ({math.degrees(elev):.4f} deg)"
             )
@@ -408,7 +410,7 @@ def run_tests_on_core1():
         # ── find_zero_angle at 100 m ────────────────────────────────────────
         print("\n[Core1] --- find_zero_angle (100 m zero) ---")
         try:
-            elev_100m = bclibc.find_zero_angle(SHOT.pack(), ZERO_DIST_100M_FT)
+            elev_100m = bc.find_zero_angle(SHOT, ZERO_DIST_100M_FT)
             elev_100m_mrad = math.degrees(elev_100m) * math.pi / 180 * 1000
             _pass(
                 f"find_zero_angle 100m  elev_rad={elev_100m:.6f}  ({math.degrees(elev_100m):.4f} deg  {elev_100m_mrad:.2f} mrad)"
@@ -429,17 +431,17 @@ def run_tests_on_core1():
         try:
             _elev = elev if elev is not None else 0.002442
             zeroed = Shot(
-                bc=SHOT.bc,
-                weight_grain=SHOT.weight_grain,
-                diameter_inch=SHOT.diameter_inch,
-                length_inch=SHOT.length_inch,
-                muzzle_velocity_fps=SHOT.muzzle_velocity_fps,
-                sight_height_ft=SHOT.sight_height_ft,
-                twist_inch=SHOT.twist_inch,
+                bc=0.310,
+                weight_grain=168.0,
+                diameter_inch=0.308,
+                length_inch=1.2,
+                muzzle_velocity_fps=2750.0,
+                sight_height_ft=0.125,
+                twist_inch=11.0,
                 barrel_elevation_rad=_elev,
                 drag_type=DRAG_G7,
             )
-            apex = bclibc.find_apex(zeroed.pack())
+            apex = bc.find_apex(zeroed)
             _pass(f"find_apex dist_ft={apex[1]:.1f}  height_ft={apex[4]:.1f}")
             test_results["passed"] += 1
         except Exception as ex:
@@ -449,11 +451,68 @@ def run_tests_on_core1():
         # ── integrate_at ─────────────────────────────────────────────────────
         print("\n[Core1] --- integrate_at (POS_X = 1000 ft) ---")
         try:
-            raw, full = bclibc.integrate_at(SHOT.pack(), bclibc.INTERP_POS_X, 1000.0)
+            raw, full = bc.integrate_at(SHOT, bc.INTERP_POS_X, 1000.0)
             _pass(f"integrate_at dist_ft={full[1]:.1f}  vel_fps={full[2]:.1f}")
             test_results["passed"] += 1
         except Exception as ex:
             _fail("integrate_at", ex)
+            test_results["failed"] += 1
+
+        # ── integrate_stream — collect all points ────────────────────────────
+        print("\n[Core1] --- integrate_stream (collect all points) ---")
+        try:
+            stream_rows = []
+            total_s, _ = bc.integrate_stream(
+                SHOT, REQUEST, lambda row: stream_rows.append(row)
+            )
+            rows_ref, _ = bc.integrate(SHOT, REQUEST)
+            if len(stream_rows) == len(rows_ref):
+                _pass(f"integrate_stream — {len(stream_rows)} points (total={total_s})")
+                test_results["passed"] += 1
+            else:
+                _fail(
+                    "integrate_stream",
+                    f"stream={len(stream_rows)} vs integrate={len(rows_ref)}",
+                )
+                test_results["failed"] += 1
+        except Exception as ex:
+            _fail("integrate_stream", ex)
+            test_results["failed"] += 1
+
+        # ── integrate_stream — early stop on energy threshold ────────────────
+        # Uses 5 km / 300 m steps so energy actually drops below 1000 ft·lbf
+        # (~818 ft·lbf at 900 m for G7 BC=0.310 168gr 2750fps).
+        print("\n[Core1] --- integrate_stream (stop when energy < 1000 ft·lbf) ---")
+        try:
+            REQ_5KM = Request(
+                range_limit_ft=5000.0 * 3.28084,
+                range_step_ft=300.0 * 3.28084,
+                filter_flags=bc.TRAJ_FLAG_RANGE,
+            )
+            T_ENERGY = bc.T_ENERGY
+            stopped_at = [None]
+            count_e = [0]
+
+            def _cb_energy(row):
+                count_e[0] += 1
+                if row[T_ENERGY] < 1000.0:
+                    stopped_at[0] = row[bc.T_DISTANCE]
+                    return True
+
+            _, reason_e = bc.integrate_stream(SHOT, REQ_5KM, _cb_energy)
+            if reason_e == 5 and stopped_at[0] is not None:  # TERM_HANDLER_STOP
+                _pass(
+                    f"integrate_stream stop — energy<1000 at {stopped_at[0]:.0f} ft after {count_e[0]} pts reason={reason_e}"
+                )
+                test_results["passed"] += 1
+            else:
+                _fail(
+                    "integrate_stream stop",
+                    f"reason={reason_e} stopped_at={stopped_at[0]}",
+                )
+                test_results["failed"] += 1
+        except Exception as ex:
+            _fail("integrate_stream stop", ex)
             test_results["failed"] += 1
 
         # ── RAM usage ────────────────────────────────────────────────────────
@@ -462,13 +521,11 @@ def run_tests_on_core1():
             REQ_3KM = Request(
                 range_limit_ft=3000.0 * 3.28084,
                 range_step_ft=100.0 * 3.28084,
-                filter_flags=bclibc.TRAJ_FLAG_RANGE,
+                filter_flags=bc.TRAJ_FLAG_RANGE,
             )
-            shot_buf = SHOT.pack()
-            req_buf = REQ_3KM.pack()
             gc.collect()
             mem_before = gc.mem_alloc()
-            rows_3km, _ = bclibc.integrate(shot_buf, req_buf)
+            rows_3km, _ = bc.integrate(SHOT, REQ_3KM)
             mem_after = gc.mem_alloc()
             gc.collect()
             mem_after_gc = gc.mem_alloc()
@@ -526,7 +583,7 @@ def main():
     print("=" * 60)
     print()
     print("Configuration:")
-    print(f"  Version: {bclibc.version()}")
+    print(f"  Version: {bc.version()}")
     print("  Platform: RP2040 (dual-core)")
     print("  Zero distance: 300 m")
     print(f"  Custom drag: G7 table ({len(G7_MACH)} points)")

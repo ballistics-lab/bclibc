@@ -58,7 +58,8 @@ target_link_libraries(my_target PRIVATE tiny_bclibc::shared)  # or tiny_bclibc::
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `TINY_BCLIBC_USE_FLOAT` | `OFF` | Use `float` instead of `double` for `real_t` |
+| `TINY_BCLIBC_SINGLE_PRECISION` | `OFF` | Use `float` instead of `double` for `real_t` |
+| `TINY_BCLIBC_USE_FLOAT` | `OFF` | Deprecated alias for `TINY_BCLIBC_SINGLE_PRECISION` |
 | `TINY_BCLIBC_BUILD_SHARED` | `OFF` | Build shared library |
 | `TINY_BCLIBC_BUILD_STATIC` | `OFF` | Build static library |
 | `TINY_BCLIBC_INSTALL` | `ON` | Install targets and headers |
@@ -70,17 +71,18 @@ These are compiler defines, not CMake options — pass via `-D` flag or CFLAGS:
 
 | Define | Description |
 |--------|-------------|
-| `TINY_BCLIBC_FAST_ZERO_FIND` | Reduce `find_zero_angle` computation on resource-constrained targets. Uses an 8× coarser RK4 step during the GSS bracket search and relaxed convergence tolerances (`h < 1e-2 rad`). Ridder's height-error tolerance is relaxed to `0.01 ft` (vs `0.001 ft`); angle-bracket convergence always uses `1e-5 rad`. The final angle is computed by Ridder's at full `calc_step`; output accuracy is unchanged. Enabled automatically by the natmod Makefile when `USE_FLOAT=1`. |
+| `TINY_BCLIBC_FAST_ZERO_FIND` | Reduce `find_zero_angle` computation on resource-constrained targets. Uses an 8× coarser RK4 step during the GSS bracket search and relaxed convergence tolerances (`h < 1e-2 rad`). Ridder's height-error tolerance is relaxed to `0.01 ft` (vs `0.001 ft`); angle-bracket convergence always uses `1e-5 rad`. The final angle is computed by Ridder's at full `calc_step`; output accuracy is unchanged. Enabled automatically by the natmod Makefile when `PRECISION=single`. |
 
 ```bash
-cmake -B build -DTINY_BCLIBC_BUILD_SHARED=ON -DTINY_BCLIBC_USE_FLOAT=OFF
+cmake -B build -DTINY_BCLIBC_BUILD_SHARED=ON -DTINY_BCLIBC_SINGLE_PRECISION=OFF
 cmake --build build
 ```
 
 ## Precision
 
-`real_t` is `double` by default. Define `TINY_BCLIBC_USE_FLOAT` before including any header
-(or pass `-DTINY_BCLIBC_USE_FLOAT` to the compiler) to switch to `float`.
+`real_t` is `double` by default. Define `TINY_BCLIBC_SINGLE_PRECISION` before including any header
+(or pass `-DTINY_BCLIBC_SINGLE_PRECISION` to the compiler) to switch to `float`.
+`TINY_BCLIBC_VERSION_FULL` contains the version string with precision suffix: `"1.1.3-dp"` or `"1.1.3-sp"`.
 
 All math macros (`TINY_BCLIBC_SIN`, `TINY_BCLIBC_SQRT`, etc.) resolve to the matching
 single- or double-precision libc functions automatically.
@@ -107,6 +109,110 @@ Measured via the `micropython-natmod` comparison tool (see
 **Conclusion:** float32 accumulates ≈ 0.1 cm of drop error at 3000 m relative to float64.
 This is negligible compared to any practical uncertainty source (wind, BC variance, MV
 spread) and float32 is sufficient for all supported embedded targets.
+
+## Usage
+
+### 1. Basic trajectory
+
+```c
+#include "tiny_bclibc/engine.h"
+
+// Fill user-facing shot (natural units)
+TINY_BCLIBC_Shot shot = {0};
+shot.bc                  = 0.310;
+shot.drag_type           = TINY_BCLIBC_DRAG_G7;
+shot.muzzle_velocity_fps = 2750.0;
+shot.weight_grain        = 168.0;
+shot.diameter_inch       = 0.308;
+shot.twist_inch          = 11.0;
+shot.sight_height_ft     = 0.125;   // 1.5 inch
+shot.barrel_elevation_rad = 0.0;    // set after find_zero_angle
+// atmosphere: leave zeroed for ICAO standard
+
+// Build physics (PCHIP drag curve + atmosphere + Coriolis)
+TINY_BCLIBC_CurvePoint curve[82];
+TINY_BCLIBC_ShotProps  props;
+if (tiny_bclibc_build_shot_props(&shot, curve, &props) != TINY_BCLIBC_OK) {
+    fprintf(stderr, "%s\n", tiny_bclibc_last_error());
+    return 1;
+}
+
+// Integrate to 1000 m in 100 m steps
+TINY_BCLIBC_TrajectoryRequest req = {0};
+req.range_limit_ft = 3280.84;  // 1000 m
+req.range_step_ft  = 328.084;  // 100 m
+req.filter_flags   = TINY_BCLIBC_TRAJ_FLAG_RANGE;
+
+TINY_BCLIBC_TrajectoryData rows[32];
+int32_t written, total, reason;
+tiny_bclibc_integrate(&props, &req, rows, 32, &written, &total, &reason);
+
+for (int i = 0; i < written; i++)
+    printf("%.0f ft  %.1f fps  %.3f ft\n",
+           rows[i].distance_ft, rows[i].velocity_fps, rows[i].height_ft);
+```
+
+### 2. Zero + corrections
+
+`find_zero_angle` returns the barrel elevation in radians. You must store it in
+`shot.barrel_elevation_rad` (or `props.barrel_elevation`) before calling `integrate`.
+Without this step the shot flies with 0° elevation.
+
+```c
+// Step 1 — find zero angle at 100 m (328.084 ft)
+real_t zero_angle_rad = 0.0;
+if (tiny_bclibc_find_zero_angle(&props, 328.084, &zero_angle_rad) != TINY_BCLIBC_OK) {
+    fprintf(stderr, "%s\n", tiny_bclibc_last_error());
+    return 1;
+}
+
+// Step 2 — store in shot and rebuild props (or set directly on props)
+shot.barrel_elevation_rad = zero_angle_rad;
+tiny_bclibc_build_shot_props(&shot, curve, &props);
+
+// Step 3 — integrate to target distance
+req.range_limit_ft = 1640.42;   // 500 m
+tiny_bclibc_integrate(&props, &req, rows, 32, &written, &total, &reason);
+
+// Step 4 — read correction at target row
+// slant_height_ft: height above/below the look-angle line
+// drop_angle_rad:  trajectory angle minus look_angle — the elevation correction to dial
+TINY_BCLIBC_TrajectoryData *last = &rows[written - 1];
+double corr_mrad = -last->drop_angle_rad * 1000.0;   // positive → aim higher
+double wind_mrad = -last->windage_angle_rad * 1000.0; // positive → aim right
+printf("Elevation: %.2f mrad  Windage: %.2f mrad\n", corr_mrad, wind_mrad);
+```
+
+`drop_angle_rad` (= trajectory angle − look angle) is the ready-to-use angular correction:
+negate it to get the hold or dial value. The same field is available as `T_DROP_ANGLE` in the natmod.
+
+### 3. look_angle + hold (uphill / different distance)
+
+`barrel_elevation_rad` is the total absolute angle from horizontal:
+
+```c
+// zero_angle_rad was computed for 100 m, flat
+double look_angle_rad  = 0.26;   // target is 15° uphill
+double hold_rad        = 0.003;  // additional correction for 500 m
+shot.look_angle_rad       = look_angle_rad;
+shot.barrel_elevation_rad = look_angle_rad + zero_angle_rad + hold_rad;
+tiny_bclibc_build_shot_props(&shot, curve, &props);
+```
+
+`zero_angle_rad` is the *relative* offset computed at zero — you add it to whatever
+look angle is current. This mirrors the `look_angle + zero_elevation + relative_angle`
+decomposition used in higher-level wrappers.
+
+### 4. Single interpolated point (`integrate_at`)
+
+Cheaper than a full trajectory when only one distance matters:
+
+```c
+TINY_BCLIBC_TrajectoryData point;
+tiny_bclibc_integrate_at(&props, TINY_BCLIBC_KEY_POS_X, 1640.42, NULL, &point);
+printf("At 500 m: %.1f fps  drop=%.3f mrad\n",
+       point.velocity_fps, -point.drop_angle_rad * 1000.0);
+```
 
 ## API
 
@@ -212,7 +318,8 @@ real_t tiny_bclibc_calculate_ogw(real_t weight_grain, real_t vel_fps);     // �
 
 | Macro | Effect |
 |-------|--------|
-| `TINY_BCLIBC_USE_FLOAT` | `real_t = float`; all math uses `*f` variants |
+| `TINY_BCLIBC_SINGLE_PRECISION` | `real_t = float`; all math uses `*f` variants |
+| `TINY_BCLIBC_USE_FLOAT` | Deprecated alias for `TINY_BCLIBC_SINGLE_PRECISION` |
 | `TINY_BCLIBC_BUILD_SHARED` | Emit exported symbols (building `.so`/`.dll`) |
 | `TINY_BCLIBC_USE_SHARED` | Import symbols (consuming `.so`/`.dll`) |
 | `TINY_BCLIBC_NO_THREAD_LOCAL` | Disable TLS error buffer (bare-metal, RTOS) |
@@ -224,6 +331,16 @@ All public functions return `int32_t` (`TINY_BCLIBC_OK = 0` on success).
 On failure, `tiny_bclibc_last_error()` returns a thread-local string describing the problem.
 When `TINY_BCLIBC_NO_ERR_BUF` is defined (natmod builds), `last_error()` always returns
 a generic string — use the return code instead.
+
+## MicroPython integration
+
+The `micropython-natmod/` directory wraps `tiny_bclibc` as a native `.mpy` module
+for embedded MicroPython targets. For unix MicroPython on architectures without native
+module support (aarch64, mipsel, …), `examples/tiny_bclibc_mp_ffi/tiny_bclibc_mp_ffi.py`
+exposes the same Python API by calling `libtiny_bclibc.so` via the built-in `ffi` module.
+
+See [micropython-natmod/README.md](../micropython-natmod/README.md) for build instructions
+and a full API reference.
 
 ## Project structure
 

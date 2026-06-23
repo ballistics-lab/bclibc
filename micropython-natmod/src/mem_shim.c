@@ -14,20 +14,24 @@
 #include "py/dynruntime.h"
 #include <stddef.h>
 
-void *memset(void *dest, int c, size_t n) {
+void *memset(void *dest, int c, size_t n)
+{
     return mp_fun_table.memset_(dest, c, n);
 }
 
-void *memcpy(void *dest, const void *src, size_t n) {
+void *memcpy(void *dest, const void *src, size_t n)
+{
     return mp_fun_table.memmove_(dest, src, n);
 }
 
 /* newlib errno accessor (arm-none-eabi, riscv-elf toolchains) */
-int *__errno(void) {
+int *__errno(void)
+{
     return (int *)m_malloc(sizeof(int));
 }
 
 /* glibc errno accessor (x64/x86 host toolchain) */
-int *__errno_location(void) {
+int *__errno_location(void)
+{
     return (int *)m_malloc(sizeof(int));
 }

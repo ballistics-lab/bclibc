@@ -3,7 +3,7 @@
 """
 tiny_bclibc performance benchmark.
 Run with:
-    micropython test_bclibc_bench.py
+    micropython tiny_bclibc_bench.py
 """
 
 import sys
@@ -14,8 +14,8 @@ import gc
 _HERE = __file__.rsplit("/", 1)[0] if "/" in __file__ else "."
 sys.path.append(_HERE)
 
-import tiny_bclibc as bclibc
-from tiny_bclibc_types import Shot, Request, DRAG_G7
+import tiny_bclibc as bc
+from tiny_bclibc import Shot, Request, DRAG_G7
 
 # ── Test configuration ──────────────────────────────────────────────────────
 SHOT = Shot(
@@ -37,14 +37,14 @@ SHOT = Shot(
 REQUEST_1KM = Request(
     range_limit_ft=1000.0 * 3.28084,  # 1 km in feet
     range_step_ft=10.0 * 3.28084,  # 10 m steps
-    filter_flags=bclibc.TRAJ_FLAG_RANGE,
+    filter_flags=bc.TRAJ_FLAG_RANGE,
 )
 
 # Request for 3 km trajectory with coarse steps
 REQUEST_3KM = Request(
     range_limit_ft=3000.0 * 3.28084,  # 3 km in feet
     range_step_ft=100.0 * 3.28084,  # 100 m steps
-    filter_flags=bclibc.TRAJ_FLAG_RANGE,
+    filter_flags=bc.TRAJ_FLAG_RANGE,
 )
 
 # ── Benchmark functions ──────────────────────────────────────────────────────
@@ -52,16 +52,13 @@ REQUEST_3KM = Request(
 
 def bench_integrate(req, iterations=10):
     """Benchmark integrate() function."""
-    shot_buf = SHOT.pack()
-    req_buf = req.pack()
-
     times = []
     rows_count = 0
 
     for _ in range(iterations):
         gc.collect()
         start = time.ticks_us()
-        rows, reason = bclibc.integrate(shot_buf, req_buf)
+        rows, reason = bc.integrate(SHOT, req)
         end = time.ticks_us()
         times.append(time.ticks_diff(end, start))
         rows_count = len(rows)
@@ -82,7 +79,6 @@ def bench_integrate(req, iterations=10):
 
 def bench_integrate_at(iterations=100):
     """Benchmark integrate_at() function."""
-    shot_buf = SHOT.pack()
     targets = [100.0, 500.0, 1000.0, 1500.0, 2000.0]  # feet
 
     times = []
@@ -91,7 +87,7 @@ def bench_integrate_at(iterations=100):
         for target in targets:
             gc.collect()
             start = time.ticks_us()
-            raw, full = bclibc.integrate_at(shot_buf, bclibc.INTERP_POS_X, target)
+            raw, full = bc.integrate_at(SHOT, bc.INTERP_POS_X, target)
             end = time.ticks_us()
             times.append(time.ticks_diff(end, start))
 
@@ -110,7 +106,6 @@ def bench_integrate_at(iterations=100):
 
 def bench_find_zero_angle(iterations=50):
     """Benchmark find_zero_angle() function."""
-    shot_buf = SHOT.pack()
     zero_dist_ft = 300.0 * 3.28084  # 300 m
 
     times = []
@@ -119,7 +114,7 @@ def bench_find_zero_angle(iterations=50):
     for _ in range(iterations):
         gc.collect()
         start = time.ticks_us()
-        elev = bclibc.find_zero_angle(shot_buf, zero_dist_ft)
+        elev = bc.find_zero_angle(SHOT, zero_dist_ft)
         end = time.ticks_us()
         times.append(time.ticks_diff(end, start))
         results.append(elev)
@@ -139,31 +134,27 @@ def bench_find_zero_angle(iterations=50):
 
 def bench_find_apex(iterations=50):
     """Benchmark find_apex() function."""
-    # Need a zeroed shot first
-    shot_buf = SHOT.pack()
     zero_dist_ft = 300.0 * 3.28084
-    elev = bclibc.find_zero_angle(shot_buf, zero_dist_ft)
+    elev = bc.find_zero_angle(SHOT, zero_dist_ft)
 
-    # Create zeroed shot
     zeroed = Shot(
-        bc=SHOT.bc,
-        weight_grain=SHOT.weight_grain,
-        diameter_inch=SHOT.diameter_inch,
-        length_inch=SHOT.length_inch,
-        muzzle_velocity_fps=SHOT.muzzle_velocity_fps,
-        sight_height_ft=SHOT.sight_height_ft,
-        twist_inch=SHOT.twist_inch,
+        bc=0.310,
+        weight_grain=168.0,
+        diameter_inch=0.308,
+        length_inch=1.2,
+        muzzle_velocity_fps=2750.0,
+        sight_height_ft=0.125,
+        twist_inch=11.0,
         barrel_elevation_rad=elev,
         drag_type=DRAG_G7,
     )
-    zeroed_buf = zeroed.pack()
 
     times = []
 
     for _ in range(iterations):
         gc.collect()
         start = time.ticks_us()
-        apex = bclibc.find_apex(zeroed_buf)
+        apex = bc.find_apex(zeroed)
         end = time.ticks_us()
         times.append(time.ticks_diff(end, start))
 
@@ -187,16 +178,9 @@ def bench_memory_usage():
     mem_before = gc.mem_alloc()
     mem_free_before = gc.mem_free()
 
-    shot_buf = SHOT.pack()
-    req_buf = REQUEST_3KM.pack()
-
-    gc.collect()
-    mem_after_pack = gc.mem_alloc()
-
-    rows, reason = bclibc.integrate(shot_buf, req_buf)
+    rows, reason = bc.integrate(SHOT, REQUEST_3KM)
     mem_after_integrate = gc.mem_alloc()
 
-    # Store results to prevent optimization
     result = len(rows)
     gc.collect()
     mem_after_gc = gc.mem_alloc()
@@ -204,96 +188,85 @@ def bench_memory_usage():
 
     return {
         "mem_before": mem_before,
-        "mem_after_pack": mem_after_pack,
         "mem_after_integrate": mem_after_integrate,
         "mem_after_gc": mem_after_gc,
         "mem_free_before": mem_free_before,
         "mem_free_after": mem_free_after,
-        "rows": len(rows),
+        "rows": result,
         "reason": reason,
         "peak_alloc": mem_after_integrate - mem_before,
     }
 
 
-# ── Run benchmarks ──────────────────────────────────────────────────────────
+# ── Main ─────────────────────────────────────────────────────────────────────
 
-print("=" * 60)
-print("tiny_bclibc Performance Benchmark")
-print("=" * 60)
-print("Version:", bclibc.version())
-print("")
+if __name__ == "__main__":
+    print("=" * 60)
+    print("tiny_bclibc Performance Benchmark")
+    print("=" * 60)
+    print(f"Version: {bc.version()}")
+    print()
 
-# 1. integrate() benchmark
-print("--- integrate() (1 km, 10 m steps) ---")
-result = bench_integrate(REQUEST_1KM, iterations=10)
-print(f"  Rows: {result['rows']}")
-print(f"  Stop reason: {result['reason']}")
-print(f"  Avg: {result['avg_ms']:.2f} ms  ({result['avg_us']:.0f} µs)")
-print(f"  Min: {result['min_us']:.0f} µs  Max: {result['max_us']:.0f} µs")
-print(f"  Iterations: {result['iterations']}")
-print("")
+    print("--- integrate() (1 km, 10 m steps) ---")
+    r = bench_integrate(REQUEST_1KM)
+    print(f"  Rows: {r['rows']}")
+    print(f"  Stop reason: {r['reason']}")
+    print(f"  Avg: {r['avg_ms']:.2f} ms  ({r['avg_us']:.0f} µs)")
+    print(f"  Min: {r['min_us']} µs  Max: {r['max_us']} µs")
+    print(f"  Iterations: {r['iterations']}")
 
-# 2. integrate() 3 km benchmark
-print("--- integrate() (3 km, 100 m steps) ---")
-result = bench_integrate(REQUEST_3KM, iterations=10)
-print(f"  Rows: {result['rows']}")
-print(f"  Stop reason: {result['reason']}")
-print(f"  Avg: {result['avg_ms']:.2f} ms  ({result['avg_us']:.0f} µs)")
-print(f"  Min: {result['min_us']:.0f} µs  Max: {result['max_us']:.0f} µs")
-print(f"  Iterations: {result['iterations']}")
-print("")
+    print()
+    print("--- integrate() (3 km, 100 m steps) ---")
+    r = bench_integrate(REQUEST_3KM)
+    print(f"  Rows: {r['rows']}")
+    print(f"  Stop reason: {r['reason']}")
+    print(f"  Avg: {r['avg_ms']:.2f} ms  ({r['avg_us']:.0f} µs)")
+    print(f"  Min: {r['min_us']} µs  Max: {r['max_us']} µs")
+    print(f"  Iterations: {r['iterations']}")
 
-# 3. integrate_at() benchmark
-print("--- integrate_at() (single point interpolation) ---")
-result = bench_integrate_at(iterations=100)
-print(f"  Avg: {result['avg_ms']:.3f} ms  ({result['avg_us']:.1f} µs)")
-print(f"  Min: {result['min_us']:.0f} µs  Max: {result['max_us']:.0f} µs")
-print(f"  Calls: {result['iterations']}")
-print(f"  ~{result['calls_per_sec']:.0f} calls/sec")
-print("")
+    print()
+    print("--- integrate_at() (single point interpolation) ---")
+    r = bench_integrate_at()
+    print(f"  Avg: {r['avg_ms']:.3f} ms  ({r['avg_us']:.1f} µs)")
+    print(f"  Min: {r['min_us']} µs  Max: {r['max_us']} µs")
+    print(f"  Calls: {r['iterations']}")
+    print(f"  ~{r['calls_per_sec']:.0f} calls/sec")
 
-# 4. find_zero_angle() benchmark
-print("--- find_zero_angle() (300 m zero) ---")
-result = bench_find_zero_angle(iterations=50)
-print(f"  Avg: {result['avg_ms']:.3f} ms  ({result['avg_us']:.1f} µs)")
-print(f"  Min: {result['min_us']:.0f} µs  Max: {result['max_us']:.0f} µs")
-print(f"  Elevation avg: {math.degrees(result['elev_rad_avg']):.4f}°")
-print(f"  Iterations: {result['iterations']}")
-print("")
+    print()
+    print("--- find_zero_angle() (300 m zero) ---")
+    r = bench_find_zero_angle()
+    print(f"  Avg: {r['avg_ms']:.3f} ms  ({r['avg_us']:.1f} µs)")
+    print(f"  Min: {r['min_us']} µs  Max: {r['max_us']} µs")
+    print(f"  Elevation avg: {math.degrees(r['elev_rad_avg']):.4f}°")
+    print(f"  Iterations: {r['iterations']}")
 
-# 5. find_apex() benchmark
-print("--- find_apex() ---")
-result = bench_find_apex(iterations=50)
-print(f"  Avg: {result['avg_ms']:.3f} ms  ({result['avg_us']:.1f} µs)")
-print(f"  Min: {result['min_us']:.0f} µs  Max: {result['max_us']:.0f} µs")
-print(f"  Apex: {result['apex_dist_ft']:.1f} ft, {result['apex_height_ft']:.1f} ft")
-print(f"  Iterations: {result['iterations']}")
-print("")
+    print()
+    print("--- find_apex() ---")
+    r = bench_find_apex()
+    print(f"  Avg: {r['avg_ms']:.3f} ms  ({r['avg_us']:.1f} µs)")
+    print(f"  Min: {r['min_us']} µs  Max: {r['max_us']} µs")
+    print(f"  Apex: {r['apex_dist_ft']:.1f} ft, {r['apex_height_ft']:.1f} ft")
+    print(f"  Iterations: {r['iterations']}")
 
-# 6. Memory usage
-print("--- Memory usage (3 km trajectory) ---")
-mem = bench_memory_usage()
-print(f"  Before: {mem['mem_before']:,} B")
-print(f"  After pack: {mem['mem_after_pack']:,} B")
-print(f"  After integrate: {mem['mem_after_integrate']:,} B")
-print(f"  After GC: {mem['mem_after_gc']:,} B")
-print(f"  Peak allocation: {mem['peak_alloc']:,} B")
-print(f"  Rows: {mem['rows']}")
-print(f"  Free memory: {mem['mem_free_before']:,} B → {mem['mem_free_after']:,} B")
-print("")
+    print()
+    print("--- Memory usage (3 km trajectory) ---")
+    r = bench_memory_usage()
+    print(f"  Before: {r['mem_before']:,} B")
+    print(f"  After integrate: {r['mem_after_integrate']:,} B")
+    print(f"  After GC: {r['mem_after_gc']:,} B")
+    print(f"  Peak allocation: {r['peak_alloc']:,} B")
+    print(f"  Rows: {r['rows']}")
+    print(f"  Free memory: {r['mem_free_before']:,} B → {r['mem_free_after']:,} B")
 
-# 7. Summary
-print("=" * 60)
-print("Benchmark Summary")
-print("=" * 60)
-
-# Estimate shots per second for different operations
-integrate_time_ms = bench_integrate(REQUEST_1KM, iterations=5)["avg_ms"]
-integrate_at_time_ms = bench_integrate_at(iterations=50)["avg_ms"]
-find_zero_time_ms = bench_find_zero_angle(iterations=20)["avg_ms"]
-
-print(f"  Trajectory (1 km, 10 m steps): {1000 / integrate_time_ms:.1f} shots/sec")
-print(f"  Interpolation: {1000 / integrate_at_time_ms:.1f} calls/sec")
-print(f"  Zero finding: {1000 / find_zero_time_ms:.1f} calls/sec")
-print("=" * 60)
-print("Benchmark complete.")
+    print()
+    print("=" * 60)
+    print("Benchmark Summary")
+    print("=" * 60)
+    r1km = bench_integrate(REQUEST_1KM)
+    rat   = bench_integrate_at()
+    rzero = bench_find_zero_angle()
+    print(f"  Trajectory (1 km, 10 m steps): {1e6 / r1km['avg_us']:.1f} shots/sec")
+    print(f"  Interpolation: {rat['calls_per_sec']:.1f} calls/sec")
+    print(f"  Zero finding: {1e6 / rzero['avg_us']:.1f} calls/sec")
+    print("=" * 60)
+    print("Benchmark complete.")

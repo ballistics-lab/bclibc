@@ -7,8 +7,8 @@ Usage (from micropython-natmod/ directory):
     python3 precision_compare.py
 
 Requires:
-    tiny_bclibc_x64.mpy    (single precision, built with USE_FLOAT=1)
-    tiny_bclibc_x64_d.mpy  (double precision, built with USE_FLOAT=0)
+    build/x64_sp/   (single precision, PRECISION=single)
+    build/x64_dp/   (double precision, PRECISION=double)
     micropython in PATH
 """
 
@@ -19,15 +19,17 @@ import os
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _MPY = shutil.which("micropython") or "micropython"
-_LINK = os.path.join(_HERE, "tiny_bclibc.mpy")
+_NATIVE_LINK = os.path.join(_HERE, "_tiny_bclibc.mpy")
+_BYTECODE_LINK = os.path.join(_HERE, "tiny_bclibc.mpy")
 _WORKER = os.path.join(_HERE, "precision_run.py")
 
 _FT_TO_CM = 30.48
 _FPS_TO_MPS = 0.3048
 
 
-def _run(src_mpy: str) -> dict:
-    shutil.copy(os.path.join(_HERE, src_mpy), _LINK)
+def _run(build_dir: str) -> dict:
+    shutil.copy(os.path.join(_HERE, build_dir, "_tiny_bclibc.mpy"), _NATIVE_LINK)
+    shutil.copy(os.path.join(_HERE, build_dir, "tiny_bclibc.mpy"), _BYTECODE_LINK)
     try:
         result = subprocess.run(
             [_MPY, _WORKER],
@@ -37,13 +39,14 @@ def _run(src_mpy: str) -> dict:
             timeout=60,
         )
     finally:
-        try:
-            os.remove(_LINK)
-        except OSError:
-            pass
+        for p in (_NATIVE_LINK, _BYTECODE_LINK):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
 
     if result.returncode != 0:
-        print("ERROR running", src_mpy, file=sys.stderr)
+        print("ERROR running", build_dir, file=sys.stderr)
         print(result.stderr, file=sys.stderr)
         sys.exit(1)
 
@@ -85,10 +88,10 @@ def _sep(w):
 
 
 def main():
-    print("Running double-precision trajectory (tiny_bclibc_x64_d.mpy)…")
-    data_d = _run("tiny_bclibc_x64_d.mpy")
-    print("Running single-precision trajectory (tiny_bclibc_x64.mpy)…")
-    data_f = _run("tiny_bclibc_x64.mpy")
+    print("Running double-precision trajectory (build/x64_dp)…")
+    data_d = _run("build/x64_dp")
+    print("Running single-precision trajectory (build/x64_sp)…")
+    data_f = _run("build/x64_sp")
 
     pairs = _align(data_f["rows"], data_d["rows"])
     if not pairs:
@@ -192,8 +195,8 @@ def main():
     print("  Max |Δmach|  : {:.2e}".format(max_mach))
     print("=" * W)
     print()
-    print("  Reference: f64 (double precision, tiny_bclibc_x64_d.mpy)")
-    print("  f32 = float32 (tiny_bclibc_x64.mpy, -DTINY_BCLIBC_USE_FLOAT)")
+    print("  Reference: f64 (double precision, build/x64_dp)")
+    print("  f32 = float32 (build/x64_sp, PRECISION=single)")
     print("  Δdrop_cm > 0 → f32 trajectory is higher than f64 at that distance.")
     print("  Δmach_e5 column = (f32_mach − f64_mach) × 10⁵")
 

@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### `examples/tiny_bclibc_mp_ffi/` — standalone MicroPython FFI module
+- `tiny_bclibc_mp_ffi.py`: drop-in replacement for `tiny_bclibc` on unix MicroPython (x64 / aarch64), backed by `libtiny_bclibc.so` via the built-in `ffi` module — no native `.mpy` required
+  - Same public API as the natmod (`Shot`, `Request`, `Wind`, `Config`, `integrate`, `integrate_stream`, `find_zero_angle`, `find_apex`, `find_max_range`, all constants)
+  - Selects `float` or `double` C struct layout at runtime via `TINY_BCLIBC_PRECISION=single|double`
+  - `.so` path overridable via `TINY_BCLIBC_SO` env var; default resolves relative to the module file
+  - 64-bit only (`struct.calcsize("P") != 8` guard; 32-bit pointer layout is not supported)
+- `test_mp_ffi.py`: injects `tiny_bclibc_mp_ffi` as `sys.modules["tiny_bclibc"]` and executes the full `micropython-natmod/test_bclibc.py` suite against the FFI backend
+
+#### `tiny_bclibc_integrate_stream` — zero-allocation streaming integration
+- New public API: `tiny_bclibc_integrate_stream(props, req, cb, cb_ctx, out_total, out_reason)`
+  - Calls a C callback `tiny_bclibc_StreamCb` once per filtered output point instead of writing to a heap buffer
+  - Callback returns `TINY_BCLIBC_TERM_HANDLER_STOP` (or any non-zero) to abort integration early
+  - No intermediate `TrajectoryData` buffer allocated — suitable for RAM-constrained MCUs
+  - Shares 100 % of the filtering logic with `tiny_bclibc_integrate` via the existing `tiny_bclibc__integrate_on_step` path; no code duplication
+- New public typedef: `tiny_bclibc_StreamCb` — `int32_t (*)(const TINY_BCLIBC_TrajectoryData *, void *)`
+- **natmod** (`micropython-natmod`): `tiny_bclibc.integrate_stream(shot_buf, req_buf, callback)` — Python callable receives one 16-tuple per point; return truthy to stop; returns `(total_count, stop_reason)`
+- `test_bclibc.py`, `examples/tiny_bclibc_natmod_test_2core.py`: tests for both collect-all and early-stop cases
+
+#### `MPY_DIR` default and documentation
+- `micropython-natmod/Makefile`: `MPY_DIR ?= micropython` — documents the local-symlink convention
+- `micropython-natmod/README.md`: updated MicroPython source setup section to use `git clone / git checkout v1.28.0` instead of a tarball download
+
+#### Drag tables extracted to separate header
+- `micropython-natmod/src/drag_tables.h`: G1 and G7 built-in drag tables extracted from `bclibc_mp.c` into a standalone header with include guard
+
+### Changed
+
+- `micropython-natmod/src/tiny_bclibc.py` refactored as a thin zero-copy wrapper: `Shot`, `Request`, `Wind`, `Config` constructors return namedtuples (`_Shot(buf, s, holder)`, `_Request(buf, s, traj)`) backed by `uctypes` structs; field access goes directly through `._s` without copying
+- `micropython-natmod/ci/run_qemu.py` now injects both `_tiny_bclibc.mpy` (native) and `tiny_bclibc.mpy` (bytecode wrapper) from RAM via a custom dual-VFS, so QEMU tests run without filesystem access on the emulated target
+- `micropython-natmod/Makefile` exposes named targets (`x64`, `x64sp`, `x86`, `x86sp`, `rp2040`, `armv7m`, `rp2350`, `stm32f4`, `stm32h7`, `stm32h7dp`, `esp32`, `esp32s3`, `esp32c3`, `rv64`) in addition to raw `ARCH=…` variables; output artifacts placed in `build/<arch>_<sp|dp>/`
+- `.github/workflows/natmod.yml`: build steps use named Makefile targets; artifact names follow the `tiny-bclibc-<arch>_<sp|dp>` scheme
+
 ## [1.1.3] - 2026-06-22
 
 ### Fixed

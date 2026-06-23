@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.13)
 
-# ── Версія: з git-тегу або fallback ────────────────────────────────
+# ── Version: from git-tag or fallback ────────────────────────────────
 set(TINY_BCLIBC_VERSION_MAJOR 1)
 set(TINY_BCLIBC_VERSION_MINOR 0)
 set(TINY_BCLIBC_VERSION_PATCH 0)
@@ -30,14 +30,15 @@ project(tiny_bclibc
 
 message(STATUS "tiny_bclibc version: ${TINY_BCLIBC_VERSION}")
 
-# ── Опції ──────────────────────────────────────────────────────────
-option(TINY_BCLIBC_USE_FLOAT          "Use float instead of double"        OFF)
+# ── Options ──────────────────────────────────────────────────────────
+option(TINY_BCLIBC_SINGLE_PRECISION   "Use float instead of double"        OFF)
+option(TINY_BCLIBC_USE_FLOAT          "Use float instead of double (deprecated, use TINY_BCLIBC_SINGLE_PRECISION)" OFF)
 option(TINY_BCLIBC_BUILD_SHARED       "Build shared library"               OFF)
 option(TINY_BCLIBC_BUILD_STATIC       "Build static library"               OFF)
 option(TINY_BCLIBC_INSTALL            "Install targets and headers"        ON)
 option(TINY_BCLIBC_BUILD_IDENTITY_TEST "Build bclibc↔tiny_bclibc identity test" OFF)
 
-# ── Генерація version.h ────────────────────────────────────────────
+# ── Generation version.h ────────────────────────────────────────────
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/version.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/tiny_bclibc/version.h"
@@ -52,19 +53,19 @@ target_include_directories(tiny_bclibc_headers INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
     $<INSTALL_INTERFACE:include>)
 
-if(TINY_BCLIBC_USE_FLOAT)
-    target_compile_definitions(tiny_bclibc_headers INTERFACE TINY_BCLIBC_USE_FLOAT)
+if(TINY_BCLIBC_SINGLE_PRECISION OR TINY_BCLIBC_USE_FLOAT)
+    target_compile_definitions(tiny_bclibc_headers INTERFACE TINY_BCLIBC_SINGLE_PRECISION)
 endif()
 
-# ── Спільна функція налаштування compile-target ────────────────────
+# ── Shared setup func compile-target ────────────────────
 function(tiny_bclibc_configure_target tgt)
     target_include_directories(${tgt} PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
         $<INSTALL_INTERFACE:include>)
     target_compile_definitions(${tgt} PRIVATE TINY_BCLIBC_BUILD_SHARED)
-    if(TINY_BCLIBC_USE_FLOAT)
-        target_compile_definitions(${tgt} PUBLIC TINY_BCLIBC_USE_FLOAT)
+    if(TINY_BCLIBC_SINGLE_PRECISION OR TINY_BCLIBC_USE_FLOAT)
+        target_compile_definitions(${tgt} PUBLIC TINY_BCLIBC_SINGLE_PRECISION)
     endif()
     set_target_properties(${tgt} PROPERTIES
         C_STANDARD 99
@@ -102,7 +103,7 @@ if(TINY_BCLIBC_BUILD_STATIC)
     set_target_properties(tiny_bclibc_static PROPERTIES OUTPUT_NAME tiny_bclibc)
 endif()
 
-# ── Bare-metal (без thread-local) ──────────────────────────────────
+# ── Bare-metal (with no thread-local) ──────────────────────────────────
 add_library(tiny_bclibc_baremetal INTERFACE)
 add_library(tiny_bclibc::baremetal ALIAS tiny_bclibc_baremetal)
 target_link_libraries(tiny_bclibc_baremetal INTERFACE tiny_bclibc_headers)
@@ -113,14 +114,14 @@ if(TINY_BCLIBC_INSTALL)
     include(GNUInstallDirs)
     include(CMakePackageConfigHelpers)
 
-    # Заголовки
+    # Headers
     install(DIRECTORY include/
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
     install(FILES
         "${CMAKE_CURRENT_BINARY_DIR}/generated/tiny_bclibc/version.h"
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/tiny_bclibc)
 
-    # Targets для export
+    # Targets for export
     set(INSTALL_TARGETS tiny_bclibc_headers tiny_bclibc_baremetal)
     if(TINY_BCLIBC_BUILD_SHARED)
         list(APPEND INSTALL_TARGETS tiny_bclibc)
@@ -141,7 +142,7 @@ if(TINY_BCLIBC_INSTALL)
         NAMESPACE   tiny_bclibc::
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/tiny_bclibc)
 
-    # Config + version файли
+    # Config + version files
     configure_package_config_file(
         "${CMAKE_CURRENT_SOURCE_DIR}/tiny_bclibc-config.cmake.in"
         "${CMAKE_CURRENT_BINARY_DIR}/tiny_bclibc-config.cmake"

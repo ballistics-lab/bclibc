@@ -66,7 +66,7 @@ test-identity: cmake-configure-test
 	build-test/tests/test_identity
 	@echo "Identity test passed"
 
-# ── Утиліти ────────────────────────────────────────────────────────
+# ── Utils ────────────────────────────────────────────────────────
 version: cmake-configure
 	@grep "TINY_BCLIBC_VERSION" build/generated/tiny_bclibc/version.h 2>/dev/null || \
 	    echo "(version.h not generated yet — run 'make headers' first)"

@@ -7,7 +7,7 @@
 > without thorough validation on your specific target.
 
 Native module (`.mpy`) that exposes the `tiny_bclibc` ballistics library to MicroPython.
-Each supported architecture produces its own file: `tiny_bclibc_<arch>[_d].mpy`.
+Each supported architecture produces its own file: `_tiny_bclibc_<arch>[_s].mpy`.
 
 ### Architecture support
 
@@ -59,38 +59,40 @@ sudo apt-get install gcc-arm-none-eabi libnewlib-arm-none-eabi \
 
 All commands are run from this directory (`micropython-natmod/`).
 
-Precision suffix: none = single (`float`), `_d` = double.
+Precision suffix: `_dp` = double, `_sp` = single.
 Default precision: **double** for x64/x86 host, **single** for all MCU targets.
 
 ```bash
-make            # x64 double (default) → tiny_bclibc_x64_d.mpy
-make x64        # x64 double
-make x64s       # x64 single           → tiny_bclibc_x64.mpy
-make x86        # x86 double
-make x86s       # x86 single
-make rp2040     # armv6m    single — Raspberry Pi Pico
-make rp2350     # armv7emsp single — RP2350
-make stm32f4    # armv7emsp single — STM32F4 (alias of rp2350)
-make stm32h7    # armv7emdp single — STM32H7
-make stm32h7dp  # armv7emdp double — STM32H7 (double-precision FPU)
-make esp32s3    # xtensawin single — ESP32-S3
-make esp32      # xtensa    single — ESP32
-make esp32c3    # rv32imc   single — ESP32-C3
-make esp32c6    # rv32imc   single — ESP32-C6 (alias of esp32c3)
+make x64        # x64 double           → build/x64_dp/
+make x64sp      # x64 single           → build/x64_sp/
+make x86        # x86 double           → build/x86_dp/
+make x86sp      # x86 single           → build/x86_sp/
+make rp2040     # armv6m    single     → build/armv6m_sp/    — Raspberry Pi Pico
+make armv7m     # armv7m    single     → build/armv7m_sp/    — Cortex-M3
+make rp2350     # armv7emsp single     → build/armv7emsp_sp/ — RP2350
+make stm32f4    # armv7emsp single     → build/armv7emsp_sp/ — STM32F4
+make stm32h7    # armv7emdp single     → build/armv7emdp_sp/ — STM32H7
+make stm32h7dp  # armv7emdp double     → build/armv7emdp_dp/ — STM32H7 (DP FPU)
+make esp32s3    # xtensawin single     → build/xtensawin_sp/ — ESP32-S3
+make esp32      # xtensa    single     → build/xtensa_sp/    — ESP32
+make esp32c3    # rv32imc   single     → build/rv32imc_sp/   — ESP32-C3 / C6
+make rv64       # rv64imc   single     → build/rv64imc_sp/   — RISC-V 64
 ```
 
-Output: `tiny_bclibc_<arch>[_d].mpy`
+Output per target: `build/<arch>_<sp|dp>/_tiny_bclibc.mpy` + `build/<arch>_<sp|dp>/tiny_bclibc.mpy`
+
+`bc.version()` returns `"1.1.3-sp"` or `"1.1.3-dp"`.
 
 ```bash
-make clean      # remove all build-* directories and tiny_bclibc_*.mpy
+make clean      # rm -rf build/ generated/
 ```
 
 ### Custom MPY_DIR or precision
 
 ```bash
 make ARCH=armv6m MPY_DIR=/path/to/micropython-1.28.0
-make ARCH=armv7emdp USE_FLOAT=0   # double on Cortex-M7
-make ARCH=x64 USE_FLOAT=1         # single on host
+make ARCH=armv7emdp PRECISION=double   # double on Cortex-M7  → build/armv7emdp_dp/
+make ARCH=x64 PRECISION=single         # single on host       → build/x64_sp/
 ```
 
 ## Test (x64 / x86 host)
@@ -100,9 +102,8 @@ make ARCH=x64 USE_FLOAT=1         # single on host
 make -C "$MPY_DIR/ports/unix" VARIANT=standard
 MPY="$MPY_DIR/ports/unix/build-standard/micropython"
 
-# Build natmod and symlink
-make x64        # or: make x64s / make x86 / make x86s
-ln -sf tiny_bclibc_x64_d.mpy tiny_bclibc.mpy
+# Build natmod
+make x64        # → build/x64_dp/_tiny_bclibc.mpy  build/x64_dp/tiny_bclibc.mpy
 
 # Run tests (natmod)
 $MPY test_bclibc.py
@@ -116,9 +117,13 @@ Expected output ends with `=== done ===` and all lines read `PASS`.
 ## FFI-based access (any unix architecture)
 
 On architectures where `mpy_ld.py` does not yet support native modules (aarch64, mipsel,
-and others), `test_bclibc_ffi.py` uses MicroPython's built-in `ffi` module to call
-`libtiny_bclibc.so` directly. This works on every platform where MicroPython unix port
-is available and `libffi` is present.
+and others), MicroPython's built-in `ffi` module can call `libtiny_bclibc.so` directly.
+Two entry points are available:
+
+| Module | Location | Description |
+|--------|----------|-------------|
+| `test_bclibc_ffi.py` | `micropython-natmod/` | Inline FFI test against the same test suite |
+| `tiny_bclibc_mp_ffi.py` | `examples/tiny_bclibc_mp_ffi/` | Standalone drop-in module with the full public API |
 
 ```bash
 # 1. Build libtiny_bclibc.so for the target platform (native or cross)
@@ -133,12 +138,21 @@ make -C "$MPY_DIR/ports/unix" VARIANT=standard
 
 MPY="$MPY_DIR/ports/unix/build-standard/micropython"
 
-# 3. Run — no .mpy needed
+# 3a. Run inline FFI test (double precision only)
 $MPY test_bclibc_ffi.py
+
+# 3b. Run full test suite via the standalone FFI module (sp or dp)
+TINY_BCLIBC_SO=../tiny_bclibc/build-shared/libtiny_bclibc.so \
+TINY_BCLIBC_PRECISION=double \
+$MPY ../examples/tiny_bclibc_mp_ffi/test_mp_ffi.py
 ```
 
-`test_bclibc_ffi.py` automatically skips on 32-bit platforms (pointer size ≠ 8 bytes)
-because the struct layout in the shared library uses `double` (64-bit `real_t`).
+Both skip automatically on 32-bit platforms (pointer size ≠ 8 bytes).
+
+`tiny_bclibc_mp_ffi.py` supports both `single` and `double` precision via
+`TINY_BCLIBC_PRECISION` and provides the same API as the natmod: `Shot`, `Request`,
+`Wind`, `Config`, `integrate`, `integrate_stream`, `find_zero_angle`, `find_apex`,
+`find_max_range`, and all flag / index constants.
 
 ## Test (QEMU — Cortex-M3 / armv7m)
 
@@ -151,8 +165,9 @@ make -C "$MPY_DIR/mpy-cross"
 make -C "$MPY_DIR/ports/qemu" BOARD=MPS2_AN385
 
 # Build natmod
-make ARCH=armv7m
-ln -sf tiny_bclibc_armv7m.mpy tiny_bclibc.mpy
+make armv7m
+ln -sf build/armv7m_sp/_tiny_bclibc.mpy _tiny_bclibc.mpy
+ln -sf build/armv7m_sp/tiny_bclibc.mpy tiny_bclibc.mpy
 
 # Run tests through the QEMU pty bridge
 python3 ci/run_qemu.py \
@@ -173,8 +188,9 @@ make -C "$MPY_DIR/mpy-cross"
 make -C "$MPY_DIR/ports/qemu" BOARD=MICROBIT
 
 # Build natmod
-make ARCH=armv6m
-ln -sf tiny_bclibc_armv6m.mpy tiny_bclibc.mpy
+make rp2040
+ln -sf build/armv6m_sp/_tiny_bclibc.mpy _tiny_bclibc.mpy
+ln -sf build/armv6m_sp/tiny_bclibc.mpy tiny_bclibc.mpy
 
 # Run tests through the QEMU pty bridge
 python3 ci/run_qemu.py \
@@ -187,33 +203,54 @@ python3 ci/run_qemu.py \
 ## Module API
 
 ```python
-import tiny_bclibc
-from tiny_bclibc_types import Shot, Request, Wind, Config, DRAG_G1, DRAG_G7, DRAG_CUSTOM
+import tiny_bclibc as bc
+from tiny_bclibc import Shot, Request, Wind, Config, DRAG_G1, DRAG_G7, DRAG_CUSTOM
 
-tiny_bclibc.version()              # → "1.2.3"
+bc.version()              # → "1.2.3"
 
-# Scalar helpers
-tiny_bclibc.calculate_energy(weight_grain, velocity_fps)   # → ft·lbf (float)
-tiny_bclibc.calculate_ogw(weight_grain, velocity_fps)       # → optimal game weight (float)
-tiny_bclibc.get_correction(distance_ft, drop_ft)            # → angle correction (rad)
+# ── Constructors ──────────────────────────────────────────────────────────────
+shot = Shot(bc=0.310, weight_grain=168.0, muzzle_velocity_fps=2750.0)
+req  = Request(range_limit_ft=3000.0, range_step_ft=100.0)
 
-# Trajectory integration
-rows, stop_reason = tiny_bclibc.integrate(shot.pack(), request.pack())
+# Wind: field access via ._s (zero-copy uctypes struct backed by ._buf)
+w = Wind(velocity_fps=10.0, direction_from_rad=1.57)
+w._s.velocity_fps        # read field
+w._s.direction_from_rad  # read/write field
+
+# Config: same pattern
+cfg = Config(max_iterations=100)
+cfg._s.step_multiplier   # read/write field
+
+# Shot with winds and custom config
+shot = Shot(
+    bc=0.310, weight_grain=168.0, muzzle_velocity_fps=2750.0,
+    winds=[Wind(10.0, 0.0)],
+    config=Config(max_iterations=50),
+)
+
+# ── Trajectory integration — buffered ────────────────────────────────────────
+rows, stop_reason = bc.integrate(shot, req)
 # rows: list of 16-tuples — use T_* indices to access fields
 
-# Zero-angle search
-elevation_rad = tiny_bclibc.find_zero_angle(shot.pack(), zero_distance_ft)
+# ── Trajectory integration — streaming (no per-point allocation) ─────────────
+def on_point(row):
+    # called once per filtered output point; return truthy to stop early
+    print(row[bc.T_DISTANCE], row[bc.T_VELOCITY])
+total, stop_reason = bc.integrate_stream(shot, req, on_point)
 
-# Maximum range (golden-section search over [low_deg, high_deg])
-range_ft, angle_rad = tiny_bclibc.find_max_range(shot.pack(), low_deg, high_deg)
+# ── Zero-angle search ─────────────────────────────────────────────────────────
+elevation_rad = bc.find_zero_angle(shot, zero_distance_ft)
 
-# Single-point interpolation
-raw, full = tiny_bclibc.integrate_at(shot.pack(), tiny_bclibc.INTERP_POS_X, distance_ft)
+# ── Maximum range (golden-section search over [low_rad, high_rad]) ────────────
+range_ft, angle_rad = bc.find_max_range(shot, low_rad, high_rad)
+
+# ── Single-point interpolation ────────────────────────────────────────────────
+raw, full = bc.integrate_at(shot, bc.INTERP_POS_X, distance_ft)
 # raw: 8-tuple (time, px, py, pz, vx, vy, vz, mach)
 # full: same 16-tuple as integrate() rows
 
-# Apex
-apex = tiny_bclibc.find_apex(shot.pack())   # → single trajectory row 16-tuple
+# ── Apex ──────────────────────────────────────────────────────────────────────
+apex = bc.find_apex(shot)   # → single trajectory row 16-tuple
 
 # ── Trajectory flag constants ─────────────────────────────────────────────────
 tiny_bclibc.TRAJ_FLAG_NONE       # 0
@@ -255,7 +292,123 @@ tiny_bclibc.T_OGW            # 14 — optimal game weight (lb)
 tiny_bclibc.T_FLAG           # 15 — TRAJ_FLAG_* bitmask
 ```
 
-See [tiny_bclibc_types.py](tiny_bclibc_types.py) for `Shot`, `Wind`, `Config`, `Request` constructors and `.pack()` / `.unpack()`.
+See [tiny_bclibc.py](tiny_bclibc.py) for `Shot`, `Wind`, `Config`, `Request` constructors.
+
+## Usage examples
+
+### 1. Basic trajectory
+
+```python
+import tiny_bclibc as bc
+
+shot = bc.Shot(
+    bc=0.310,
+    weight_grain=168.0,
+    muzzle_velocity_fps=2750.0,
+    diameter_inch=0.308,
+    twist_inch=11.0,
+    sight_height_ft=0.125,   # 1.5 inch
+)
+req = bc.Request(range_limit_ft=3280.84, range_step_ft=328.084)  # 1000 m / 100 m steps
+
+rows, stop_reason = bc.integrate(shot, req)
+for row in rows:
+    print(f"{row[bc.T_DISTANCE]:.0f} ft  {row[bc.T_VELOCITY]:.1f} fps  {row[bc.T_HEIGHT]:.3f} ft")
+```
+
+### 2. Zero + corrections
+
+`find_zero_angle` returns the barrel elevation in radians but does **not** store it in the
+shot automatically. You must write it to `shot._s.barrel_elevation_rad` before calling
+`integrate`. Without this step the shot flies with 0° barrel elevation.
+
+```python
+import tiny_bclibc as bc
+import math
+
+shot = bc.Shot(
+    bc=0.310, weight_grain=168.0, muzzle_velocity_fps=2750.0,
+    diameter_inch=0.308, twist_inch=11.0, sight_height_ft=0.125,
+)
+
+# Step 1 — find zero angle at 100 m
+zero_dist_ft = 100 / 0.3048           # 100 m → ft
+zero_angle = bc.find_zero_angle(shot, zero_dist_ft)
+
+# Step 2 — store in shot (equivalent to set_weapon_zero in py_ballisticcalc)
+shot._s.barrel_elevation_rad = zero_angle
+
+# Step 3 — integrate to target distance
+req = bc.Request(range_limit_ft=500 / 0.3048, range_step_ft=500 / 0.3048)
+rows, _ = bc.integrate(shot, req)
+
+# Step 4 — read correction from the last row
+row = rows[-1]
+# T_DROP_ANGLE = trajectory angle − look_angle (rad); negate to get hold/dial value
+elev_mrad = -row[bc.T_DROP_ANGLE] * 1000      # positive → aim higher
+wind_mrad = -row[bc.T_WINDAGE_ANGLE] * 1000   # positive → aim right
+print(f"Elevation: {elev_mrad:.2f} mrad  Windage: {wind_mrad:.2f} mrad")
+```
+
+`T_DROP_ANGLE` is the ready-to-use angular correction — negate it to get the hold or
+dial value. `T_SLANT_HEIGHT` gives the same information in linear units (ft above/below
+the look-angle line).
+
+### 3. look_angle + hold (uphill / different distance)
+
+`barrel_elevation_rad` is the **total** absolute angle from horizontal. When the target
+is uphill or you apply a hold for a different distance, add to `zero_angle`:
+
+```python
+look_angle_rad  = math.radians(15)       # target 15° uphill
+hold_rad        = 0.003                  # +3 mrad hold for 500 m
+shot._s.look_angle_rad       = look_angle_rad
+shot._s.barrel_elevation_rad = look_angle_rad + zero_angle + hold_rad
+```
+
+`zero_angle` stays constant (computed once at zeroing distance). Only
+`look_angle_rad` and `hold_rad` change per shot — the same decomposition used
+by py_ballisticcalc's `look_angle + zero_elevation + relative_angle`.
+
+### 4. Single point (`integrate_at`)
+
+Cheaper than a full trajectory when only one distance matters:
+
+```python
+_raw, point = bc.integrate_at(shot, bc.INTERP_POS_X, 500 / 0.3048)
+print(f"At 500 m: {point[bc.T_VELOCITY]:.1f} fps  drop={-point[bc.T_DROP_ANGLE]*1000:.2f} mrad")
+```
+
+### 5. Streaming (RAM-constrained MCU)
+
+`integrate_stream` delivers one row at a time with no heap allocation for the trajectory:
+
+```python
+def on_row(row):
+    energy = row[bc.T_ENERGY]
+    print(f"{row[bc.T_DISTANCE]:.0f} ft  {energy:.0f} ft·lbf")
+    if energy < 500:
+        return True   # stop early
+
+total, stop_reason = bc.integrate_stream(shot, req, on_row)
+```
+
+### `integrate` vs `integrate_stream`
+
+| | `integrate` | `integrate_stream` |
+|---|---|---|
+| Returns | `(list[tuple], reason)` | `(total_count, reason)` |
+| Heap allocation | `N × 16 floats` per trajectory | None |
+| Python call per point | No | Yes (1 `mp_call`) |
+| Random access to all rows | Yes | No — one at a time |
+| Early stop | No | Yes — return truthy from callback |
+| Best for | Post-processing, sorting, slicing, display of full table | Tight RAM (MCU), streaming to UART/display, early-exit on threshold |
+
+**Use `integrate`** when you need the full result set after integration — e.g. print a table, compare rows, pass to another function.
+
+**Use `integrate_stream`** when RAM is limited (RP2040 has ~200 KB free heap) or you want to process each point as it arrives — e.g. write to a display row by row, stop when energy drops below a threshold, or log to a file without buffering the entire trajectory.
+
+The Python overhead of `integrate_stream` (one `mp_call` per filtered point) is negligible compared to the integration step itself — on RP2040 the call overhead is ~1–3 µs vs ~120 ms per full trajectory.
 
 ## Architecture notes
 
@@ -282,7 +435,7 @@ BSS must be 0 — MicroPython natmod ABI does not allow uninitialized static dat
 then Ridder's method to find the zero angle. Each GSS iteration runs a full RK4
 trajectory, which is expensive on soft-float MCUs (Cortex-M0+, RISC-V without FPU).
 
-`TINY_BCLIBC_FAST_ZERO_FIND` is automatically defined when building with `USE_FLOAT=1`.
+`TINY_BCLIBC_FAST_ZERO_FIND` is automatically defined when building with `PRECISION=single`.
 It applies two optimisations that do **not** affect the final angle accuracy:
 
 | Parameter | Default | Fast |
@@ -295,7 +448,7 @@ The bracket bound (`angle_at_max`) is used only to constrain Ridder's search int
 its precision does not affect the output. Ridder's method always uses the original
 `calc_step`.
 
-To build without `FAST_ZERO_FIND` even on `USE_FLOAT=1`, remove
+To build without `FAST_ZERO_FIND` even on `PRECISION=single`, remove
 `-DTINY_BCLIBC_FAST_ZERO_FIND` from `CFLAGS_EXTRA` in the Makefile.
 
 See [sincosf_shim.md](sincosf_shim.md) for why `src/math_shim.c` is only compiled on x64/x86 and how to add it back for MCU targets if needed.
@@ -338,8 +491,8 @@ using `integrate_at()` + a range loop instead of storing the full trajectory.
 ### Test methodology
 
 The comparison runs the full trajectory integration twice — once with the float64 natmod
-(`tiny_bclibc_x64_d.mpy`, `-DTINY_BCLIBC_USE_FLOAT` **not** set) and once with the float32
-natmod (`tiny_bclibc_x64.mpy`, `-DTINY_BCLIBC_USE_FLOAT` defined) — and diffs the output
+(`build/x64_dp/_tiny_bclibc.mpy`, `PRECISION=double`) and once with the float32
+natmod (`build/x64_sp/_tiny_bclibc.mpy`, `PRECISION=single`) — and diffs the output
 row by row. `find_zero_angle` is also compared between the two builds.
 
 **Important:** `range_step_ft` in the `Request` is the *output sampling step* only.
@@ -377,8 +530,8 @@ variation). Float32 is sufficient for all supported MCU targets.
 
 ```bash
 # Build both precision variants (x64 host)
-make x64     # → tiny_bclibc_x64_d.mpy  (float64, default)
-make x64s    # → tiny_bclibc_x64.mpy    (float32)
+make x64     # → build/x64_dp/  (float64, default)
+make x64sp   # → build/x64_sp/  (float32)
 
 # Run comparison (requires CPython 3.10+)
 python3 precision_compare.py

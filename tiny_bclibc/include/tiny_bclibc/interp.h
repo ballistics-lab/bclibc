@@ -11,9 +11,9 @@ extern "C"
     /* ── Cubic Hermite (Horner) ─────────────────────────────────────── */
     TINY_BCLIBC_INLINE_FUNC real_t
     tiny_bclibc_hermite(real_t x,
-                    real_t xk, real_t xk1,
-                    real_t yk, real_t yk1,
-                    real_t mk, real_t mk1)
+                        real_t xk, real_t xk1,
+                        real_t yk, real_t yk1,
+                        real_t mk, real_t mk1)
     {
         real_t h = xk1 - xk;
         real_t t = (x - xk) / h;
@@ -29,9 +29,9 @@ extern "C"
     /* ── 3-point PCHIP slopes ────────────────────────────────────────── */
     TINY_BCLIBC_INLINE_FUNC void
     tiny_bclibc__pchip_slopes3(real_t x0, real_t y0,
-                           real_t x1, real_t y1,
-                           real_t x2, real_t y2,
-                           real_t *m0, real_t *m1, real_t *m2)
+                               real_t x1, real_t y1,
+                               real_t x2, real_t y2,
+                               real_t *m0, real_t *m1, real_t *m2)
     {
         real_t h0 = x1 - x0, h1 = x2 - x1;
         real_t d0 = (y1 - y0) / h0;
@@ -72,8 +72,8 @@ extern "C"
     /* ── 3-point monotone PCHIP interpolation ────────────────────────── */
     TINY_BCLIBC_INLINE_FUNC real_t
     tiny_bclibc_interpolate3pt(real_t x,
-                           real_t x0, real_t x1, real_t x2,
-                           real_t y0, real_t y1, real_t y2)
+                               real_t x0, real_t x1, real_t x2,
+                               real_t y0, real_t y1, real_t y2)
     {
         /* sort ascending */
         real_t tx, ty;
@@ -120,9 +120,9 @@ extern "C"
     /* returns 0 on success, -1 on zero-division */
     TINY_BCLIBC_INLINE_FUNC int32_t
     tiny_bclibc_interpolate2pt(real_t x,
-                           real_t x0, real_t y0,
-                           real_t x1, real_t y1,
-                           real_t *result)
+                               real_t x0, real_t y0,
+                               real_t x1, real_t y1,
+                               real_t *result)
     {
         if (x1 == x0)
             return -1;
