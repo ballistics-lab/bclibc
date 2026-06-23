@@ -67,12 +67,14 @@ def _wait_worker():
 
 def _bench_single(shot, req, n, fn, label):
     gc.collect()
-    t0 = time.ticks_us()
+    times = []
     for _ in range(n):
+        t0 = time.ticks_us()
         fn(shot, req)
-    us = time.ticks_diff(time.ticks_us(), t0)
-    print("  single  {:4d} calls  {:6d} us total  {:5.1f} us/call  — {}".format(
-        n, us, us / n, label))
+        times.append(time.ticks_diff(time.ticks_us(), t0))
+    us = sum(times)
+    print("  single  {:4d} calls  {:6.1f} us/call  min={} max={}  — {}".format(
+        n, us / n, min(times), max(times), label))
     return us
 
 def _bench_2core(shot0, req0, shot1, req1, n, fn, label):
