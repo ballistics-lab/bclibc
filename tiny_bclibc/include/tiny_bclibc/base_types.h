@@ -151,7 +151,7 @@ extern "C"
 
     TINY_BCLIBC_INLINE_FUNC void
     TINY_BCLIBC_Atmosphere_update_density_mach(const TINY_BCLIBC_Atmosphere *a, real_t altitude,
-                                           real_t *density_ratio_out, real_t *mach_out)
+                                               real_t *density_ratio_out, real_t *mach_out)
     {
         const real_t alt_diff = altitude - a->a0;
         if (TINY_BCLIBC_FABS(alt_diff) < REAL_C(30.0))
@@ -226,8 +226,8 @@ extern "C"
 
     TINY_BCLIBC_INLINE_FUNC void
     TINY_BCLIBC_Coriolis_flat_fire_offsets(const TINY_BCLIBC_Coriolis *c, real_t time,
-                                       real_t distance_ft, real_t drop_ft,
-                                       real_t *delta_y, real_t *delta_z)
+                                           real_t distance_ft, real_t drop_ft,
+                                           real_t *delta_y, real_t *delta_z)
     {
         if (!c->flat_fire_only)
         {
@@ -367,7 +367,7 @@ extern "C"
         TINY_BCLIBC_Config cfg;
 
         const TINY_BCLIBC_CurvePoint *curve; /* caller-owned буфер PCHIP */
-        const real_t *mach_list;         /* caller-owned Mach масив  */
+        const real_t *mach_list;             /* caller-owned Mach масив  */
         int32_t curve_count;
     } TINY_BCLIBC_ShotProps;
 

@@ -112,16 +112,16 @@ static inline void tiny_bclibc__set_error(const char *msg)
     } tiny_bclibc__StopCtrl;
 
     static inline void tiny_bclibc__stop_ctrl_init(tiny_bclibc__StopCtrl *sc,
-                                               const TINY_BCLIBC_ShotProps *props,
-                                               real_t range_limit_ft,
-                                               real_t min_vel, real_t max_drop, real_t min_alt,
-                                               int32_t *reason_out)
+                                                   const TINY_BCLIBC_ShotProps *props,
+                                                   real_t range_limit_ft,
+                                                   real_t min_vel, real_t max_drop, real_t min_alt,
+                                                   int32_t *reason_out)
     {
         sc->range_limit_ft = range_limit_ft;
         sc->min_velocity_fps = min_vel;
         sc->max_drop_ft = -TINY_BCLIBC_FABS(max_drop) + ((-props->cant_cosine * props->sight_height) < REAL_C(0.0)
-                                                         ? -props->cant_cosine * props->sight_height
-                                                         : REAL_C(0.0));
+                                                             ? -props->cant_cosine * props->sight_height
+                                                             : REAL_C(0.0));
         sc->min_altitude_ft = min_alt;
         sc->initial_altitude_ft = props->alt0;
         sc->step_count = 0;
@@ -129,7 +129,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
     }
 
     static inline void tiny_bclibc__stop_ctrl_check(tiny_bclibc__StopCtrl *sc,
-                                                const TINY_BCLIBC_BaseTrajData *pt)
+                                                    const TINY_BCLIBC_BaseTrajData *pt)
     {
         if (*sc->reason_out != TINY_BCLIBC_TERM_NO_TERMINATE)
             return;
@@ -178,8 +178,8 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
         tiny_bclibc__StopCtrl sc;
         tiny_bclibc__stop_ctrl_init(&sc, props, range_limit,
-                                props->calc_step > REAL_C(0.0) ? REAL_C(0.0) : REAL_C(50.0),
-                                REAL_C(-15000.0), REAL_C(-1500.0), out_reason);
+                                    props->calc_step > REAL_C(0.0) ? REAL_C(0.0) : REAL_C(50.0),
+                                    REAL_C(-15000.0), REAL_C(-1500.0), out_reason);
         /* використовуємо config для зупинки */
 
         TINY_BCLIBC_WindSock ws = props->wind_sock; /* локальна копія */
@@ -215,7 +215,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
             /* атмосфера */
             real_t density_ratio, mach_fps;
             TINY_BCLIBC_Atmosphere_update_density_mach(&props->atmo,
-                                                   props->alt0 + pos.y, &density_ratio, &mach_fps);
+                                                       props->alt0 + pos.y, &density_ratio, &mach_fps);
 
             /* поточна точка */
             real_t inv_mach = (mach_fps != REAL_C(0.0)) ? (REAL_C(1.0) / mach_fps) : REAL_C(1.0);
@@ -308,7 +308,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         {
             real_t density_ratio, mach_fps;
             TINY_BCLIBC_Atmosphere_update_density_mach(&props->atmo,
-                                                   props->alt0 + pos.y, &density_ratio, &mach_fps);
+                                                       props->alt0 + pos.y, &density_ratio, &mach_fps);
             real_t inv_mach = (mach_fps != REAL_C(0.0)) ? REAL_C(1.0) / mach_fps : REAL_C(1.0);
             TINY_BCLIBC_V3dT v_rel = TINY_BCLIBC_V3dT_make(vel.x - wind.x, vel.y - wind.y, vel.z - wind.z);
             real_t rel_speed = TINY_BCLIBC_SQRT(v_rel.x * v_rel.x + v_rel.y * v_rel.y + v_rel.z * v_rel.z);
@@ -363,10 +363,10 @@ static inline void tiny_bclibc__set_error(const char *msg)
         out->curve_count = shot->drag_table_size;
 
         out->atmo = TINY_BCLIBC_Atmosphere_from_conditions(shot->temp_c, shot->pressure_hpa,
-                                                       shot->altitude_ft, shot->humidity);
+                                                           shot->altitude_ft, shot->humidity);
         out->coriolis = TINY_BCLIBC_Coriolis_from_lat_az(shot->latitude_deg,
-                                                     shot->muzzle_velocity_fps,
-                                                     shot->azimuth_deg);
+                                                         shot->muzzle_velocity_fps,
+                                                         shot->azimuth_deg);
         out->wind_sock = TINY_BCLIBC_WindSock_make(shot->winds, shot->wind_count);
 
         out->stability_coefficient = TINY_BCLIBC_ShotProps_calc_stability(out);
@@ -396,8 +396,8 @@ static inline void tiny_bclibc__set_error(const char *msg)
     } tiny_bclibc__IntegrateCtx;
 
     static inline void tiny_bclibc__integrate_emit(tiny_bclibc__IntegrateCtx *c,
-                                               const TINY_BCLIBC_BaseTrajData *pt,
-                                               int32_t flag)
+                                                   const TINY_BCLIBC_BaseTrajData *pt,
+                                                   int32_t flag)
     {
         c->total++;
         if (c->buf && c->written < c->capacity)
@@ -408,13 +408,13 @@ static inline void tiny_bclibc__set_error(const char *msg)
     }
 
     static inline void tiny_bclibc__try_interp_emit(tiny_bclibc__IntegrateCtx *c,
-                                                int32_t key, real_t key_val, int32_t flag)
+                                                    int32_t key, real_t key_val, int32_t flag)
     {
         if (c->win_n < 3)
             return;
         TINY_BCLIBC_BaseTrajData r;
         TINY_BCLIBC_BaseTrajData_interpolate(key, key_val,
-                                         &c->win[0], &c->win[1], &c->win[2], &r);
+                                             &c->win[0], &c->win[1], &c->win[2], &r);
         tiny_bclibc__integrate_emit(c, &r, flag);
     }
 
@@ -478,7 +478,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 else if (can_interp)
                 {
                     TINY_BCLIBC_BaseTrajData_interpolate(TINY_BCLIBC_KEY_POS_X, rd,
-                                                     &c->win[0], &c->win[1], &c->win[2], &r);
+                                                         &c->win[0], &c->win[1], &c->win[2], &r);
                 }
                 else
                     break;
@@ -496,7 +496,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 c->time_of_last += req->time_step;
                 TINY_BCLIBC_BaseTrajData r;
                 TINY_BCLIBC_BaseTrajData_interpolate(TINY_BCLIBC_KEY_TIME, c->time_of_last,
-                                                 &c->win[0], &c->win[1], &c->win[2], &r);
+                                                     &c->win[0], &c->win[1], &c->win[2], &r);
                 tiny_bclibc__integrate_emit(c, &r, TINY_BCLIBC_TRAJ_FLAG_RANGE);
             }
         }
@@ -619,7 +619,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         if (crossed)
         {
             TINY_BCLIBC_BaseTrajData_interpolate(c->key, c->target,
-                                             &c->win[0], &c->win[1], &c->win[2], &c->result);
+                                                 &c->win[0], &c->win[1], &c->win[2], &c->result);
             c->found = 1;
             return 1;
         }
@@ -666,7 +666,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
     /* ── find_apex ────────────────────────────────────────────────────── */
 
     TINY_BCLIBC_FUNC int32_t tiny_bclibc_find_apex(const TINY_BCLIBC_ShotProps *props,
-                                           TINY_BCLIBC_TrajectoryData *out)
+                                                   TINY_BCLIBC_TrajectoryData *out)
     {
         if (!props || !out)
         {
@@ -811,7 +811,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
 #ifdef TINY_BCLIBC_FAST_ZERO_FIND
         const real_t GSS_H_TOL = REAL_C(1e-2);
 #else
-        const real_t GSS_H_TOL = REAL_C(1e-5);
+    const real_t GSS_H_TOL = REAL_C(1e-5);
 #endif
 
         /* FAST_ZERO_FIND: coarser step for GSS bracket search only.
@@ -889,7 +889,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
 #ifdef TINY_BCLIBC_FAST_ZERO_FIND
         const real_t acc = REAL_C(0.01);
 #else
-        const real_t acc = REAL_C(0.001);
+    const real_t acc = REAL_C(0.001);
 #endif
         /* Angle bracket convergence in radians — independent of acc (which is in
          * feet).  1e-5 rad ≈ 0.0006° gives sub-milliradian accuracy on any
@@ -999,19 +999,19 @@ static inline void tiny_bclibc__set_error(const char *msg)
 #ifdef TINY_BCLIBC_USE_FLOAT
         const real_t cZeroFindingAccuracy = REAL_C(1e-3);
 #else
-        const real_t cZeroFindingAccuracy = REAL_C(5e-6);
+    const real_t cZeroFindingAccuracy = REAL_C(5e-6);
 #endif
         const real_t ALLOWED_ZERO_ERROR_FT = REAL_C(1e-2);
         const int32_t cMaxIterations = 40;
 
         int32_t iterations = 0;
-        real_t range_error_ft     = REAL_C(9e9);
-        real_t prev_range_error_ft  = REAL_C(9e9);
-        real_t height_error_ft    = cZeroFindingAccuracy * REAL_C(2.0);
+        real_t range_error_ft = REAL_C(9e9);
+        real_t prev_range_error_ft = REAL_C(9e9);
+        real_t height_error_ft = cZeroFindingAccuracy * REAL_C(2.0);
         real_t prev_height_error_ft = REAL_C(9e9);
-        real_t damping_factor     = REAL_C(1.0);
+        real_t damping_factor = REAL_C(1.0);
         const real_t damping_rate = REAL_C(0.7);
-        real_t last_correction    = REAL_C(0.0);
+        real_t last_correction = REAL_C(0.0);
 
         while (iterations < cMaxIterations)
         {
@@ -1031,16 +1031,21 @@ static inline void tiny_bclibc__set_error(const char *msg)
             }
 
             real_t height_diff_ft = raw.py * ca - raw.px * sa;
-            real_t look_dist_ft   = raw.px * ca + raw.py * sa;
-            range_error_ft  = TINY_BCLIBC_FABS(look_dist_ft - slant_range_ft);
+            real_t look_dist_ft = raw.px * ca + raw.py * sa;
+            range_error_ft = TINY_BCLIBC_FABS(look_dist_ft - slant_range_ft);
             height_error_ft = TINY_BCLIBC_FABS(height_diff_ft);
 
-            real_t traj_angle  = TINY_BCLIBC_ATAN2(raw.vy, raw.vx);
-            real_t sensitivity = TINY_BCLIBC_TAN(p->barrel_elevation - look_angle_rad) *
-                                 TINY_BCLIBC_TAN(traj_angle - look_angle_rad);
+            real_t traj_angle = TINY_BCLIBC_ATAN2(raw.vy, raw.vx);
+            real_t d_el = p->barrel_elevation - look_angle_rad;
+            real_t d_tr = traj_angle - look_angle_rad;
+            real_t cos_el = TINY_BCLIBC_COS(d_el), cos_tr = TINY_BCLIBC_COS(d_tr);
+            real_t denom_prod = cos_el * cos_tr;
+            real_t sensitivity = (TINY_BCLIBC_FABS(denom_prod) > REAL_C(1e-12))
+                                     ? (TINY_BCLIBC_SIN(d_el) * TINY_BCLIBC_SIN(d_tr)) / denom_prod
+                                     : REAL_C(0.0);
             real_t denominator = (sensitivity < REAL_C(-0.5))
-                                 ? look_dist_ft
-                                 : look_dist_ft * (REAL_C(1.0) + sensitivity);
+                                     ? look_dist_ft
+                                     : look_dist_ft * (REAL_C(1.0) + sensitivity);
             if (TINY_BCLIBC_FABS(denominator) <= REAL_C(1e-9))
                 return TINY_BCLIBC_ERR_ZERO_FINDING;
 
@@ -1064,7 +1069,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 damping_factor = REAL_C(1.0);
             }
 
-            prev_range_error_ft  = range_error_ft;
+            prev_range_error_ft = range_error_ft;
             prev_height_error_ft = height_error_ft;
 
             if (height_error_ft <= cZeroFindingAccuracy && range_error_ft <= ALLOWED_ZERO_ERROR_FT)

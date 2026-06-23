@@ -7,25 +7,23 @@
 /* ── Числовий тип ─────────────────────────────────────────────────── */
 #ifdef TINY_BCLIBC_USE_FLOAT
 typedef float real_t;
-#define TINY_BCLIBC_SQRT  sqrtf
-#define TINY_BCLIBC_FABS  fabsf
+#define TINY_BCLIBC_SQRT sqrtf
+#define TINY_BCLIBC_FABS fabsf
 #define TINY_BCLIBC_ATAN2 atan2f
-#define TINY_BCLIBC_COS   cosf
-#define TINY_BCLIBC_SIN   sinf
-#define TINY_BCLIBC_TAN   tanf
-#define TINY_BCLIBC_POW   powf
-#define TINY_BCLIBC_EXP   expf
+#define TINY_BCLIBC_COS cosf
+#define TINY_BCLIBC_SIN sinf
+#define TINY_BCLIBC_POW powf
+#define TINY_BCLIBC_EXP expf
 #define REAL_C(x) x##f
 #else
 typedef double real_t;
-#define TINY_BCLIBC_SQRT  sqrt
-#define TINY_BCLIBC_FABS  fabs
+#define TINY_BCLIBC_SQRT sqrt
+#define TINY_BCLIBC_FABS fabs
 #define TINY_BCLIBC_ATAN2 atan2
-#define TINY_BCLIBC_COS   cos
-#define TINY_BCLIBC_SIN   sin
-#define TINY_BCLIBC_TAN   tan
-#define TINY_BCLIBC_POW   pow
-#define TINY_BCLIBC_EXP   exp
+#define TINY_BCLIBC_COS cos
+#define TINY_BCLIBC_SIN sin
+#define TINY_BCLIBC_POW pow
+#define TINY_BCLIBC_EXP exp
 #define REAL_C(x) x
 #endif
 
