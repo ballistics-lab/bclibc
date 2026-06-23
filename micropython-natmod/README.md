@@ -81,7 +81,7 @@ make rv64       # rv64imc   single     → build/rv64imc_sp/   — RISC-V 64
 
 Output per target: `build/<arch>_<sp|dp>/_tiny_bclibc.mpy` + `build/<arch>_<sp|dp>/tiny_bclibc.mpy`
 
-`bc.version()` повертає `"1.1.3-sp"` або `"1.1.3-dp"`.
+`bc.version()` returns `"1.1.3-sp"` or `"1.1.3-dp"`.
 
 ```bash
 make clean      # rm -rf build/ generated/

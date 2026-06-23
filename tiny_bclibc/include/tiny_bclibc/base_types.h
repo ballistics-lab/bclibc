@@ -11,7 +11,7 @@ extern "C"
 {
 #endif
 
-/* ── Константи ────────────────────────────────────────────────────── */
+/* ── Constants ────────────────────────────────────────────────────── */
 #define TINY_BCLIBC_EARTH_ANG_VEL_RADS REAL_C(7.2921159e-5)
 #define TINY_BCLIBC_STD_DENSITY_METRIC REAL_C(1.2250)
 #define TINY_BCLIBC_DEG_C_TO_K REAL_C(273.15)
@@ -25,7 +25,7 @@ extern "C"
 #define TINY_BCLIBC_DEG_TO_RAD REAL_C(0.017453292519943295)
 #define TINY_BCLIBC_MAX_INTEGRATION_RANGE REAL_C(3e6)
 
-    /* ── Коди помилок ─────────────────────────────────────────────────── */
+    /* ── Error codes ─────────────────────────────────────────────────── */
     typedef enum TINY_BCLIBC_Status
     {
         TINY_BCLIBC_OK = 0,
@@ -37,7 +37,7 @@ extern "C"
         TINY_BCLIBC_ERR_BUF_TOO_SMALL = 6,
     } TINY_BCLIBC_Status;
 
-    /* ── Прапори траєкторії ───────────────────────────────────────────── */
+    /* ── Trajectory flags ───────────────────────────────────────────── */
     typedef enum TINY_BCLIBC_TrajFlag
     {
         TINY_BCLIBC_TRAJ_FLAG_NONE = 0,
@@ -51,7 +51,7 @@ extern "C"
         TINY_BCLIBC_TRAJ_FLAG_MRT = 32,
     } TINY_BCLIBC_TrajFlag;
 
-    /* ── Причина зупинки ─────────────────────────────────────────────── */
+    /* ── Termination reasons ─────────────────────────────────────────────── */
     typedef enum TINY_BCLIBC_TerminationReason
     {
         TINY_BCLIBC_TERM_NO_TERMINATE = 0,
@@ -62,7 +62,7 @@ extern "C"
         TINY_BCLIBC_TERM_HANDLER_STOP = 5,
     } TINY_BCLIBC_TerminationReason;
 
-    /* ── Конфігурація ────────────────────────────────────────────────── */
+    /* ── Config ────────────────────────────────────────────────── */
     typedef struct TINY_BCLIBC_Config
     {
         real_t cStepMultiplier;
@@ -87,24 +87,24 @@ extern "C"
         return c;
     }
 
-    /* ── PCHIP-сегмент ───────────────────────────────────────────────── */
+    /* ── PCHIP-segment ───────────────────────────────────────────────── */
     typedef struct TINY_BCLIBC_CurvePoint
     {
         real_t a, b, c, d;
     } TINY_BCLIBC_CurvePoint;
 
-    /* ── Атмосфера ───────────────────────────────────────────────────── */
+    /* ── Atmosphere ───────────────────────────────────────────────────── */
     typedef struct TINY_BCLIBC_Atmosphere
     {
-        real_t t0;   /* базова температура (°C)     */
-        real_t a0;   /* базова висота (ft)          */
-        real_t p0;   /* базовий тиск (hPa)          */
-        real_t mach; /* швидкість звуку (fps)       */
+        real_t t0;   /* basic temp (°C)     */
+        real_t a0;   /* basic altitude (ft)          */
+        real_t p0;   /* basic pressure (hPa)          */
+        real_t mach; /* speed of sound (fps)       */
         real_t density_ratio;
         real_t cLowestTempC;
     } TINY_BCLIBC_Atmosphere;
 
-    /* Фабрика атмосфери — CIPM-2007 */
+    /* Atmosphere processing — CIPM-2007 */
     TINY_BCLIBC_INLINE_FUNC TINY_BCLIBC_Atmosphere
     TINY_BCLIBC_Atmosphere_from_conditions(real_t t_c, real_t p_hpa, real_t alt_ft, real_t humidity)
     {
@@ -132,7 +132,7 @@ extern "C"
         if (rh > REAL_C(1.0))
             rh = REAL_C(1.0);
 
-        /* насичений тиск пари (CIPM-2007 A1.1) */
+        /* saturated vapour pressure (CIPM-2007 A1.1) */
         const real_t p_sv = TINY_BCLIBC_EXP(
             REAL_C(1.2378847e-5) * T_K * T_K - REAL_C(1.9121316e-2) * T_K + REAL_C(33.93711047) - REAL_C(6.3431645e3) / T_K);
 
@@ -177,7 +177,7 @@ extern "C"
         *mach_out = TINY_BCLIBC_SQRT(kelvin) * TINY_BCLIBC_SPEED_SOUND_METRIC * TINY_BCLIBC_M_TO_FEET;
     }
 
-    /* ── Коріоліс ────────────────────────────────────────────────────── */
+    /* ── Coriolis ────────────────────────────────────────────────────── */
     typedef struct TINY_BCLIBC_Coriolis
     {
         real_t sin_lat, cos_lat, sin_az, cos_az;
@@ -278,7 +278,7 @@ extern "C"
         out->z = ae * c->cross_east + an * c->cross_north;
     }
 
-    /* ── Вітер / WindSock ────────────────────────────────────────────── */
+    /* ── Wind / WindSock ────────────────────────────────────────────── */
     typedef struct TINY_BCLIBC_Wind
     {
         real_t velocity_fps;
@@ -366,8 +366,8 @@ extern "C"
         TINY_BCLIBC_WindSock wind_sock;
         TINY_BCLIBC_Config cfg;
 
-        const TINY_BCLIBC_CurvePoint *curve; /* caller-owned буфер PCHIP */
-        const real_t *mach_list;             /* caller-owned Mach масив  */
+        const TINY_BCLIBC_CurvePoint *curve; /* caller-owned PCHIP buffer */
+        const real_t *mach_list;             /* caller-owned Mach array   */
         int32_t curve_count;
     } TINY_BCLIBC_ShotProps;
 

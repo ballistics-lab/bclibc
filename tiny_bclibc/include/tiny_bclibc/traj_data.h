@@ -11,7 +11,7 @@ extern "C"
 {
 #endif
 
-    /* ── Базові дані точки траєкторії ─────────────────────────────────
+    /* ── Base trajectory point data ───────────────────────────────────
      *  9 × real_t = 72 B (double) / 36 B (float)
      */
     typedef struct TINY_BCLIBC_BaseTrajData
@@ -22,7 +22,7 @@ extern "C"
         real_t mach;
     } TINY_BCLIBC_BaseTrajData;
 
-    /* ── Ключ інтерполяції для BaseTrajData ──────────────────────────── */
+    /* ── Interpolation key for BaseTrajData ─────────────────────────── */
     typedef enum TINY_BCLIBC_InterpKey
     {
         TINY_BCLIBC_KEY_TIME = 0,
@@ -60,7 +60,7 @@ extern "C"
         }
     }
 
-    /* 3-point PCHIP інтерполяція всіх полів BaseTrajData */
+    /* 3-point PCHIP interpolation of all BaseTrajData fields */
     TINY_BCLIBC_INLINE_FUNC void
     TINY_BCLIBC_BaseTrajData_interpolate(int32_t key, real_t key_val,
                                          const TINY_BCLIBC_BaseTrajData *p0,
@@ -87,7 +87,7 @@ extern "C"
 #undef TINY_BCLIBC__INTERP_FIELD
     }
 
-    /* ── Повні дані точки траєкторії ─────────────────────────────────
+    /* ── Full trajectory point data ──────────────────────────────────
      *  15 × real_t + int32 = 124 B (double) / 64 B (float)
      */
     typedef struct TINY_BCLIBC_TrajectoryData
@@ -110,7 +110,7 @@ extern "C"
         int32_t flag;
     } TINY_BCLIBC_TrajectoryData;
 
-    /* ── Запит на інтеграцію ─────────────────────────────────────────── */
+    /* ── Integration request ────────────────────────────────────────── */
     typedef struct TINY_BCLIBC_TrajectoryRequest
     {
         real_t range_limit_ft;
@@ -119,7 +119,7 @@ extern "C"
         int32_t filter_flags;
     } TINY_BCLIBC_TrajectoryRequest;
 
-    /* ── Фабрика TrajectoryData з BaseTrajData + ShotProps ──────────── */
+    /* ── TrajectoryData factory from BaseTrajData + ShotProps ───────── */
     TINY_BCLIBC_INLINE_FUNC void
     TINY_BCLIBC_TrajectoryData_from_props(const TINY_BCLIBC_ShotProps *props,
                                           const TINY_BCLIBC_BaseTrajData *base,
