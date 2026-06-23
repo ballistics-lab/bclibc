@@ -5,9 +5,9 @@ Usage:
   python3 ci/run_qemu.py <firmware.elf> <natmod-dir> [--machine MACHINE] [--qemu-extra ARGS]
 
 <natmod-dir> must contain:
-  tiny_bclibc.mpy       — built for the target architecture
-  tiny_bclibc_types.py  — Python companion module
-  test_bclibc.py        — test suite
+  _tiny_bclibc.mpy  — native module built for the target architecture
+  tiny_bclibc.mpy   — bytecode wrapper (compiled from src/tiny_bclibc.py)
+  test_bclibc.py    — test suite
 
 Examples:
   # Cortex-M3 (armv7m)
@@ -37,42 +37,32 @@ def read_file(path: str) -> bytes:
         return f.read()
 
 
-def inject_mpy(mpy_data: bytes) -> bytes:
-    """Mount tiny_bclibc.mpy from a RAM buffer and import it as tiny_bclibc."""
-    buf_repr = repr(mpy_data).encode()
+def inject_modules(native_mpy: bytes, wrapper_mpy: bytes) -> bytes:
+    """Mount _tiny_bclibc.mpy (native) and tiny_bclibc.mpy (bytecode) from RAM buffers."""
+    native_repr = repr(native_mpy).encode()
+    wrapper_repr = repr(wrapper_mpy).encode()
     return (
         b"import sys, io, vfs\n"
-        b"__buf = " + buf_repr + b"\n"
+        b"__native = " + native_repr + b"\n"
+        b"__wrapper = " + wrapper_repr + b"\n"
         b"class _F(io.IOBase):\n"
-        b"  def __init__(self): self.off=0\n"
+        b"  def __init__(self,d): self.d=d; self.off=0\n"
         b"  def ioctl(self,r,a): return 0 if r==4 else -1\n"
         b"  def readinto(self,b):\n"
-        b"    b[:]=memoryview(__buf)[self.off:self.off+len(b)]\n"
+        b"    b[:]=memoryview(self.d)[self.off:self.off+len(b)]\n"
         b"    self.off+=len(b); return len(b)\n"
         b"class _FS:\n"
         b"  def mount(self,r,m): pass\n"
         b"  def chdir(self,p): pass\n"
         b"  def stat(self,p):\n"
-        b"    if p=='/__injected.mpy': return tuple(0 for _ in range(10))\n"
+        b"    if p in ('/_tiny_bclibc.mpy','/tiny_bclibc.mpy'): return (0,)*10\n"
         b"    raise OSError(-2)\n"
-        b"  def open(self,p,m): return _F()\n"
+        b"  def open(self,p,m):\n"
+        b"    return _F(__native if '_tiny_bclibc' in p else __wrapper)\n"
         b"vfs.mount(_FS(),'/__remote')\n"
         b"sys.path.insert(0,'/__remote')\n"
-        b"sys.modules['tiny_bclibc']=__import__('__injected')\n"
-    )
-
-
-def inject_types(types_src: bytes) -> bytes:
-    """Exec tiny_bclibc_types.py and register it in sys.modules."""
-    public = b"Shot,Wind,Config,Request,DRAG_G1,DRAG_G7,DRAG_CUSTOM"
-    return (
-        types_src + b"\n"
-        b"import sys as _s\n"
-        b"class _M: pass\n"
-        b"_m=_M(); _m.__name__='tiny_bclibc_types'\n"
-        b"for _k in (" + b",".join(b"'" + n + b"'" for n in public.split(b",")) + b",):\n"
-        b"  setattr(_m,_k,globals()[_k])\n"
-        b"_s.modules['tiny_bclibc_types']=_m\n"
+        b"import _tiny_bclibc\n"
+        b"import tiny_bclibc\n"
     )
 
 
@@ -81,7 +71,7 @@ def main() -> None:
     ap.add_argument("firmware", help="Path to firmware.elf")
     ap.add_argument(
         "natmod_dir",
-        help="Directory with tiny_bclibc.mpy / tiny_bclibc_types.py / test_bclibc.py",
+        help="Directory with _tiny_bclibc.mpy / tiny_bclibc.mpy / test_bclibc.py",
     )
     ap.add_argument(
         "--machine",
@@ -91,8 +81,8 @@ def main() -> None:
     ap.add_argument("--qemu-extra", default="", help="Extra QEMU arguments inserted before -serial")
     args = ap.parse_args()
 
-    mpy_data = read_file(os.path.join(args.natmod_dir, "tiny_bclibc.mpy"))
-    types_src = read_file(os.path.join(args.natmod_dir, "tiny_bclibc_types.py"))
+    native_data = read_file(os.path.join(args.natmod_dir, "_tiny_bclibc.mpy"))
+    wrapper_data = read_file(os.path.join(args.natmod_dir, "tiny_bclibc.mpy"))
     test_src = read_file(os.path.join(args.natmod_dir, "test_bclibc.py"))
 
     extra = f" {args.qemu_extra}" if args.qemu_extra else ""
@@ -111,11 +101,8 @@ def main() -> None:
     pyb = Pyboard(f"execpty:{qemu_cmd}")
     pyb.enter_raw_repl()
 
-    print("[QEMU] Injecting tiny_bclibc.mpy ...", flush=True)
-    pyb.exec_(inject_mpy(mpy_data), timeout=30)
-
-    print("[QEMU] Injecting tiny_bclibc_types ...", flush=True)
-    pyb.exec_(inject_types(types_src), timeout=15)
+    print("[QEMU] Injecting _tiny_bclibc.mpy + tiny_bclibc.mpy ...", flush=True)
+    pyb.exec_(inject_modules(native_data, wrapper_data), timeout=30)
 
     print("[QEMU] Running test_bclibc.py ...", flush=True)
     output = pyb.exec_(test_src, timeout=120)
