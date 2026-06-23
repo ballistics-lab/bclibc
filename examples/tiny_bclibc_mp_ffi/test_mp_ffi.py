@@ -1,3 +1,5 @@
+# ruff: noqa
+
 """Run the natmod test suite (test_bclibc.py) against the FFI backend.
 
 Usage:
@@ -22,7 +24,7 @@ if sys.implementation.name != "micropython":
 _HERE = __file__.rsplit("/", 1)[0] if "/" in __file__ else "."
 
 sys.path.insert(0, _HERE)
-import tiny_bclibc_ffi as _ffi_mod
+import tiny_bclibc.tiny_bclibc_mp_ffi as _ffi_mod
 
 sys.modules["tiny_bclibc"] = _ffi_mod
 

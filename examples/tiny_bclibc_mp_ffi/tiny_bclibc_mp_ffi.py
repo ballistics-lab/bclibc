@@ -1,3 +1,5 @@
+# ruff: noqa
+
 """tiny_bclibc_ffi — MicroPython unix FFI backend for tiny_bclibc.
 
 Drop-in replacement for ``tiny_bclibc`` on unix MicroPython (x64, dp only).
@@ -18,7 +20,6 @@ The .so path is resolved as (first match wins):
 Requires x64 MicroPython unix with ffi + uctypes (standard build).
 """
 
-import sys
 import struct
 import array
 import os
