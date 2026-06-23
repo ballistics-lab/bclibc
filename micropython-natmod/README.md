@@ -278,6 +278,105 @@ tiny_bclibc.T_FLAG           # 15 — TRAJ_FLAG_* bitmask
 
 See [tiny_bclibc.py](tiny_bclibc.py) for `Shot`, `Wind`, `Config`, `Request` constructors.
 
+## Usage examples
+
+### 1. Basic trajectory
+
+```python
+import tiny_bclibc as bc
+
+shot = bc.Shot(
+    bc=0.310,
+    weight_grain=168.0,
+    muzzle_velocity_fps=2750.0,
+    diameter_inch=0.308,
+    twist_inch=11.0,
+    sight_height_ft=0.125,   # 1.5 inch
+)
+req = bc.Request(range_limit_ft=3280.84, range_step_ft=328.084)  # 1000 m / 100 m steps
+
+rows, stop_reason = bc.integrate(shot, req)
+for row in rows:
+    print(f"{row[bc.T_DISTANCE]:.0f} ft  {row[bc.T_VELOCITY]:.1f} fps  {row[bc.T_HEIGHT]:.3f} ft")
+```
+
+### 2. Zero + corrections
+
+`find_zero_angle` returns the barrel elevation in radians but does **not** store it in the
+shot automatically. You must write it to `shot._s.barrel_elevation_rad` before calling
+`integrate`. Without this step the shot flies with 0° barrel elevation.
+
+```python
+import tiny_bclibc as bc
+import math
+
+shot = bc.Shot(
+    bc=0.310, weight_grain=168.0, muzzle_velocity_fps=2750.0,
+    diameter_inch=0.308, twist_inch=11.0, sight_height_ft=0.125,
+)
+
+# Step 1 — find zero angle at 100 m
+zero_dist_ft = 100 / 0.3048           # 100 m → ft
+zero_angle = bc.find_zero_angle(shot, zero_dist_ft)
+
+# Step 2 — store in shot (equivalent to set_weapon_zero in py_ballisticcalc)
+shot._s.barrel_elevation_rad = zero_angle
+
+# Step 3 — integrate to target distance
+req = bc.Request(range_limit_ft=500 / 0.3048, range_step_ft=500 / 0.3048)
+rows, _ = bc.integrate(shot, req)
+
+# Step 4 — read correction from the last row
+row = rows[-1]
+# T_DROP_ANGLE = trajectory angle − look_angle (rad); negate to get hold/dial value
+elev_mrad = -row[bc.T_DROP_ANGLE] * 1000      # positive → aim higher
+wind_mrad = -row[bc.T_WINDAGE_ANGLE] * 1000   # positive → aim right
+print(f"Elevation: {elev_mrad:.2f} mrad  Windage: {wind_mrad:.2f} mrad")
+```
+
+`T_DROP_ANGLE` is the ready-to-use angular correction — negate it to get the hold or
+dial value. `T_SLANT_HEIGHT` gives the same information in linear units (ft above/below
+the look-angle line).
+
+### 3. look_angle + hold (uphill / different distance)
+
+`barrel_elevation_rad` is the **total** absolute angle from horizontal. When the target
+is uphill or you apply a hold for a different distance, add to `zero_angle`:
+
+```python
+look_angle_rad  = math.radians(15)       # target 15° uphill
+hold_rad        = 0.003                  # +3 mrad hold for 500 m
+shot._s.look_angle_rad       = look_angle_rad
+shot._s.barrel_elevation_rad = look_angle_rad + zero_angle + hold_rad
+```
+
+`zero_angle` stays constant (computed once at zeroing distance). Only
+`look_angle_rad` and `hold_rad` change per shot — the same decomposition used
+by py_ballisticcalc's `look_angle + zero_elevation + relative_angle`.
+
+### 4. Single point (`integrate_at`)
+
+Cheaper than a full trajectory when only one distance matters:
+
+```python
+_raw, point = bc.integrate_at(shot, bc.INTERP_POS_X, 500 / 0.3048)
+print(f"At 500 m: {point[bc.T_VELOCITY]:.1f} fps  drop={-point[bc.T_DROP_ANGLE]*1000:.2f} mrad")
+```
+
+### 5. Streaming (RAM-constrained MCU)
+
+`integrate_stream` delivers one row at a time with no heap allocation for the trajectory:
+
+```python
+def on_row(row):
+    energy = row[bc.T_ENERGY]
+    print(f"{row[bc.T_DISTANCE]:.0f} ft  {energy:.0f} ft·lbf")
+    if energy < 500:
+        return True   # stop early
+
+total, stop_reason = bc.integrate_stream(shot, req, on_row)
+```
+
 ### `integrate` vs `integrate_stream`
 
 | | `integrate` | `integrate_stream` |

@@ -110,6 +110,110 @@ Measured via the `micropython-natmod` comparison tool (see
 This is negligible compared to any practical uncertainty source (wind, BC variance, MV
 spread) and float32 is sufficient for all supported embedded targets.
 
+## Usage
+
+### 1. Basic trajectory
+
+```c
+#include "tiny_bclibc/engine.h"
+
+// Fill user-facing shot (natural units)
+TINY_BCLIBC_Shot shot = {0};
+shot.bc                  = 0.310;
+shot.drag_type           = TINY_BCLIBC_DRAG_G7;
+shot.muzzle_velocity_fps = 2750.0;
+shot.weight_grain        = 168.0;
+shot.diameter_inch       = 0.308;
+shot.twist_inch          = 11.0;
+shot.sight_height_ft     = 0.125;   // 1.5 inch
+shot.barrel_elevation_rad = 0.0;    // set after find_zero_angle
+// atmosphere: leave zeroed for ICAO standard
+
+// Build physics (PCHIP drag curve + atmosphere + Coriolis)
+TINY_BCLIBC_CurvePoint curve[82];
+TINY_BCLIBC_ShotProps  props;
+if (tiny_bclibc_build_shot_props(&shot, curve, &props) != TINY_BCLIBC_OK) {
+    fprintf(stderr, "%s\n", tiny_bclibc_last_error());
+    return 1;
+}
+
+// Integrate to 1000 m in 100 m steps
+TINY_BCLIBC_TrajectoryRequest req = {0};
+req.range_limit_ft = 3280.84;  // 1000 m
+req.range_step_ft  = 328.084;  // 100 m
+req.filter_flags   = TINY_BCLIBC_TRAJ_FLAG_RANGE;
+
+TINY_BCLIBC_TrajectoryData rows[32];
+int32_t written, total, reason;
+tiny_bclibc_integrate(&props, &req, rows, 32, &written, &total, &reason);
+
+for (int i = 0; i < written; i++)
+    printf("%.0f ft  %.1f fps  %.3f ft\n",
+           rows[i].distance_ft, rows[i].velocity_fps, rows[i].height_ft);
+```
+
+### 2. Zero + corrections
+
+`find_zero_angle` returns the barrel elevation in radians. You must store it in
+`shot.barrel_elevation_rad` (or `props.barrel_elevation`) before calling `integrate`.
+Without this step the shot flies with 0° elevation.
+
+```c
+// Step 1 — find zero angle at 100 m (328.084 ft)
+real_t zero_angle_rad = 0.0;
+if (tiny_bclibc_find_zero_angle(&props, 328.084, &zero_angle_rad) != TINY_BCLIBC_OK) {
+    fprintf(stderr, "%s\n", tiny_bclibc_last_error());
+    return 1;
+}
+
+// Step 2 — store in shot and rebuild props (or set directly on props)
+shot.barrel_elevation_rad = zero_angle_rad;
+tiny_bclibc_build_shot_props(&shot, curve, &props);
+
+// Step 3 — integrate to target distance
+req.range_limit_ft = 1640.42;   // 500 m
+tiny_bclibc_integrate(&props, &req, rows, 32, &written, &total, &reason);
+
+// Step 4 — read correction at target row
+// slant_height_ft: height above/below the look-angle line
+// drop_angle_rad:  trajectory angle minus look_angle — the elevation correction to dial
+TINY_BCLIBC_TrajectoryData *last = &rows[written - 1];
+double corr_mrad = -last->drop_angle_rad * 1000.0;   // positive → aim higher
+double wind_mrad = -last->windage_angle_rad * 1000.0; // positive → aim right
+printf("Elevation: %.2f mrad  Windage: %.2f mrad\n", corr_mrad, wind_mrad);
+```
+
+`drop_angle_rad` (= trajectory angle − look angle) is the ready-to-use angular correction:
+negate it to get the hold or dial value. The same field is available as `T_DROP_ANGLE` in the natmod.
+
+### 3. look_angle + hold (uphill / different distance)
+
+`barrel_elevation_rad` is the total absolute angle from horizontal:
+
+```c
+// zero_angle_rad was computed for 100 m, flat
+double look_angle_rad  = 0.26;   // target is 15° uphill
+double hold_rad        = 0.003;  // additional correction for 500 m
+shot.look_angle_rad       = look_angle_rad;
+shot.barrel_elevation_rad = look_angle_rad + zero_angle_rad + hold_rad;
+tiny_bclibc_build_shot_props(&shot, curve, &props);
+```
+
+`zero_angle_rad` is the *relative* offset computed at zero — you add it to whatever
+look angle is current. This mirrors the `look_angle + zero_elevation + relative_angle`
+decomposition used in higher-level wrappers.
+
+### 4. Single interpolated point (`integrate_at`)
+
+Cheaper than a full trajectory when only one distance matters:
+
+```c
+TINY_BCLIBC_TrajectoryData point;
+tiny_bclibc_integrate_at(&props, TINY_BCLIBC_KEY_POS_X, 1640.42, NULL, &point);
+printf("At 500 m: %.1f fps  drop=%.3f mrad\n",
+       point.velocity_fps, -point.drop_angle_rad * 1000.0);
+```
+
 ## API
 
 ### Setup

@@ -5,8 +5,8 @@
 //
 // Key invariant enforced here: both engines use identical RK4 time-step
 // (kCalcStep = 0.0025s).  bclibc reads it from BCLIBC_Shot::calc_step;
-// tbclibc_build_shot_props() derives it from config, so we override
-// TBCLIBC_ShotProps::calc_step after the build call.
+// tiny_bclibc_build_shot_props() derives it from config, so we override
+// TINY_BCLIBC_ShotProps::calc_step after the build call.
 //
 // Tolerance: 1e-9 (absolute).  Both engines perform the same IEEE-754
 // double arithmetic on the same input, so results should be bitwise
@@ -23,18 +23,18 @@
 
 // ── tbclibc C headers ────────────────────────────────────────────────────
 extern "C" {
-#define TBCLIBC_BUILD_SHARED  // use extern declarations, impl via static inline
-#include "tbclibc/engine.h"
+#define TINY_BCLIBC_BUILD_SHARED  // use extern declarations, impl via static inline
+#include "tiny_bclibc/engine.h"
 }
 // tbclibc is header-only in this test: compile via static-inline mode.
-// Re-include without TBCLIBC_BUILD_SHARED so all TBCLIBC_FUNC resolve to
+// Re-include without TINY_BCLIBC_BUILD_SHARED so all TINY_BCLIBC_FUNC resolve to
 // static inline definitions in this TU.
-#undef TBCLIBC_BUILD_SHARED
-#undef TBCLIBC_ENGINE_H        // force re-include
-// Actually: just use the header-only (no-TBCLIBC_BUILD_SHARED) path:
+#undef TINY_BCLIBC_BUILD_SHARED
+#undef TINY_BCLIBC_ENGINE_H        // force re-include
+// Actually: just use the header-only (no-TINY_BCLIBC_BUILD_SHARED) path:
 // The include already happened above with BUILD_SHARED, which only changed
 // the function visibility.  For a header-only test build we rely on the
-// INTERFACE tbclibc_headers target which does NOT define TBCLIBC_BUILD_SHARED.
+// INTERFACE tiny_bclibc_headers target which does NOT define TINY_BCLIBC_BUILD_SHARED.
 
 // ── test helpers ─────────────────────────────────────────────────────────
 #include "fixture.hpp"
@@ -181,12 +181,12 @@ void init_tb_g7_arrays()
 
 // Build tbclibc ShotProps from G7_BASIC (no wind).
 // curve_buf must be caller-allocated with >= kG7TableSize elements.
-int make_tbclibc_shot_props(TBCLIBC_ShotProps *out, TBCLIBC_CurvePoint *curve_buf,
+int make_tiny_bclibc_shot_props(TINY_BCLIBC_ShotProps *out, TINY_BCLIBC_CurvePoint *curve_buf,
                              double barrel_elevation_rad = G7_BASIC::BARREL_EL_RAD)
 {
     init_tb_g7_arrays();
 
-    TBCLIBC_Config cfg = TBCLIBC_Config_default();
+    TINY_BCLIBC_Config cfg = TINY_BCLIBC_Config_default();
     cfg.cZeroFindingAccuracy = static_cast<double>(kDefaultConfig.cZeroFindingAccuracy);
     cfg.cMinimumVelocity     = static_cast<double>(kDefaultConfig.cMinimumVelocity);
     cfg.cMaximumDrop         = static_cast<double>(kDefaultConfig.cMaximumDrop);
@@ -194,7 +194,7 @@ int make_tbclibc_shot_props(TBCLIBC_ShotProps *out, TBCLIBC_CurvePoint *curve_bu
     cfg.cGravityConstant     = static_cast<double>(kDefaultConfig.cGravityConstant);
     cfg.cMinimumAltitude     = static_cast<double>(kDefaultConfig.cMinimumAltitude);
 
-    TBCLIBC_Shot shot;
+    TINY_BCLIBC_Shot shot;
     std::memset(&shot, 0, sizeof(shot));
     shot.bc                  = G7_BASIC::BC;
     shot.weight_grain        = G7_BASIC::WEIGHT_GR;
@@ -220,20 +220,20 @@ int make_tbclibc_shot_props(TBCLIBC_ShotProps *out, TBCLIBC_CurvePoint *curve_bu
     shot.azimuth_deg         = G7_BASIC::AZ_DEG;
     shot.config              = cfg;
 
-    int rc = tbclibc_build_shot_props(&shot, curve_buf, out);
-    if (rc == TBCLIBC_OK)
+    int rc = tiny_bclibc_build_shot_props(&shot, curve_buf, out);
+    if (rc == TINY_BCLIBC_OK)
         out->calc_step = kCalcStep; // override: match bclibc RK4 step exactly
     return rc;
 }
 
 // Build tbclibc ShotProps from G7_WIND (one crosswind).
-int make_tbclibc_shot_props_wind(TBCLIBC_ShotProps *out, TBCLIBC_CurvePoint *curve_buf,
-                                  TBCLIBC_Wind *wind_buf,
+int make_tiny_bclibc_shot_props_wind(TINY_BCLIBC_ShotProps *out, TINY_BCLIBC_CurvePoint *curve_buf,
+                                  TINY_BCLIBC_Wind *wind_buf,
                                   double barrel_elevation_rad = G7_BASIC::BARREL_EL_RAD)
 {
     init_tb_g7_arrays();
 
-    TBCLIBC_Config cfg = TBCLIBC_Config_default();
+    TINY_BCLIBC_Config cfg = TINY_BCLIBC_Config_default();
     cfg.cZeroFindingAccuracy = static_cast<double>(kDefaultConfig.cZeroFindingAccuracy);
     cfg.cMinimumVelocity     = static_cast<double>(kDefaultConfig.cMinimumVelocity);
     cfg.cMaximumDrop         = static_cast<double>(kDefaultConfig.cMaximumDrop);
@@ -246,7 +246,7 @@ int make_tbclibc_shot_props_wind(TBCLIBC_ShotProps *out, TBCLIBC_CurvePoint *cur
     wind_buf->until_distance_ft  = G7_WIND::WIND_UNTIL_FT;
     wind_buf->max_distance_ft    = G7_WIND::WIND_MAX_FT;
 
-    TBCLIBC_Shot shot;
+    TINY_BCLIBC_Shot shot;
     std::memset(&shot, 0, sizeof(shot));
     shot.bc                  = G7_BASIC::BC;
     shot.weight_grain        = G7_BASIC::WEIGHT_GR;
@@ -272,30 +272,30 @@ int make_tbclibc_shot_props_wind(TBCLIBC_ShotProps *out, TBCLIBC_CurvePoint *cur
     shot.azimuth_deg         = G7_BASIC::AZ_DEG;
     shot.config              = cfg;
 
-    int rc = tbclibc_build_shot_props(&shot, curve_buf, out);
-    if (rc == TBCLIBC_OK)
+    int rc = tiny_bclibc_build_shot_props(&shot, curve_buf, out);
+    if (rc == TINY_BCLIBC_OK)
         out->calc_step = kCalcStep;
     return rc;
 }
 
-// Run tbclibc_integrate (two-pass: count then fill).
-std::vector<TBCLIBC_TrajectoryData>
-run_tbclibc_integrate(const TBCLIBC_ShotProps *props, double range_ft, double step_ft)
+// Run tiny_bclibc_integrate (two-pass: count then fill).
+std::vector<TINY_BCLIBC_TrajectoryData>
+run_tiny_bclibc_integrate(const TINY_BCLIBC_ShotProps *props, double range_ft, double step_ft)
 {
-    TBCLIBC_TrajectoryRequest req;
+    TINY_BCLIBC_TrajectoryRequest req;
     req.range_limit_ft = static_cast<double>(range_ft);
     req.range_step_ft  = static_cast<double>(step_ft);
     req.time_step      = 0.0;
-    req.filter_flags   = TBCLIBC_TRAJ_FLAG_RANGE;
+    req.filter_flags   = TINY_BCLIBC_TRAJ_FLAG_RANGE;
 
     int32_t written = 0, total = 0, reason = 0;
     // Pass 1: count
-    tbclibc_integrate(props, &req, nullptr, 0, &written, &total, &reason);
+    tiny_bclibc_integrate(props, &req, nullptr, 0, &written, &total, &reason);
 
-    std::vector<TBCLIBC_TrajectoryData> buf(static_cast<size_t>(total));
+    std::vector<TINY_BCLIBC_TrajectoryData> buf(static_cast<size_t>(total));
     if (total > 0) {
         // Pass 2: fill
-        tbclibc_integrate(props, &req, buf.data(), total, &written, &total, &reason);
+        tiny_bclibc_integrate(props, &req, buf.data(), total, &written, &total, &reason);
         buf.resize(static_cast<size_t>(written));
     }
     return buf;
@@ -314,16 +314,16 @@ static bool test_g7_basic_integrate()
     init_bclibc_engine(bc_eng, make_bclibc_shot_props());
 
     // Build tbclibc props
-    TBCLIBC_CurvePoint tb_curve[kG7TableSize];
-    TBCLIBC_ShotProps  tb_props;
-    if (make_tbclibc_shot_props(&tb_props, tb_curve) != TBCLIBC_OK) {
-        std::printf("FAIL: tbclibc_build_shot_props failed: %s\n", tbclibc_last_error());
+    TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
+    TINY_BCLIBC_ShotProps  tb_props;
+    if (make_tiny_bclibc_shot_props(&tb_props, tb_curve) != TINY_BCLIBC_OK) {
+        std::printf("FAIL: tiny_bclibc_build_shot_props failed: %s\n", tiny_bclibc_last_error());
         return false;
     }
 
     // Run both at 3000ft range, 100ft step → 31 points
     auto bc_traj = run_bclibc_integrate(bc_eng, 3000.0, 100.0);
-    auto tb_traj = run_tbclibc_integrate(&tb_props, 3000.0, 100.0);
+    auto tb_traj = run_tiny_bclibc_integrate(&tb_props, 3000.0, 100.0);
 
     return identity::compare_trajectories(bc_traj, tb_traj, "G7_BASIC / integrate / 3000ft@100ft");
 }
@@ -335,16 +335,16 @@ static bool test_g7_wind_integrate()
     init_bclibc_engine(bc_eng, make_bclibc_shot_props_wind());
 
     // Build tbclibc props with wind
-    TBCLIBC_CurvePoint tb_curve[kG7TableSize];
-    TBCLIBC_ShotProps  tb_props;
-    TBCLIBC_Wind       tb_wind;
-    if (make_tbclibc_shot_props_wind(&tb_props, tb_curve, &tb_wind) != TBCLIBC_OK) {
-        std::printf("FAIL: tbclibc_build_shot_props (wind) failed: %s\n", tbclibc_last_error());
+    TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
+    TINY_BCLIBC_ShotProps  tb_props;
+    TINY_BCLIBC_Wind       tb_wind;
+    if (make_tiny_bclibc_shot_props_wind(&tb_props, tb_curve, &tb_wind) != TINY_BCLIBC_OK) {
+        std::printf("FAIL: tiny_bclibc_build_shot_props (wind) failed: %s\n", tiny_bclibc_last_error());
         return false;
     }
 
     auto bc_traj = run_bclibc_integrate(bc_eng, 3000.0, 100.0);
-    auto tb_traj = run_tbclibc_integrate(&tb_props, 3000.0, 100.0);
+    auto tb_traj = run_tiny_bclibc_integrate(&tb_props, 3000.0, 100.0);
 
     return identity::compare_trajectories(bc_traj, tb_traj, "G7_WIND / integrate / 3000ft@100ft");
 }
@@ -362,16 +362,16 @@ static bool test_g7_basic_zero_angle()
     double bc_angle = bc_eng.zero_angle(ZERO_DIST_FT, APEX_MAX_RAD, ALLOWED_ERR);
 
     // tbclibc zero_angle
-    TBCLIBC_CurvePoint tb_curve[kG7TableSize];
-    TBCLIBC_ShotProps  tb_props;
-    if (make_tbclibc_shot_props(&tb_props, tb_curve) != TBCLIBC_OK) {
+    TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
+    TINY_BCLIBC_ShotProps  tb_props;
+    if (make_tiny_bclibc_shot_props(&tb_props, tb_curve) != TINY_BCLIBC_OK) {
         std::printf("FAIL: tbclibc build failed\n");
         return false;
     }
     double tb_angle = 0.0;
-    int rc = tbclibc_find_zero_angle(&tb_props, ZERO_DIST_FT, &tb_angle);
-    if (rc != TBCLIBC_OK) {
-        std::printf("FAIL: tbclibc_find_zero_angle rc=%d: %s\n", rc, tbclibc_last_error());
+    int rc = tiny_bclibc_find_zero_angle(&tb_props, ZERO_DIST_FT, &tb_angle);
+    if (rc != TINY_BCLIBC_OK) {
+        std::printf("FAIL: tiny_bclibc_find_zero_angle rc=%d: %s\n", rc, tiny_bclibc_last_error());
         return false;
     }
 
@@ -394,16 +394,16 @@ static bool test_g7_basic_find_apex()
     bc_apex = bclibc::BCLIBC_TrajectoryData(bc_eng.shot, bc_raw, bclibc::BCLIBC_TRAJ_FLAG_APEX);
 
     // tbclibc find_apex
-    TBCLIBC_CurvePoint tb_curve[kG7TableSize];
-    TBCLIBC_ShotProps  tb_props;
-    if (make_tbclibc_shot_props(&tb_props, tb_curve, 0.05) != TBCLIBC_OK) {
+    TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
+    TINY_BCLIBC_ShotProps  tb_props;
+    if (make_tiny_bclibc_shot_props(&tb_props, tb_curve, 0.05) != TINY_BCLIBC_OK) {
         std::printf("FAIL: tbclibc build failed\n");
         return false;
     }
-    TBCLIBC_TrajectoryData tb_apex;
-    int rc = tbclibc_find_apex(&tb_props, &tb_apex);
-    if (rc != TBCLIBC_OK) {
-        std::printf("FAIL: tbclibc_find_apex rc=%d: %s\n", rc, tbclibc_last_error());
+    TINY_BCLIBC_TrajectoryData tb_apex;
+    int rc = tiny_bclibc_find_apex(&tb_props, &tb_apex);
+    if (rc != TINY_BCLIBC_OK) {
+        std::printf("FAIL: tiny_bclibc_find_apex rc=%d: %s\n", rc, tiny_bclibc_last_error());
         return false;
     }
 
