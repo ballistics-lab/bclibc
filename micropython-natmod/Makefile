@@ -15,8 +15,8 @@ ARCH    ?= x64
 MPY_DIR ?= micropython
 
 # ── Precision ─────────────────────────────────────────────────────────────────
-# USE_FLOAT=0 → double  → tiny_bclibc_<arch>_d.mpy  (default on x64/x86)
-# USE_FLOAT=1 → float   → tiny_bclibc_<arch>.mpy    (default on MCU)
+# USE_FLOAT=0 → double  → tiny_bclibc_<arch>.mpy    (default on x64/x86)
+# USE_FLOAT=1 → float   → tiny_bclibc_<arch>_s.mpy  (default on MCU)
 #
 ifeq ($(ARCH),$(filter $(ARCH),x64 x86))
 USE_FLOAT ?= 0
@@ -25,14 +25,15 @@ USE_FLOAT ?= 1
 endif
 
 ifeq ($(USE_FLOAT),1)
-_PREC_SUFFIX :=
+_PREC_SUFFIX := _s
 else
-_PREC_SUFFIX := _d
+_PREC_SUFFIX :=
 endif
 
 MOD         = _tiny_bclibc_$(ARCH)$(_PREC_SUFFIX)
 BCLIBC_ROOT = ..
-BUILD       = build-$(ARCH)$(_PREC_SUFFIX)
+BUILD       = build/$(ARCH)$(_PREC_SUFFIX)
+MPY_CROSS  ?= $(MPY_DIR)/mpy-cross/build/mpy-cross
 VERSION_H   = generated/bclibc_mp/version.h
 VERSION_IN  = version.h.in
 
@@ -174,40 +175,47 @@ $(VERSION_H): $(VERSION_IN)
 $(BUILD)/src/tiny_bclibc_mp.o: $(VERSION_H)
 
 # ── Convenience aliases ────────────────────────────────────────────────────────
-.PHONY: x64 x64s x86 x86s rp2040 rp2350 stm32f4 stm32h7 stm32h7dp esp32s3 esp32 esp32c3 esp32c6 clean
+.PHONY: x64 x64s x86 x86s rp2040 rp2350 stm32f4 stm32h7 stm32h7dp esp32s3 esp32 esp32c3 esp32c6 dist clean
 
 x64:
-	$(MAKE) ARCH=x64 USE_FLOAT=0
+	$(MAKE) ARCH=x64 USE_FLOAT=0 dist
 
 x64s:
-	$(MAKE) ARCH=x64 USE_FLOAT=1
+	$(MAKE) ARCH=x64 USE_FLOAT=1 dist
 
 x86:
-	$(MAKE) ARCH=x86 USE_FLOAT=0
+	$(MAKE) ARCH=x86 USE_FLOAT=0 dist
 
 x86s:
-	$(MAKE) ARCH=x86 USE_FLOAT=1
+	$(MAKE) ARCH=x86 USE_FLOAT=1 dist
 
 rp2040:
-	$(MAKE) ARCH=armv6m
+	$(MAKE) ARCH=armv6m dist
 
 rp2350 stm32f4:
-	$(MAKE) ARCH=armv7emsp
+	$(MAKE) ARCH=armv7emsp dist
 
 stm32h7:
-	$(MAKE) ARCH=armv7emdp USE_FLOAT=1
+	$(MAKE) ARCH=armv7emdp USE_FLOAT=1 dist
 
 stm32h7dp:
-	$(MAKE) ARCH=armv7emdp USE_FLOAT=0
+	$(MAKE) ARCH=armv7emdp USE_FLOAT=0 dist
 
 esp32s3:
-	$(MAKE) ARCH=xtensawin
+	$(MAKE) ARCH=xtensawin dist
 
 esp32:
-	$(MAKE) ARCH=xtensa
+	$(MAKE) ARCH=xtensa dist
 
 esp32c3 esp32c6:
-	$(MAKE) ARCH=rv32imc
+	$(MAKE) ARCH=rv32imc dist
+
+dist: all
+	$(Q)mv $(MOD).mpy $(BUILD)/_tiny_bclibc.mpy
+	$(ECHO) "  MPY   $(BUILD)/tiny_bclibc.mpy"
+	$(Q)$(MPY_CROSS) -march=$(ARCH) src/tiny_bclibc.py -o $(BUILD)/tiny_bclibc.mpy
+	$(ECHO) "  →  $(BUILD)/_tiny_bclibc.mpy"
+	$(ECHO) "  →  $(BUILD)/tiny_bclibc.mpy"
 
 clean:
-	rm -rf build-* _tiny_bclibc_*.mpy generated
+	rm -rf build generated

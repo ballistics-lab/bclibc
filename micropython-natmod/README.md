@@ -7,7 +7,7 @@
 > without thorough validation on your specific target.
 
 Native module (`.mpy`) that exposes the `tiny_bclibc` ballistics library to MicroPython.
-Each supported architecture produces its own file: `tiny_bclibc_<arch>[_d].mpy`.
+Each supported architecture produces its own file: `_tiny_bclibc_<arch>[_s].mpy`.
 
 ### Architecture support
 
@@ -59,30 +59,29 @@ sudo apt-get install gcc-arm-none-eabi libnewlib-arm-none-eabi \
 
 All commands are run from this directory (`micropython-natmod/`).
 
-Precision suffix: none = single (`float`), `_d` = double.
+Precision suffix: none = double (`double`), `_s` = single (`float`).
 Default precision: **double** for x64/x86 host, **single** for all MCU targets.
 
 ```bash
-make            # x64 double (default) → tiny_bclibc_x64_d.mpy
-make x64        # x64 double
-make x64s       # x64 single           → tiny_bclibc_x64.mpy
-make x86        # x86 double
-make x86s       # x86 single
-make rp2040     # armv6m    single — Raspberry Pi Pico
-make rp2350     # armv7emsp single — RP2350
-make stm32f4    # armv7emsp single — STM32F4 (alias of rp2350)
-make stm32h7    # armv7emdp single — STM32H7
-make stm32h7dp  # armv7emdp double — STM32H7 (double-precision FPU)
-make esp32s3    # xtensawin single — ESP32-S3
-make esp32      # xtensa    single — ESP32
-make esp32c3    # rv32imc   single — ESP32-C3
-make esp32c6    # rv32imc   single — ESP32-C6 (alias of esp32c3)
+make            # x64 double (default) → build/x64/
+make x64        # x64 double           → build/x64/
+make x64s       # x64 single           → build/x64_s/
+make x86        # x86 double           → build/x86/
+make x86s       # x86 single           → build/x86_s/
+make rp2040     # armv6m    single     → build/armv6m_s/    — Raspberry Pi Pico
+make rp2350     # armv7emsp single     → build/armv7emsp_s/ — RP2350
+make stm32f4    # armv7emsp single     → build/armv7emsp_s/ — STM32F4
+make stm32h7    # armv7emdp single     → build/armv7emdp_s/ — STM32H7
+make stm32h7dp  # armv7emdp double     → build/armv7emdp/   — STM32H7 (DP FPU)
+make esp32s3    # xtensawin single     → build/xtensawin_s/ — ESP32-S3
+make esp32      # xtensa    single     → build/xtensa_s/    — ESP32
+make esp32c3    # rv32imc   single     → build/rv32imc_s/   — ESP32-C3 / C6
 ```
 
-Output: `tiny_bclibc_<arch>[_d].mpy`
+Output per target: `build/<target>/_tiny_bclibc.mpy` + `build/<target>/tiny_bclibc.mpy`
 
 ```bash
-make clean      # remove all build-* directories and tiny_bclibc_*.mpy
+make clean      # rm -rf build/ generated/
 ```
 
 ### Custom MPY_DIR or precision
@@ -100,9 +99,8 @@ make ARCH=x64 USE_FLOAT=1         # single on host
 make -C "$MPY_DIR/ports/unix" VARIANT=standard
 MPY="$MPY_DIR/ports/unix/build-standard/micropython"
 
-# Build natmod and symlink the private module
-make x64        # or: make x64s / make x86 / make x86s
-ln -sf _tiny_bclibc_x64_d.mpy _tiny_bclibc.mpy
+# Build natmod
+make x64        # → build/x64/_tiny_bclibc.mpy  build/x64/tiny_bclibc.mpy
 
 # Run tests (natmod)
 $MPY test_bclibc.py
