@@ -332,6 +332,16 @@ On failure, `tiny_bclibc_last_error()` returns a thread-local string describing 
 When `TINY_BCLIBC_NO_ERR_BUF` is defined (natmod builds), `last_error()` always returns
 a generic string — use the return code instead.
 
+## MicroPython integration
+
+The `micropython-natmod/` directory wraps `tiny_bclibc` as a native `.mpy` module
+for embedded MicroPython targets. For unix MicroPython on architectures without native
+module support (aarch64, mipsel, …), `examples/tiny_bclibc_mp_ffi/tiny_bclibc_mp_ffi.py`
+exposes the same Python API by calling `libtiny_bclibc.so` via the built-in `ffi` module.
+
+See [micropython-natmod/README.md](../micropython-natmod/README.md) for build instructions
+and a full API reference.
+
 ## Project structure
 
 ```

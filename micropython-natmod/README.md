@@ -117,9 +117,13 @@ Expected output ends with `=== done ===` and all lines read `PASS`.
 ## FFI-based access (any unix architecture)
 
 On architectures where `mpy_ld.py` does not yet support native modules (aarch64, mipsel,
-and others), `test_bclibc_ffi.py` uses MicroPython's built-in `ffi` module to call
-`libtiny_bclibc.so` directly. This works on every platform where MicroPython unix port
-is available and `libffi` is present.
+and others), MicroPython's built-in `ffi` module can call `libtiny_bclibc.so` directly.
+Two entry points are available:
+
+| Module | Location | Description |
+|--------|----------|-------------|
+| `test_bclibc_ffi.py` | `micropython-natmod/` | Inline FFI test against the same test suite |
+| `tiny_bclibc_mp_ffi.py` | `examples/tiny_bclibc_mp_ffi/` | Standalone drop-in module with the full public API |
 
 ```bash
 # 1. Build libtiny_bclibc.so for the target platform (native or cross)
@@ -134,12 +138,21 @@ make -C "$MPY_DIR/ports/unix" VARIANT=standard
 
 MPY="$MPY_DIR/ports/unix/build-standard/micropython"
 
-# 3. Run — no .mpy needed
+# 3a. Run inline FFI test (double precision only)
 $MPY test_bclibc_ffi.py
+
+# 3b. Run full test suite via the standalone FFI module (sp or dp)
+TINY_BCLIBC_SO=../tiny_bclibc/build-shared/libtiny_bclibc.so \
+TINY_BCLIBC_PRECISION=double \
+$MPY ../examples/tiny_bclibc_mp_ffi/test_mp_ffi.py
 ```
 
-`test_bclibc_ffi.py` automatically skips on 32-bit platforms (pointer size ≠ 8 bytes)
-because the struct layout in the shared library uses `double` (64-bit `real_t`).
+Both skip automatically on 32-bit platforms (pointer size ≠ 8 bytes).
+
+`tiny_bclibc_mp_ffi.py` supports both `single` and `double` precision via
+`TINY_BCLIBC_PRECISION` and provides the same API as the natmod: `Shot`, `Request`,
+`Wind`, `Config`, `integrate`, `integrate_stream`, `find_zero_angle`, `find_apex`,
+`find_max_range`, and all flag / index constants.
 
 ## Test (QEMU — Cortex-M3 / armv7m)
 
