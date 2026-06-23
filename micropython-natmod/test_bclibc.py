@@ -374,6 +374,43 @@ except Exception as ex:
     _fail("integrate_at", ex)
 
 
+# -- integrate_stream ----------------------------------------------------------
+print("\n--- integrate_stream (collect all points) ---")
+try:
+    collected = []
+    total_s, reason_s = bclibc.integrate_stream(SHOT.pack(), REQUEST.pack(),
+                                                lambda row: collected.append(row))
+    rows_ref, _ = bclibc.integrate(SHOT.pack(), REQUEST.pack())
+    if len(collected) == len(rows_ref):
+        _pass("integrate_stream — {} points (total={})".format(len(collected), total_s))
+    else:
+        _fail("integrate_stream", "stream={} vs integrate={}".format(len(collected), len(rows_ref)))
+except Exception as ex:
+    _fail("integrate_stream", ex)
+
+print("\n--- integrate_stream (stop when energy < 1000 ft·lbf, 5 km range) ---")
+try:
+    REQ_5KM = Request(
+        range_limit_ft=5000.0 * 3.28084,
+        range_step_ft=300.0 * 3.28084,
+        filter_flags=bclibc.TRAJ_FLAG_RANGE,
+    )
+    T_ENERGY = bclibc.T_ENERGY
+    stopped_at = [None]
+    count_e = [0]
+    def _cb_energy(row):
+        count_e[0] += 1
+        if row[T_ENERGY] < 1000.0:
+            stopped_at[0] = row[bclibc.T_DISTANCE]
+            return True
+    _, reason_e = bclibc.integrate_stream(SHOT.pack(), REQ_5KM.pack(), _cb_energy)
+    if reason_e == 5 and stopped_at[0] is not None:
+        _pass("integrate_stream stop — energy<1000 at {:.0f} ft after {} pts".format(stopped_at[0], count_e[0]))
+    else:
+        _fail("integrate_stream stop", "reason={} stopped_at={}".format(reason_e, stopped_at[0]))
+except Exception as ex:
+    _fail("integrate_stream stop", ex)
+
 # -- RAM usage during 3 km trajectory (100 m step) ----------------------------
 print("\n--- RAM: integrate 3 km / 100 m step ---")
 try:

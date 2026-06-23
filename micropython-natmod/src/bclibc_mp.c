@@ -8,6 +8,7 @@
  *
  *   bclibc.version()
  *   bclibc.integrate(shot.pack(), request.pack())         -> (list[tuple], int)
+ *   bclibc.integrate_stream(shot.pack(), request.pack(), cb)  -> (int total, int reason)
  *   bclibc.find_zero_angle(shot.pack(), dist_ft)          -> float
  *   bclibc.find_apex(shot.pack())                         -> tuple
  *   bclibc.find_max_range(shot.pack(), lo_rad, hi_rad)    -> (float_ft, float_rad)
@@ -429,6 +430,48 @@ static mp_obj_t mp_bclibc_integrate(mp_obj_t shot_arg, mp_obj_t req_arg)
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(mp_bclibc_integrate_obj, mp_bclibc_integrate);
 
+/* ── integrate_stream ────────────────────────────────────────────────────── */
+
+typedef struct
+{
+    mp_obj_t callable;
+} StreamCbCtx;
+
+static int32_t mp_stream_cb(const TINY_BCLIBC_TrajectoryData *pt, void *ctx_)
+{
+    StreamCbCtx *ctx = (StreamCbCtx *)ctx_;
+    mp_obj_t tup = traj_to_tuple(pt);
+    mp_obj_t ret = mp_call_function_n_kw(ctx->callable, 1, 0, &tup);
+    return mp_obj_is_true(ret) ? TINY_BCLIBC_TERM_HANDLER_STOP : 0;
+}
+
+static mp_obj_t mp_bclibc_integrate_stream(mp_obj_t shot_arg, mp_obj_t req_arg, mp_obj_t cb_arg)
+{
+    ShotHolder *h = (ShotHolder *)m_malloc(sizeof(ShotHolder));
+    TINY_BCLIBC_ShotProps props;
+    int32_t rc = build_props_buf(shot_arg, h, &props);
+    if (rc != TINY_BCLIBC_OK)
+    {
+        m_free(h);
+        mp_raise_msg(&mp_type_ValueError, _tiny_bclibc_err_str(rc));
+    }
+
+    TINY_BCLIBC_TrajectoryRequest req;
+    parse_req(req_arg, &req);
+
+    StreamCbCtx cb_ctx = {cb_arg};
+    int32_t total = 0, reason = 0;
+    rc = tiny_bclibc_integrate_stream(&props, &req, mp_stream_cb, &cb_ctx, &total, &reason);
+    m_free(h);
+
+    if (rc != TINY_BCLIBC_OK)
+        mp_raise_msg(&mp_type_ValueError, _tiny_bclibc_err_str(rc));
+
+    mp_obj_t result[2] = {mp_obj_new_int(total), mp_obj_new_int(reason)};
+    return mp_obj_new_tuple(2, result);
+}
+static MP_DEFINE_CONST_FUN_OBJ_3(mp_bclibc_integrate_stream_obj, mp_bclibc_integrate_stream);
+
 static mp_obj_t mp_bclibc_integrate_at(mp_obj_t shot_arg, mp_obj_t key_arg, mp_obj_t tgt_arg)
 {
     ShotHolder *h = (ShotHolder *)m_malloc(sizeof(ShotHolder));
@@ -461,6 +504,7 @@ mp_obj_t mpy_init(mp_obj_fun_bc_t *self, size_t n_args, size_t n_kw, mp_obj_t *a
 
     mp_store_global(MP_QSTR_version, MP_OBJ_FROM_PTR(&mp_bclibc_version_obj));
     mp_store_global(MP_QSTR_integrate, MP_OBJ_FROM_PTR(&mp_bclibc_integrate_obj));
+    mp_store_global(MP_QSTR_integrate_stream, MP_OBJ_FROM_PTR(&mp_bclibc_integrate_stream_obj));
     mp_store_global(MP_QSTR_find_zero_angle, MP_OBJ_FROM_PTR(&mp_bclibc_find_zero_angle_obj));
     mp_store_global(MP_QSTR_find_apex, MP_OBJ_FROM_PTR(&mp_bclibc_find_apex_obj));
     mp_store_global(MP_QSTR_find_max_range, MP_OBJ_FROM_PTR(&mp_bclibc_find_max_range_obj));

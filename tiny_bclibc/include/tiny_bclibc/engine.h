@@ -99,6 +99,9 @@ static inline void tiny_bclibc__set_error(const char *msg)
     /* ── Контекст для on_step callback ──────────────────────────────── */
     typedef int32_t (*tiny_bclibc__OnStep)(const TINY_BCLIBC_BaseTrajData *pt, void *ctx);
 
+    /* ── Streaming callback — повертає 0 щоб продовжити, TINY_BCLIBC_TERM_HANDLER_STOP щоб зупинити ── */
+    typedef int32_t (*tiny_bclibc_StreamCb)(const TINY_BCLIBC_TrajectoryData *pt, void *ctx);
+
     /* ── Контроль зупинки ───────────────────────────────────────────── */
     typedef struct tiny_bclibc__StopCtrl
     {
@@ -393,6 +396,10 @@ static inline void tiny_bclibc__set_error(const char *msg)
         int32_t active_flags;
         real_t look_angle_tan;
         int32_t initialized;
+        /* streaming — якщо задано, emit викликає cb замість запису в buf */
+        tiny_bclibc_StreamCb stream_cb;
+        void *stream_ctx;
+        int32_t stream_stop;
     } tiny_bclibc__IntegrateCtx;
 
     static inline void tiny_bclibc__integrate_emit(tiny_bclibc__IntegrateCtx *c,
@@ -400,7 +407,14 @@ static inline void tiny_bclibc__set_error(const char *msg)
                                                    int32_t flag)
     {
         c->total++;
-        if (c->buf && c->written < c->capacity)
+        if (c->stream_cb)
+        {
+            TINY_BCLIBC_TrajectoryData full;
+            TINY_BCLIBC_TrajectoryData_from_props(c->props, pt, flag, &full);
+            if (c->stream_cb(&full, c->stream_ctx) != 0)
+                c->stream_stop = TINY_BCLIBC_TERM_HANDLER_STOP;
+        }
+        else if (c->buf && c->written < c->capacity)
         {
             TINY_BCLIBC_TrajectoryData_from_props(c->props, pt, flag, &c->buf[c->written]);
             c->written++;
@@ -536,7 +550,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
             }
         }
 
-        return 0;
+        return c->stream_stop;
     }
 
     /* ════════════════════════════════════════════════════════════════════
@@ -578,6 +592,37 @@ static inline void tiny_bclibc__set_error(const char *msg)
         if (out_buf && ctx.total > buf_capacity && buf_capacity > 0)
             return TINY_BCLIBC_ERR_BUF_TOO_SMALL;
         return TINY_BCLIBC_OK;
+    }
+
+    /* ── integrate_stream ────────────────────────────────────────────── */
+
+    TINY_BCLIBC_FUNC int32_t tiny_bclibc_integrate_stream(
+        const TINY_BCLIBC_ShotProps *props,
+        const TINY_BCLIBC_TrajectoryRequest *req,
+        tiny_bclibc_StreamCb cb,
+        void *cb_ctx,
+        int32_t *out_total,
+        int32_t *out_reason)
+    {
+        if (!props || !req || !cb || !out_total || !out_reason)
+        {
+            tiny_bclibc__set_error("tiny_bclibc_integrate_stream: NULL argument");
+            return TINY_BCLIBC_ERR_INVALID_ARG;
+        }
+
+        tiny_bclibc__IntegrateCtx ctx;
+        memset(&ctx, 0, sizeof(ctx));
+        ctx.props = props;
+        ctx.req = req;
+        ctx.stream_cb = cb;
+        ctx.stream_ctx = cb_ctx;
+
+        int32_t reason = TINY_BCLIBC_TERM_NO_TERMINATE;
+        int32_t rc = tiny_bclibc__run_rk4(props, req, tiny_bclibc__integrate_on_step, &ctx, &reason);
+
+        *out_total = ctx.total;
+        *out_reason = reason;
+        return rc;
     }
 
     /* ── integrate_at ─────────────────────────────────────────────────── */

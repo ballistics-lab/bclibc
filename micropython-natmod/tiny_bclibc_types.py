@@ -7,6 +7,10 @@ Usage:
     shot = Shot(bc=0.310, weight_grain=168.0, muzzle_velocity_fps=2750.0, ...)
     req  = Request(range_limit_ft=3000.0, range_step_ft=100.0)
     rows, reason = tiny_bclibc.integrate(shot.pack(), req.pack())
+
+    # Streaming (no buffer allocation):
+    total, reason = tiny_bclibc.integrate_stream(shot.pack(), req.pack(),
+        lambda row: None)   # return truthy to stop early
 """
 
 import struct

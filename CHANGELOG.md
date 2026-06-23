@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### `tiny_bclibc_integrate_stream` — zero-allocation streaming integration
+- New public API: `tiny_bclibc_integrate_stream(props, req, cb, cb_ctx, out_total, out_reason)`
+  - Calls a C callback `tiny_bclibc_StreamCb` once per filtered output point instead of writing to a heap buffer
+  - Callback returns `TINY_BCLIBC_TERM_HANDLER_STOP` (or any non-zero) to abort integration early
+  - No intermediate `TrajectoryData` buffer allocated — suitable for RAM-constrained MCUs
+  - Shares 100 % of the filtering logic with `tiny_bclibc_integrate` via the existing `tiny_bclibc__integrate_on_step` path; no code duplication
+- New public typedef: `tiny_bclibc_StreamCb` — `int32_t (*)(const TINY_BCLIBC_TrajectoryData *, void *)`
+- **natmod** (`micropython-natmod`): `tiny_bclibc.integrate_stream(shot_buf, req_buf, callback)` — Python callable receives one 16-tuple per point; return truthy to stop; returns `(total_count, stop_reason)`
+- `test_bclibc.py`, `examples/tiny_bclibc_natmod_test_2core.py`: tests for both collect-all and early-stop cases
+
+#### `MPY_DIR` default and documentation
+- `micropython-natmod/Makefile`: `MPY_DIR ?= micropython` — documents the local-symlink convention
+- `micropython-natmod/README.md`: updated MicroPython source setup section to use `git clone / git checkout v1.28.0` instead of a tarball download
+
+#### Drag tables extracted to separate header
+- `micropython-natmod/src/drag_tables.h`: G1 and G7 built-in drag tables extracted from `bclibc_mp.c` into a standalone header with include guard
+
 ## [1.1.3] - 2026-06-22
 
 ### Fixed

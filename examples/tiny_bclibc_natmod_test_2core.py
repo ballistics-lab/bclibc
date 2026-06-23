@@ -325,8 +325,10 @@ def run_tests_on_core1():
     # find_zero_angle 100m: 1 test
     # find_apex: 1 test
     # integrate_at: 1 test
+    # integrate_stream collect: 1 test
+    # integrate_stream early stop: 1 test
     # RAM usage: 1 test
-    total_tests = 10
+    total_tests = 12
     print(f"[Core1] Total tests: {total_tests}")
 
     try:
@@ -454,6 +456,56 @@ def run_tests_on_core1():
             test_results["passed"] += 1
         except Exception as ex:
             _fail("integrate_at", ex)
+            test_results["failed"] += 1
+
+        # ── integrate_stream — collect all points ────────────────────────────
+        print("\n[Core1] --- integrate_stream (collect all points) ---")
+        try:
+            stream_rows = []
+            total_s, _ = bclibc.integrate_stream(
+                SHOT.pack(), REQUEST.pack(),
+                lambda row: stream_rows.append(row)
+            )
+            rows_ref, _ = bclibc.integrate(SHOT.pack(), REQUEST.pack())
+            if len(stream_rows) == len(rows_ref):
+                _pass(f"integrate_stream — {len(stream_rows)} points (total={total_s})")
+                test_results["passed"] += 1
+            else:
+                _fail("integrate_stream", f"stream={len(stream_rows)} vs integrate={len(rows_ref)}")
+                test_results["failed"] += 1
+        except Exception as ex:
+            _fail("integrate_stream", ex)
+            test_results["failed"] += 1
+
+        # ── integrate_stream — early stop on energy threshold ────────────────
+        # Uses 5 km / 300 m steps so energy actually drops below 1000 ft·lbf
+        # (~818 ft·lbf at 900 m for G7 BC=0.310 168gr 2750fps).
+        print("\n[Core1] --- integrate_stream (stop when energy < 1000 ft·lbf) ---")
+        try:
+            REQ_5KM = Request(
+                range_limit_ft=5000.0 * 3.28084,
+                range_step_ft=300.0 * 3.28084,
+                filter_flags=bclibc.TRAJ_FLAG_RANGE,
+            )
+            T_ENERGY = bclibc.T_ENERGY
+            stopped_at = [None]
+            count_e = [0]
+
+            def _cb_energy(row):
+                count_e[0] += 1
+                if row[T_ENERGY] < 1000.0:
+                    stopped_at[0] = row[bclibc.T_DISTANCE]
+                    return True
+
+            _, reason_e = bclibc.integrate_stream(SHOT.pack(), REQ_5KM.pack(), _cb_energy)
+            if reason_e == 5 and stopped_at[0] is not None:  # TERM_HANDLER_STOP
+                _pass(f"integrate_stream stop — energy<1000 at {stopped_at[0]:.0f} ft after {count_e[0]} pts reason={reason_e}")
+                test_results["passed"] += 1
+            else:
+                _fail("integrate_stream stop", f"reason={reason_e} stopped_at={stopped_at[0]}")
+                test_results["failed"] += 1
+        except Exception as ex:
+            _fail("integrate_stream stop", ex)
             test_results["failed"] += 1
 
         # ── RAM usage ────────────────────────────────────────────────────────

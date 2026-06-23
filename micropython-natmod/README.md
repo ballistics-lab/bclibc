@@ -197,9 +197,15 @@ tiny_bclibc.calculate_energy(weight_grain, velocity_fps)   # → ft·lbf (float)
 tiny_bclibc.calculate_ogw(weight_grain, velocity_fps)       # → optimal game weight (float)
 tiny_bclibc.get_correction(distance_ft, drop_ft)            # → angle correction (rad)
 
-# Trajectory integration
+# Trajectory integration — buffered
 rows, stop_reason = tiny_bclibc.integrate(shot.pack(), request.pack())
 # rows: list of 16-tuples — use T_* indices to access fields
+
+# Trajectory integration — streaming (no buffer allocation)
+def on_point(row):
+    # called once per filtered output point; return truthy to stop early
+    print(row[tiny_bclibc.T_DISTANCE], row[tiny_bclibc.T_VELOCITY])
+total, stop_reason = tiny_bclibc.integrate_stream(shot.pack(), request.pack(), on_point)
 
 # Zero-angle search
 elevation_rad = tiny_bclibc.find_zero_angle(shot.pack(), zero_distance_ft)
@@ -256,6 +262,23 @@ tiny_bclibc.T_FLAG           # 15 — TRAJ_FLAG_* bitmask
 ```
 
 See [tiny_bclibc_types.py](tiny_bclibc_types.py) for `Shot`, `Wind`, `Config`, `Request` constructors and `.pack()` / `.unpack()`.
+
+### `integrate` vs `integrate_stream`
+
+| | `integrate` | `integrate_stream` |
+|---|---|---|
+| Returns | `(list[tuple], reason)` | `(total_count, reason)` |
+| Heap allocation | `N × 16 floats` per trajectory | None |
+| Python call per point | No | Yes (1 `mp_call`) |
+| Random access to all rows | Yes | No — one at a time |
+| Early stop | No | Yes — return truthy from callback |
+| Best for | Post-processing, sorting, slicing, display of full table | Tight RAM (MCU), streaming to UART/display, early-exit on threshold |
+
+**Use `integrate`** when you need the full result set after integration — e.g. print a table, compare rows, pass to another function.
+
+**Use `integrate_stream`** when RAM is limited (RP2040 has ~200 KB free heap) or you want to process each point as it arrives — e.g. write to a display row by row, stop when energy drops below a threshold, or log to a file without buffering the entire trajectory.
+
+The Python overhead of `integrate_stream` (one `mp_call` per filtered point) is negligible compared to the integration step itself — on RP2040 the call overhead is ~1–3 µs vs ~120 ms per full trajectory.
 
 ## Architecture notes
 

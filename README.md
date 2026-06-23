@@ -63,6 +63,8 @@ ln -sf tiny_bclibc_x64_d.mpy tiny_bclibc.mpy
 micropython test_bclibc.py   # run tests
 ```
 
+Two integration modes: `integrate()` returns a full `list` of trajectory rows (simple, random-access); `integrate_stream(shot, req, callback)` passes each filtered point directly to a Python callback with no intermediate buffer — useful on RAM-limited MCUs (RP2040: ~200 KB free heap) or when you need early-exit on a threshold. See [micropython-natmod/README.md](micropython-natmod/README.md) for a full comparison.
+
 **Float32 vs Float64:** measured deviation over 3000 m (G7, BC=0.310, 168 gr @ 2750 fps,
 25 m output steps, x64 MicroPython unix port) — max drop error **0.108 cm** at 2975 m,
 max velocity error **0.0015 fps** — float32 is sufficient for all supported MCU targets.
