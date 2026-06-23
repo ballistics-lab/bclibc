@@ -1041,7 +1041,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         real_t ca = TINY_BCLIBC_COS(look_angle_rad);
         real_t sa = TINY_BCLIBC_SIN(look_angle_rad);
 
-#ifdef TINY_BCLIBC_USE_FLOAT
+#if defined(TINY_BCLIBC_SINGLE_PRECISION) || defined(TINY_BCLIBC_USE_FLOAT)
         const real_t cZeroFindingAccuracy = REAL_C(1e-3);
 #else
     const real_t cZeroFindingAccuracy = REAL_C(5e-6);

@@ -31,7 +31,8 @@ project(tiny_bclibc
 message(STATUS "tiny_bclibc version: ${TINY_BCLIBC_VERSION}")
 
 # ── Опції ──────────────────────────────────────────────────────────
-option(TINY_BCLIBC_USE_FLOAT          "Use float instead of double"        OFF)
+option(TINY_BCLIBC_SINGLE_PRECISION   "Use float instead of double"        OFF)
+option(TINY_BCLIBC_USE_FLOAT          "Use float instead of double (deprecated, use TINY_BCLIBC_SINGLE_PRECISION)" OFF)
 option(TINY_BCLIBC_BUILD_SHARED       "Build shared library"               OFF)
 option(TINY_BCLIBC_BUILD_STATIC       "Build static library"               OFF)
 option(TINY_BCLIBC_INSTALL            "Install targets and headers"        ON)
@@ -52,8 +53,8 @@ target_include_directories(tiny_bclibc_headers INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
     $<INSTALL_INTERFACE:include>)
 
-if(TINY_BCLIBC_USE_FLOAT)
-    target_compile_definitions(tiny_bclibc_headers INTERFACE TINY_BCLIBC_USE_FLOAT)
+if(TINY_BCLIBC_SINGLE_PRECISION OR TINY_BCLIBC_USE_FLOAT)
+    target_compile_definitions(tiny_bclibc_headers INTERFACE TINY_BCLIBC_SINGLE_PRECISION)
 endif()
 
 # ── Спільна функція налаштування compile-target ────────────────────
@@ -63,8 +64,8 @@ function(tiny_bclibc_configure_target tgt)
         $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
         $<INSTALL_INTERFACE:include>)
     target_compile_definitions(${tgt} PRIVATE TINY_BCLIBC_BUILD_SHARED)
-    if(TINY_BCLIBC_USE_FLOAT)
-        target_compile_definitions(${tgt} PUBLIC TINY_BCLIBC_USE_FLOAT)
+    if(TINY_BCLIBC_SINGLE_PRECISION OR TINY_BCLIBC_USE_FLOAT)
+        target_compile_definitions(${tgt} PUBLIC TINY_BCLIBC_SINGLE_PRECISION)
     endif()
     set_target_properties(${tgt} PROPERTIES
         C_STANDARD 99

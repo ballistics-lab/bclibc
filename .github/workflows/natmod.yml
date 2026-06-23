@@ -26,18 +26,18 @@ jobs:
       matrix:
         include:
           # ── Single precision (float) — default for all MCU archs ─────────
-          - {arch: x64,       use_float: 1, suffix: ""}
-          - {arch: x86,       use_float: 1, suffix: "",   apt: gcc-multilib}
-          - {arch: armv6m,    use_float: 1, suffix: "",   apt: gcc-arm-none-eabi libnewlib-arm-none-eabi}
-          - {arch: armv7m,    use_float: 1, suffix: "",   apt: gcc-arm-none-eabi libnewlib-arm-none-eabi}
-          - {arch: armv7emsp, use_float: 1, suffix: "",   apt: gcc-arm-none-eabi libnewlib-arm-none-eabi}
-          - {arch: armv7emdp, use_float: 1, suffix: "",   apt: gcc-arm-none-eabi libnewlib-arm-none-eabi}
-          - {arch: rv32imc,   use_float: 1, suffix: "",   apt: gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf}
-          - {arch: rv64imc,   use_float: 1, suffix: "",   apt: gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf}
+          - {arch: x64,       precision: single, suffix: _sp}
+          - {arch: x86,       precision: single, suffix: _sp, apt: gcc-multilib}
+          - {arch: armv6m,    precision: single, suffix: _sp, apt: gcc-arm-none-eabi libnewlib-arm-none-eabi}
+          - {arch: armv7m,    precision: single, suffix: _sp, apt: gcc-arm-none-eabi libnewlib-arm-none-eabi}
+          - {arch: armv7emsp, precision: single, suffix: _sp, apt: gcc-arm-none-eabi libnewlib-arm-none-eabi}
+          - {arch: armv7emdp, precision: single, suffix: _sp, apt: gcc-arm-none-eabi libnewlib-arm-none-eabi}
+          - {arch: rv32imc,   precision: single, suffix: _sp, apt: gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf}
+          - {arch: rv64imc,   precision: single, suffix: _sp, apt: gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf}
           # ── Double precision — host (x64/x86) and armv7emdp (hw double FPU)
-          - {arch: x64,       use_float: 0, suffix: "_d"}
-          - {arch: x86,       use_float: 0, suffix: "_d", apt: gcc-multilib}
-          - {arch: armv7emdp, use_float: 0, suffix: "_d", apt: gcc-arm-none-eabi libnewlib-arm-none-eabi}
+          - {arch: x64,       precision: double, suffix: _dp}
+          - {arch: x86,       precision: double, suffix: _dp, apt: gcc-multilib}
+          - {arch: armv7emdp, precision: double, suffix: _dp, apt: gcc-arm-none-eabi libnewlib-arm-none-eabi}
 
     steps:
       - uses: actions/checkout@v6
@@ -56,17 +56,17 @@ jobs:
       - name: Install Python tools
         run: pip install pyelftools ar
 
-      - name: Build tiny_bclibc_${{ matrix.arch }}${{ matrix.suffix }}.mpy
+      - name: Build ${{ matrix.arch }}${{ matrix.suffix }}
         working-directory: micropython-natmod
-        run: make ARCH=${{ matrix.arch }} USE_FLOAT=${{ matrix.use_float }} MPY_DIR="$MPY_DIR"
+        run: make ARCH=${{ matrix.arch }} PRECISION=${{ matrix.precision }} MPY_DIR="$MPY_DIR"
 
       - uses: actions/upload-artifact@v7
         with:
           name: tiny-bclibc-${{ matrix.arch }}${{ matrix.suffix }}
-          path: micropython-natmod/tiny_bclibc_${{ matrix.arch }}${{ matrix.suffix }}.mpy
+          path: micropython-natmod/build/${{ matrix.arch }}${{ matrix.suffix }}/
           if-no-files-found: error
 
-  # ── Test on x64 host — both float and double variants ─────────────────────
+  # ── Test on x64 host — both sp and dp variants ────────────────────────────
   test-x64:
     name: test (x64${{ matrix.suffix }} / micropython)
     needs: build
@@ -76,8 +76,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {suffix: "",   use_float: 1}
-          - {suffix: "_d", use_float: 0}
+          - {suffix: _sp, precision: single}
+          - {suffix: _dp, precision: double}
     steps:
       - uses: actions/checkout@v6
 
@@ -97,17 +97,19 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: tiny-bclibc-x64${{ matrix.suffix }}
-          path: micropython-natmod/
+          path: micropython-natmod/build/x64${{ matrix.suffix }}/
 
-      - name: Symlink to tiny_bclibc.mpy
+      - name: Symlink modules to working directory
         working-directory: micropython-natmod
-        run: ln -sf tiny_bclibc_x64${{ matrix.suffix }}.mpy tiny_bclibc.mpy
+        run: |
+          ln -sf build/x64${{ matrix.suffix }}/_tiny_bclibc.mpy _tiny_bclibc.mpy
+          ln -sf build/x64${{ matrix.suffix }}/tiny_bclibc.mpy tiny_bclibc.mpy
 
       - name: Run tests
         working-directory: micropython-natmod
         run: "$MPY_DIR/ports/unix/build-standard/micropython test_bclibc.py"
 
-  # ── Test on x86 host — both float and double variants ─────────────────────
+  # ── Test on x86 host — both sp and dp variants ────────────────────────────
   test-x86:
     name: test (x86${{ matrix.suffix }} / micropython 32-bit)
     needs: build
@@ -117,8 +119,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {suffix: "",   use_float: 1}
-          - {suffix: "_d", use_float: 0}
+          - {suffix: _sp, precision: single}
+          - {suffix: _dp, precision: double}
     steps:
       - uses: actions/checkout@v6
 
@@ -141,11 +143,13 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: tiny-bclibc-x86${{ matrix.suffix }}
-          path: micropython-natmod/
+          path: micropython-natmod/build/x86${{ matrix.suffix }}/
 
-      - name: Symlink to tiny_bclibc.mpy
+      - name: Symlink modules to working directory
         working-directory: micropython-natmod
-        run: ln -sf tiny_bclibc_x86${{ matrix.suffix }}.mpy tiny_bclibc.mpy
+        run: |
+          ln -sf build/x86${{ matrix.suffix }}/_tiny_bclibc.mpy _tiny_bclibc.mpy
+          ln -sf build/x86${{ matrix.suffix }}/tiny_bclibc.mpy tiny_bclibc.mpy
 
       - name: Run tests
         working-directory: micropython-natmod
@@ -153,7 +157,7 @@ jobs:
 
   # ── Test on emulated Cortex-M3 via QEMU (armv7m, single precision) ────────
   test-qemu-arm:
-    name: test (armv7m / QEMU Cortex-M3)
+    name: test (armv7m_sp / QEMU Cortex-M3)
     needs: build
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
@@ -180,12 +184,14 @@ jobs:
 
       - uses: actions/download-artifact@v8
         with:
-          name: tiny-bclibc-armv7m
-          path: micropython-natmod/
+          name: tiny-bclibc-armv7m_sp
+          path: micropython-natmod/build/armv7m_sp/
 
-      - name: Symlink to tiny_bclibc.mpy
+      - name: Symlink modules to working directory
         working-directory: micropython-natmod
-        run: ln -sf tiny_bclibc_armv7m.mpy tiny_bclibc.mpy
+        run: |
+          ln -sf build/armv7m_sp/_tiny_bclibc.mpy _tiny_bclibc.mpy
+          ln -sf build/armv7m_sp/tiny_bclibc.mpy tiny_bclibc.mpy
 
       - name: Run tests via QEMU
         run: |

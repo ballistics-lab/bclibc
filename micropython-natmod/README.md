@@ -59,26 +59,28 @@ sudo apt-get install gcc-arm-none-eabi libnewlib-arm-none-eabi \
 
 All commands are run from this directory (`micropython-natmod/`).
 
-Precision suffix: none = double (`double`), `_s` = single (`float`).
+Precision suffix: `_dp` = double, `_sp` = single.
 Default precision: **double** for x64/x86 host, **single** for all MCU targets.
 
 ```bash
-make            # x64 double (default) → build/x64/
-make x64        # x64 double           → build/x64/
-make x64s       # x64 single           → build/x64_s/
-make x86        # x86 double           → build/x86/
-make x86s       # x86 single           → build/x86_s/
-make rp2040     # armv6m    single     → build/armv6m_s/    — Raspberry Pi Pico
-make rp2350     # armv7emsp single     → build/armv7emsp_s/ — RP2350
-make stm32f4    # armv7emsp single     → build/armv7emsp_s/ — STM32F4
-make stm32h7    # armv7emdp single     → build/armv7emdp_s/ — STM32H7
-make stm32h7dp  # armv7emdp double     → build/armv7emdp/   — STM32H7 (DP FPU)
-make esp32s3    # xtensawin single     → build/xtensawin_s/ — ESP32-S3
-make esp32      # xtensa    single     → build/xtensa_s/    — ESP32
-make esp32c3    # rv32imc   single     → build/rv32imc_s/   — ESP32-C3 / C6
+make            # x64 double (default) → build/x64_dp/
+make x64        # x64 double           → build/x64_dp/
+make x64sp      # x64 single           → build/x64_sp/
+make x86        # x86 double           → build/x86_dp/
+make x86sp      # x86 single           → build/x86_sp/
+make rp2040     # armv6m    single     → build/armv6m_sp/    — Raspberry Pi Pico
+make rp2350     # armv7emsp single     → build/armv7emsp_sp/ — RP2350
+make stm32f4    # armv7emsp single     → build/armv7emsp_sp/ — STM32F4
+make stm32h7    # armv7emdp single     → build/armv7emdp_sp/ — STM32H7
+make stm32h7dp  # armv7emdp double     → build/armv7emdp_dp/ — STM32H7 (DP FPU)
+make esp32s3    # xtensawin single     → build/xtensawin_sp/ — ESP32-S3
+make esp32      # xtensa    single     → build/xtensa_sp/    — ESP32
+make esp32c3    # rv32imc   single     → build/rv32imc_sp/   — ESP32-C3 / C6
 ```
 
-Output per target: `build/<target>/_tiny_bclibc.mpy` + `build/<target>/tiny_bclibc.mpy`
+Output per target: `build/<arch>_<sp|dp>/_tiny_bclibc.mpy` + `build/<arch>_<sp|dp>/tiny_bclibc.mpy`
+
+`bc.version()` повертає `"1.1.3-sp"` або `"1.1.3-dp"`.
 
 ```bash
 make clean      # rm -rf build/ generated/
@@ -88,8 +90,8 @@ make clean      # rm -rf build/ generated/
 
 ```bash
 make ARCH=armv6m MPY_DIR=/path/to/micropython-1.28.0
-make ARCH=armv7emdp USE_FLOAT=0   # double on Cortex-M7
-make ARCH=x64 USE_FLOAT=1         # single on host
+make ARCH=armv7emdp PRECISION=double   # double on Cortex-M7  → build/armv7emdp_dp/
+make ARCH=x64 PRECISION=single         # single on host       → build/x64_sp/
 ```
 
 ## Test (x64 / x86 host)
@@ -318,7 +320,7 @@ BSS must be 0 — MicroPython natmod ABI does not allow uninitialized static dat
 then Ridder's method to find the zero angle. Each GSS iteration runs a full RK4
 trajectory, which is expensive on soft-float MCUs (Cortex-M0+, RISC-V without FPU).
 
-`TINY_BCLIBC_FAST_ZERO_FIND` is automatically defined when building with `USE_FLOAT=1`.
+`TINY_BCLIBC_FAST_ZERO_FIND` is automatically defined when building with `PRECISION=single`.
 It applies two optimisations that do **not** affect the final angle accuracy:
 
 | Parameter | Default | Fast |
@@ -331,7 +333,7 @@ The bracket bound (`angle_at_max`) is used only to constrain Ridder's search int
 its precision does not affect the output. Ridder's method always uses the original
 `calc_step`.
 
-To build without `FAST_ZERO_FIND` even on `USE_FLOAT=1`, remove
+To build without `FAST_ZERO_FIND` even on `PRECISION=single`, remove
 `-DTINY_BCLIBC_FAST_ZERO_FIND` from `CFLAGS_EXTRA` in the Makefile.
 
 See [sincosf_shim.md](sincosf_shim.md) for why `src/math_shim.c` is only compiled on x64/x86 and how to add it back for MCU targets if needed.
@@ -374,8 +376,8 @@ using `integrate_at()` + a range loop instead of storing the full trajectory.
 ### Test methodology
 
 The comparison runs the full trajectory integration twice — once with the float64 natmod
-(`tiny_bclibc_x64_d.mpy`, `-DTINY_BCLIBC_USE_FLOAT` **not** set) and once with the float32
-natmod (`tiny_bclibc_x64.mpy`, `-DTINY_BCLIBC_USE_FLOAT` defined) — and diffs the output
+(`build/x64_dp/_tiny_bclibc.mpy`, `PRECISION=double`) and once with the float32
+natmod (`build/x64_sp/_tiny_bclibc.mpy`, `PRECISION=single`) — and diffs the output
 row by row. `find_zero_angle` is also compared between the two builds.
 
 **Important:** `range_step_ft` in the `Request` is the *output sampling step* only.
@@ -413,8 +415,8 @@ variation). Float32 is sufficient for all supported MCU targets.
 
 ```bash
 # Build both precision variants (x64 host)
-make x64     # → tiny_bclibc_x64_d.mpy  (float64, default)
-make x64s    # → tiny_bclibc_x64.mpy    (float32)
+make x64     # → build/x64_dp/  (float64, default)
+make x64sp   # → build/x64_sp/  (float32)
 
 # Run comparison (requires CPython 3.10+)
 python3 precision_compare.py

@@ -15,19 +15,19 @@ ARCH    ?= x64
 MPY_DIR ?= micropython
 
 # ── Precision ─────────────────────────────────────────────────────────────────
-# USE_FLOAT=0 → double  → tiny_bclibc_<arch>.mpy    (default on x64/x86)
-# USE_FLOAT=1 → float   → tiny_bclibc_<arch>_s.mpy  (default on MCU)
+# PRECISION=double → _dp suffix  (default on x64/x86)
+# PRECISION=single → _sp suffix  (default on MCU)
 #
 ifeq ($(ARCH),$(filter $(ARCH),x64 x86))
-USE_FLOAT ?= 0
+PRECISION ?= double
 else
-USE_FLOAT ?= 1
+PRECISION ?= single
 endif
 
-ifeq ($(USE_FLOAT),1)
-_PREC_SUFFIX := _s
+ifeq ($(PRECISION),single)
+_PREC_SUFFIX := _sp
 else
-_PREC_SUFFIX :=
+_PREC_SUFFIX := _dp
 endif
 
 MOD         = _tiny_bclibc_$(ARCH)$(_PREC_SUFFIX)
@@ -89,7 +89,7 @@ _LIBM_DBL_FLAGS := -I$(MPY_DIR)/lib/libm_dbl \
 ifeq ($(ARCH),$(filter $(ARCH),x64 x86))
 # Host: glibc libm.a uses IFUNC internals that can't be linked in a natmod.
 # GCC -O2 merges sin()+cos() → sincos() (GNU ext) → math_shim.c provides it.
-ifeq ($(USE_FLOAT),1)
+ifeq ($(PRECISION),single)
 SRC          += $(_FDLIBM_SRCS) src/math_shim.c
 CFLAGS_EXTRA += $(_FDLIBM_FLAGS)
 else
@@ -129,8 +129,8 @@ CFLAGS_EXTRA += \
     -DTINY_BCLIBC_NO_ERR_BUF \
     -DBCLIBC_BUILD_NATMOD
 
-ifeq ($(USE_FLOAT),1)
-CFLAGS_EXTRA += -DTINY_BCLIBC_USE_FLOAT -DTINY_BCLIBC_FAST_ZERO_FIND
+ifeq ($(PRECISION),single)
+CFLAGS_EXTRA += -DTINY_BCLIBC_SINGLE_PRECISION -DMP_BCLIBC_SINGLE_PRECISION -DTINY_BCLIBC_FAST_ZERO_FIND
 endif
 
 # Guard the include so 'make clean' works without MPY_DIR.
@@ -166,49 +166,49 @@ $(VERSION_H): $(VERSION_IN)
 	$(eval _MIN  := $(shell printf '%s' '$(_TAG)' | sed -E 's/^v?[0-9]+\.([0-9]+)\..*/\1/;t;s/.*/0/'))
 	$(eval _PAT  := $(shell printf '%s' '$(_TAG)' | sed -E 's/^v?[0-9]+\.[0-9]+\.([0-9]+).*/\1/;t;s/.*/0/'))
 	$(eval _VER  := $(shell printf '%s' '$(_TAG)' | sed 's/^v//'))
-	$(Q)sed -e 's/@BCLIBC_MP_VERSION_MAJOR@/$(_MAJ)/g' \
-	        -e 's/@BCLIBC_MP_VERSION_MINOR@/$(_MIN)/g' \
-	        -e 's/@BCLIBC_MP_VERSION_PATCH@/$(_PAT)/g' \
-	        -e 's/@BCLIBC_MP_VERSION@/$(_VER)/g' \
+	$(Q)sed -e 's/@MP_BCLIBC_VERSION_MAJOR@/$(_MAJ)/g' \
+	        -e 's/@MP_BCLIBC_VERSION_MINOR@/$(_MIN)/g' \
+	        -e 's/@MP_BCLIBC_VERSION_PATCH@/$(_PAT)/g' \
+	        -e 's/@MP_BCLIBC_VERSION@/$(_VER)/g' \
 	        $< > $@
 
 $(BUILD)/src/tiny_bclibc_mp.o: $(VERSION_H)
 
 # ── Convenience aliases ────────────────────────────────────────────────────────
-.PHONY: x64 x64s x86 x86s rp2040 rp2350 stm32f4 stm32h7 stm32h7dp esp32s3 esp32 esp32c3 esp32c6 dist clean
+.PHONY: x64 x64sp x86 x86sp rp2040 rp2350 stm32f4 stm32h7 stm32h7dp esp32s3 esp32 esp32c3 esp32c6 dist clean
 
 x64:
-	$(MAKE) ARCH=x64 USE_FLOAT=0 dist
+	$(MAKE) ARCH=x64 PRECISION=double dist
 
-x64s:
-	$(MAKE) ARCH=x64 USE_FLOAT=1 dist
+x64sp:
+	$(MAKE) ARCH=x64 PRECISION=single dist
 
 x86:
-	$(MAKE) ARCH=x86 USE_FLOAT=0 dist
+	$(MAKE) ARCH=x86 PRECISION=double dist
 
-x86s:
-	$(MAKE) ARCH=x86 USE_FLOAT=1 dist
+x86sp:
+	$(MAKE) ARCH=x86 PRECISION=single dist
 
 rp2040:
-	$(MAKE) ARCH=armv6m dist
+	$(MAKE) ARCH=armv6m PRECISION=single dist
 
 rp2350 stm32f4:
-	$(MAKE) ARCH=armv7emsp dist
+	$(MAKE) ARCH=armv7emsp PRECISION=single dist
 
 stm32h7:
-	$(MAKE) ARCH=armv7emdp USE_FLOAT=1 dist
+	$(MAKE) ARCH=armv7emdp PRECISION=single dist
 
 stm32h7dp:
-	$(MAKE) ARCH=armv7emdp USE_FLOAT=0 dist
+	$(MAKE) ARCH=armv7emdp PRECISION=double dist
 
 esp32s3:
-	$(MAKE) ARCH=xtensawin dist
+	$(MAKE) ARCH=xtensawin PRECISION=single dist
 
 esp32:
-	$(MAKE) ARCH=xtensa dist
+	$(MAKE) ARCH=xtensa PRECISION=single dist
 
 esp32c3 esp32c6:
-	$(MAKE) ARCH=rv32imc dist
+	$(MAKE) ARCH=rv32imc PRECISION=single dist
 
 dist: all
 	$(Q)mv $(MOD).mpy $(BUILD)/_tiny_bclibc.mpy

@@ -1,5 +1,5 @@
-#ifndef BCLIBC_MP_DRAG_TABLES_H
-#define BCLIBC_MP_DRAG_TABLES_H
+#ifndef MP_BCLIBC_DRAG_TABLES_H
+#define MP_BCLIBC_DRAG_TABLES_H
 
 /* Built-in G1 and G7 drag tables.
  * Requires real_t and REAL_C() from platform.h to be in scope before inclusion. */
@@ -342,4 +342,4 @@ static const real_t g7_cd[] = {
 };
 #define G7_N ((int32_t)(sizeof(g7_mach) / sizeof(g7_mach[0])))
 
-#endif /* BCLIBC_MP_DRAG_TABLES_H */
+#endif /* MP_BCLIBC_DRAG_TABLES_H */

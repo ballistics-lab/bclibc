@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 /* ── Числовий тип ─────────────────────────────────────────────────── */
-#ifdef TINY_BCLIBC_USE_FLOAT
+#if defined(TINY_BCLIBC_SINGLE_PRECISION) || defined(TINY_BCLIBC_USE_FLOAT)
 typedef float real_t;
 #define TINY_BCLIBC_SQRT sqrtf
 #define TINY_BCLIBC_FABS fabsf

@@ -163,7 +163,7 @@ typedef struct
     TINY_BCLIBC_Shot shot;
     real_t mach_data[MAX_DRAG_PTS]; /* custom drag only */
     real_t cd_data[MAX_DRAG_PTS];   /* custom drag only */
-#ifndef TINY_BCLIBC_USE_FLOAT
+#ifndef MP_BCLIBC_SINGLE_PRECISION
     TINY_BCLIBC_Wind winds[MAX_WINDS]; /* double build: convert float32 → double */
 #endif
     TINY_BCLIBC_CurvePoint curve_buf[MAX_DRAG_PTS];
@@ -261,11 +261,11 @@ static int32_t build_props_buf(mp_obj_t shot_obj, mp_obj_t holder_obj, TINY_BCLI
     int32_t wn = (int32_t)wind_count;
     if (wn > MAX_WINDS)
         wn = MAX_WINDS;
-#ifdef TINY_BCLIBC_USE_FLOAT
-    /* float build: TINY_BCLIBC_Wind = {float×4} matches Python buffer layout exactly */
+#ifdef MP_BCLIBC_SINGLE_PRECISION
+    /* sp build: TINY_BCLIBC_Wind = {float×4} matches Python buffer layout exactly */
     s->winds = (const TINY_BCLIBC_Wind *)(p + winds_off);
 #else
-    /* double build: convert float32 → double per field */
+    /* dp build: convert float32 → double per field */
     for (int32_t i = 0; i < wn; i++)
     {
         uint32_t off = winds_off + (uint32_t)i * 16u;
@@ -298,7 +298,12 @@ static void parse_req(mp_obj_t req_obj, TINY_BCLIBC_TrajectoryRequest *req)
 
 static mp_obj_t mp_bclibc_version(void)
 {
-    return mp_obj_new_str(BCLIBC_MP_VERSION, sizeof(BCLIBC_MP_VERSION) - 1);
+#ifdef MP_BCLIBC_SINGLE_PRECISION
+    static const char _v[] = MP_BCLIBC_VERSION "-sp";
+#else
+    static const char _v[] = MP_BCLIBC_VERSION "-dp";
+#endif
+    return mp_obj_new_str(_v, sizeof(_v) - 1);
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(mp_bclibc_version_obj, mp_bclibc_version);
 
