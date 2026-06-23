@@ -63,12 +63,12 @@ Precision suffix: `_dp` = double, `_sp` = single.
 Default precision: **double** for x64/x86 host, **single** for all MCU targets.
 
 ```bash
-make            # x64 double (default) → build/x64_dp/
 make x64        # x64 double           → build/x64_dp/
 make x64sp      # x64 single           → build/x64_sp/
 make x86        # x86 double           → build/x86_dp/
 make x86sp      # x86 single           → build/x86_sp/
 make rp2040     # armv6m    single     → build/armv6m_sp/    — Raspberry Pi Pico
+make armv7m     # armv7m    single     → build/armv7m_sp/    — Cortex-M3
 make rp2350     # armv7emsp single     → build/armv7emsp_sp/ — RP2350
 make stm32f4    # armv7emsp single     → build/armv7emsp_sp/ — STM32F4
 make stm32h7    # armv7emdp single     → build/armv7emdp_sp/ — STM32H7
@@ -76,6 +76,7 @@ make stm32h7dp  # armv7emdp double     → build/armv7emdp_dp/ — STM32H7 (DP F
 make esp32s3    # xtensawin single     → build/xtensawin_sp/ — ESP32-S3
 make esp32      # xtensa    single     → build/xtensa_sp/    — ESP32
 make esp32c3    # rv32imc   single     → build/rv32imc_sp/   — ESP32-C3 / C6
+make rv64       # rv64imc   single     → build/rv64imc_sp/   — RISC-V 64
 ```
 
 Output per target: `build/<arch>_<sp|dp>/_tiny_bclibc.mpy` + `build/<arch>_<sp|dp>/tiny_bclibc.mpy`
@@ -102,7 +103,7 @@ make -C "$MPY_DIR/ports/unix" VARIANT=standard
 MPY="$MPY_DIR/ports/unix/build-standard/micropython"
 
 # Build natmod
-make x64        # → build/x64/_tiny_bclibc.mpy  build/x64/tiny_bclibc.mpy
+make x64        # → build/x64_dp/_tiny_bclibc.mpy  build/x64_dp/tiny_bclibc.mpy
 
 # Run tests (natmod)
 $MPY test_bclibc.py
@@ -151,8 +152,9 @@ make -C "$MPY_DIR/mpy-cross"
 make -C "$MPY_DIR/ports/qemu" BOARD=MPS2_AN385
 
 # Build natmod
-make ARCH=armv7m
-ln -sf _tiny_bclibc_armv7m.mpy _tiny_bclibc.mpy
+make armv7m
+ln -sf build/armv7m_sp/_tiny_bclibc.mpy _tiny_bclibc.mpy
+ln -sf build/armv7m_sp/tiny_bclibc.mpy tiny_bclibc.mpy
 
 # Run tests through the QEMU pty bridge
 python3 ci/run_qemu.py \
@@ -173,8 +175,9 @@ make -C "$MPY_DIR/mpy-cross"
 make -C "$MPY_DIR/ports/qemu" BOARD=MICROBIT
 
 # Build natmod
-make ARCH=armv6m
-ln -sf _tiny_bclibc_armv6m.mpy _tiny_bclibc.mpy
+make rp2040
+ln -sf build/armv6m_sp/_tiny_bclibc.mpy _tiny_bclibc.mpy
+ln -sf build/armv6m_sp/tiny_bclibc.mpy tiny_bclibc.mpy
 
 # Run tests through the QEMU pty bridge
 python3 ci/run_qemu.py \
