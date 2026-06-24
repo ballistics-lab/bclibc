@@ -89,8 +89,8 @@ single- or double-precision libc functions automatically.
 
 ### Float32 vs Float64 accumulated deviation
 
-Measured via the `micropython-natmod` comparison tool (see
-[`micropython-natmod/precision_compare.py`](../micropython-natmod/precision_compare.py)).
+Measured via the `micropython-mod` comparison tool (see
+[`micropython-mod/tests/precision_compare.py`](../micropython-mod/tests/precision_compare.py)).
 
 **Test conditions:**
 - Shot: G7, BC=0.310, 168 gr, dia=0.308", mv=2750 fps, sight=0.125 ft (1.5"), twist=11"
@@ -334,12 +334,12 @@ a generic string — use the return code instead.
 
 ## MicroPython integration
 
-The `micropython-natmod/` directory wraps `tiny_bclibc` as a native `.mpy` module
+The `micropython-mod/` directory wraps `tiny_bclibc` as a native `.mpy` module
 for embedded MicroPython targets. For unix MicroPython on architectures without native
-module support (aarch64, mipsel, …), `examples/tiny_bclibc_mp_ffi/tiny_bclibc_mp_ffi.py`
+module support (aarch64, mipsel, …), `micropython-mod/ffimod/_tiny_bclibc.py`
 exposes the same Python API by calling `libtiny_bclibc.so` via the built-in `ffi` module.
 
-See [micropython-natmod/README.md](../micropython-natmod/README.md) for build instructions
+See [micropython-mod/README.md](../micropython-mod/README.md) for build instructions
 and a full API reference.
 
 ## Project structure
