@@ -9,67 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-#### `micropython-mod/usermod/` — MicroPython USER_C_MODULE (baked-in firmware module)
-
-A second integration mode alongside natmod: `tiny_bclibc` compiled directly into the
-MicroPython firmware via `USER_C_MODULES`. No `.mpy` file to deploy — the module is
-available as a built-in at every boot.
-
-- `micropython-mod/usermod/Makefile`: cross-compile targets for all supported platforms:
-
-  | Target | Precision | Host/cross | Notes |
-  |--------|-----------|-----------|-------|
-  | `x64` / `x64sp` | double / single | native x64 | unix port, dynamic |
-  | `x86` / `x86sp` | double / single | 32-bit | unix port, standalone static |
-  | `aarch64` / `aarch64sp` | double / single | `aarch64-linux-gnu-` | unix port, standalone static |
-  | `armhf` / `armhfsp` | double / single | `arm-linux-gnueabihf-` | unix port, standalone static |
-  | `mipsel` / `mipselsp` | double / single | `mipsel-linux-gnu-` | unix port, coverage variant, static |
-  | `rp2040` | single | cmake (`arm-none-eabi`) | RP2040 firmware |
-  | `rp2040dp` | double | cmake (`arm-none-eabi`) | RP2040 firmware, DP FPU |
-
-  Build output: `usermod/build/<target>/micropython` (unix) or
-  `$MPY_DIR/ports/rp2/build-RPI_PICO/firmware.{elf,uf2}` (rp2040).
-
-- `micropython-mod/usermod/micropython.mk`: `USER_C_MODULES` descriptor for make-based
-  ports (unix, qemu, stm32, …). Points `MAKE_MODULES` to `micropython-mod/` so py.mk
-  finds `micropython-mod/usermod/micropython.mk`. Precision via `TINY_BCLIBC_PRECISION=single|double`.
-
-- `micropython-mod/usermod/micropython.cmake`: `USER_C_MODULES` descriptor for cmake-based
-  ports (rp2, esp32). Generates `generated/bclibc_mp/version.h` at cmake configure time if
-  not already present. Precision via `TINY_BCLIBC_DOUBLE_PRECISION=1`.
-
-- `micropython-mod/usermod/manifest.py`: freezes `tiny_bclibc.py` into the firmware. For
-  embedded ports (rp2, qemu) also includes the board's default manifest
-  (`$(PORT_DIR)/boards/manifest.py`) so that `_boot.py` and the filesystem mount code are
-  preserved; the include is silently skipped for unix port builds where it doesn't exist.
-
-- `micropython-mod/usermod/ci/run_qemu.py`: QEMU pty test runner for usermod firmware.
-  Unlike the natmod variant, no `.mpy` injection is needed — `_tiny_bclibc` is a built-in
-  and `tiny_bclibc.py` is frozen, so the runner just sends `test_bclibc.py` directly to
-  the QEMU UART via `pyboard`.
-
-#### `.github/workflows/usermod.yml` — CI for usermod builds
-
-  | Job | Runner | Approach |
-  |-----|--------|---------|
-  | `build-armhf` | ubuntu-latest | Cross-compile, `MICROPY_STANDALONE=1 -static`, artifact upload |
-  | `test-armhf` | ubuntu-latest | Download artifact, run under `qemu-arm` |
-  | `build-mipsel` | ubuntu-latest | Cross-compile (coverage variant), static, artifact upload |
-  | `test-mipsel` | ubuntu-latest | Download artifact, run under `qemu-mipsel` |
-  | `build-test-aarch64` | ubuntu-24.04-arm64 | Native build + test + artifact upload |
-  | `build-test-qemu-armv7m` | ubuntu-latest | Build MPS2_AN385 QEMU firmware + test via `run_qemu.py` |
-
-  `workflow_dispatch` input `mpy_tag` to test against any MicroPython release.
-
-#### `micropython-mod/ffimod/` — standalone MicroPython FFI module
-- `micropython-mod/ffimod/_tiny_bclibc.py`: drop-in replacement for `tiny_bclibc` on unix MicroPython (x64 / aarch64), backed by `libtiny_bclibc.so` via the built-in `ffi` module — no native `.mpy` required
-  - Same public API as the natmod (`Shot`, `Request`, `Wind`, `Config`, `integrate`, `integrate_stream`, `find_zero_angle`, `find_apex`, `find_max_range`, all constants)
-  - Selects `float` or `double` C struct layout at runtime via `TINY_BCLIBC_PRECISION=single|double`
-  - `.so` path overridable via `TINY_BCLIBC_SO` env var; default resolves relative to the module file
-  - 64-bit only (`struct.calcsize("P") != 8` guard; 32-bit pointer layout is not supported)
-- `micropython-mod/ffimod/uctypes.py`, `ffi.py`: CPython shims for MicroPython's built-in `uctypes` and `ffi` modules — allow running `micropython-mod/ffimod/_tiny_bclibc.py` under CPython without changes
-- `micropython-mod/tests/test_ffi.py`: injects `tiny_bclibc_mp_ffi` as `sys.modules["tiny_bclibc"]` and executes the full `tests/test_bclibc.py` suite against the FFI backend; runs under both CPython and MicroPython
-
 #### `tiny_bclibc_integrate_stream` — zero-allocation streaming integration
 - New public API: `tiny_bclibc_integrate_stream(props, req, cb, cb_ctx, out_total, out_reason)`
   - Calls a C callback `tiny_bclibc_StreamCb` once per filtered output point instead of writing to a heap buffer
@@ -77,42 +16,16 @@ available as a built-in at every boot.
   - No intermediate `TrajectoryData` buffer allocated — suitable for RAM-constrained MCUs
   - Shares 100 % of the filtering logic with `tiny_bclibc_integrate` via the existing `tiny_bclibc__integrate_on_step` path; no code duplication
 - New public typedef: `tiny_bclibc_StreamCb` — `int32_t (*)(const TINY_BCLIBC_TrajectoryData *, void *)`
-- **natmod** (`micropython-mod`): `tiny_bclibc.integrate_stream(shot_buf, req_buf, callback)` — Python callable receives one 16-tuple per point; return truthy to stop; returns `(total_count, stop_reason)`
-- `test_bclibc.py`, `examples/tiny_bclibc_natmod_test_2core.py`: tests for both collect-all and early-stop cases
-
-#### `MPY_DIR` default and documentation
-- `micropython-mod/natmod/Makefile`: `MPY_DIR ?= micropython` — documents the local-symlink convention
-- `micropython-mod/README.md`: updated MicroPython source setup section to use `git clone / git checkout v1.28.0` instead of a tarball download
 
 #### Drag tables extracted to separate header
-- `micropython-mod/src/drag_tables.h`: G1 and G7 built-in drag tables extracted from `bclibc_mp.c` into a standalone header with include guard
+- `src/drag_tables.h`: G1 and G7 built-in drag tables extracted from the MicroPython binding into a standalone header with include guard
 
-### Fixed
-
-- `micropython-mod/src/tiny_bclibc_mp.c`: added `_RAISE_BCLIBC_ERROR` compatibility macro.
-  `dynruntime.h` (natmod) defines `mp_raise_msg(type, const char *)` while the standard
-  runtime (usermod) takes `mp_rom_error_text_t`; the macro dispatches to
-  `mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("%s"), msg)` in usermod mode.
-- `micropython-mod/src/tiny_bclibc_mp.c`: removed explicit `(double)` cast from
-  `mp_obj_new_float()` calls. On single-precision builds `mp_float_t = float`; passing a
-  `double` triggered `-Werror=float-conversion` on armv7m (QEMU MPS2_AN385 build).
-- `micropython-mod/usermod/micropython.cmake`: fixed include path for `version.h`.
-  Was `-I${_USERMOD_DIR}/generated` — caused a double `generated/generated/bclibc_mp/version.h`
-  lookup. Corrected to `-I${_USERMOD_DIR}` to match `micropython.mk` behaviour.
-- `micropython-mod/natmod/Makefile`: added `vpath %.c $(SRC_DIR)` so object files land in
-  `$(BUILD)/tiny_bclibc_mp.o` (arch-specific) instead of the shared
-  `$(BUILD)/src/tiny_bclibc_mp.o`, which caused "incompatible arch" link errors when
-  building x64 after x86 (or vice versa).
-- `micropython-mod/natmod/Makefile`: each unix-port target now passes an absolute
-  `BUILD=<path>/<target>` so output directories are isolated (`build/x64/`,
-  `build/x86/`, …) instead of all sharing `ports/unix/build-standard/`.
+#### Experimental status documented
+- `tiny_bclibc` and the MicroPython module are explicitly marked **experimental** in all README files. APIs, binary layout, and build system may change without notice until stabilised.
 
 ### Changed
 
-- `micropython-mod/src/tiny_bclibc.py` refactored as a thin zero-copy wrapper: `Shot`, `Request`, `Wind`, `Config` constructors return namedtuples (`_Shot(buf, s, holder)`, `_Request(buf, s, traj)`) backed by `uctypes` structs; field access goes directly through `._s` without copying
-- `micropython-mod/natmod/ci/run_qemu.py` now injects both `_tiny_bclibc.mpy` (native) and `tiny_bclibc.mpy` (bytecode wrapper) from RAM via a custom dual-VFS, so QEMU tests run without filesystem access on the emulated target
-- `micropython-mod/natmod/Makefile` exposes named targets (`x64`, `x64sp`, `x86`, `x86sp`, `rp2040`, `armv7m`, `rp2350`, `stm32f4`, `stm32h7`, `stm32h7dp`, `esp32`, `esp32s3`, `esp32c3`, `rv64`) in addition to raw `ARCH=…` variables; output artifacts placed in `build/<arch>_<sp|dp>/`
-- `.github/workflows/natmod.yml`: build steps use named Makefile targets; artifact names follow the `tiny-bclibc-<arch>_<sp|dp>` scheme
+- MicroPython module (natmod, usermod, FFI) moved to a dedicated repository: **[github.com/ballistics-lab/micropython-bclibc](https://github.com/ballistics-lab/micropython-bclibc)**
 
 ## [1.1.3] - 2026-06-22
 
