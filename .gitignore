@@ -12,6 +12,7 @@ build-*/
 *.so
 *.dylib
 *.dll
+*.mpy
 
 .vscode/
 .idea/
@@ -61,8 +62,6 @@ version.h
 # MicroPython native module build artifacts
 *.mpy
 .mpy_ld_cache/
-micropython-natmod/build-*/
-micropython-natmod/generated/
 
 # Python
 **/__pycache__

@@ -9,14 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-#### `examples/tiny_bclibc_mp_ffi/` — standalone MicroPython FFI module
-- `tiny_bclibc_mp_ffi.py`: drop-in replacement for `tiny_bclibc` on unix MicroPython (x64 / aarch64), backed by `libtiny_bclibc.so` via the built-in `ffi` module — no native `.mpy` required
-  - Same public API as the natmod (`Shot`, `Request`, `Wind`, `Config`, `integrate`, `integrate_stream`, `find_zero_angle`, `find_apex`, `find_max_range`, all constants)
-  - Selects `float` or `double` C struct layout at runtime via `TINY_BCLIBC_PRECISION=single|double`
-  - `.so` path overridable via `TINY_BCLIBC_SO` env var; default resolves relative to the module file
-  - 64-bit only (`struct.calcsize("P") != 8` guard; 32-bit pointer layout is not supported)
-- `test_mp_ffi.py`: injects `tiny_bclibc_mp_ffi` as `sys.modules["tiny_bclibc"]` and executes the full `micropython-natmod/test_bclibc.py` suite against the FFI backend
-
 #### `tiny_bclibc_integrate_stream` — zero-allocation streaming integration
 - New public API: `tiny_bclibc_integrate_stream(props, req, cb, cb_ctx, out_total, out_reason)`
   - Calls a C callback `tiny_bclibc_StreamCb` once per filtered output point instead of writing to a heap buffer
@@ -24,22 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - No intermediate `TrajectoryData` buffer allocated — suitable for RAM-constrained MCUs
   - Shares 100 % of the filtering logic with `tiny_bclibc_integrate` via the existing `tiny_bclibc__integrate_on_step` path; no code duplication
 - New public typedef: `tiny_bclibc_StreamCb` — `int32_t (*)(const TINY_BCLIBC_TrajectoryData *, void *)`
-- **natmod** (`micropython-natmod`): `tiny_bclibc.integrate_stream(shot_buf, req_buf, callback)` — Python callable receives one 16-tuple per point; return truthy to stop; returns `(total_count, stop_reason)`
-- `test_bclibc.py`, `examples/tiny_bclibc_natmod_test_2core.py`: tests for both collect-all and early-stop cases
-
-#### `MPY_DIR` default and documentation
-- `micropython-natmod/Makefile`: `MPY_DIR ?= micropython` — documents the local-symlink convention
-- `micropython-natmod/README.md`: updated MicroPython source setup section to use `git clone / git checkout v1.28.0` instead of a tarball download
 
 #### Drag tables extracted to separate header
-- `micropython-natmod/src/drag_tables.h`: G1 and G7 built-in drag tables extracted from `bclibc_mp.c` into a standalone header with include guard
+- `src/drag_tables.h`: G1 and G7 built-in drag tables extracted from the MicroPython binding into a standalone header with include guard
+
+#### Experimental status documented
+- `tiny_bclibc` and the MicroPython module are explicitly marked **experimental** in all README files. APIs, binary layout, and build system may change without notice until stabilised.
 
 ### Changed
 
-- `micropython-natmod/src/tiny_bclibc.py` refactored as a thin zero-copy wrapper: `Shot`, `Request`, `Wind`, `Config` constructors return namedtuples (`_Shot(buf, s, holder)`, `_Request(buf, s, traj)`) backed by `uctypes` structs; field access goes directly through `._s` without copying
-- `micropython-natmod/ci/run_qemu.py` now injects both `_tiny_bclibc.mpy` (native) and `tiny_bclibc.mpy` (bytecode wrapper) from RAM via a custom dual-VFS, so QEMU tests run without filesystem access on the emulated target
-- `micropython-natmod/Makefile` exposes named targets (`x64`, `x64sp`, `x86`, `x86sp`, `rp2040`, `armv7m`, `rp2350`, `stm32f4`, `stm32h7`, `stm32h7dp`, `esp32`, `esp32s3`, `esp32c3`, `rv64`) in addition to raw `ARCH=…` variables; output artifacts placed in `build/<arch>_<sp|dp>/`
-- `.github/workflows/natmod.yml`: build steps use named Makefile targets; artifact names follow the `tiny-bclibc-<arch>_<sp|dp>` scheme
+- MicroPython module (natmod, usermod, FFI) moved to a dedicated repository: **[github.com/ballistics-lab/micropython-bclibc](https://github.com/ballistics-lab/micropython-bclibc)**
 
 ## [1.1.3] - 2026-06-22
 
@@ -61,14 +47,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 #### Experimental status
-- `tiny_bclibc` (C99 engine) and `micropython-natmod` are now explicitly marked **experimental**
-  in all `README.md` files (`tiny_bclibc/README.md`, `micropython-natmod/README.md`, root
+- `tiny_bclibc` (C99 engine) and `micropython-mod` are now explicitly marked **experimental**
+  in all `README.md` files (`tiny_bclibc/README.md`, `micropython-mod/README.md`, root
   `README.md`). APIs, binary layout, and build system may change without notice until
   the features are stabilised.
 
 #### Float32 vs Float64 precision comparison (natmod)
 - Added `precision_run.py` (MicroPython worker) and `precision_compare.py` (CPython runner)
-  to `micropython-natmod/` for measuring accumulated trajectory deviation between the
+  to `micropython-mod/` for measuring accumulated trajectory deviation between the
   `float32` (`-DTINY_BCLIBC_USE_FLOAT`) and `float64` natmod builds.
 - Test conditions: G7, BC=0.310, 168 gr, mv=2750 fps, T=15°C, P=1013.25 hPa, RH=0.5,
   0–3000 m, output step=25 m (120 sample points), MicroPython v1.26 unix x64.
@@ -80,7 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Max Mach deviation: **1.32 × 10⁻⁶**
   - `find_zero_angle` (300 m zero): **5 × 10⁻¹⁰ rad** (< 0.001 mrad)
   - Float32 is sufficient for all supported MCU targets over distances up to 3000 m.
-- Documentation with full methodology added to `micropython-natmod/README.md`,
+- Documentation with full methodology added to `micropython-mod/README.md`,
   `tiny_bclibc/README.md`, and root `README.md`.
 
 #### `tiny_bclibc` — Pure C99 ballistics engine
@@ -93,8 +79,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - CMake package with `tiny_bclibc::headers` / `tiny_bclibc::shared` / `tiny_bclibc::static` targets
   - Identity test suite (`tests/test_identity.cpp`) verifying numerical agreement with the C++ engine
 
-#### `micropython-natmod` — MicroPython native module
-- New `micropython-natmod/` subtree: `.mpy` native module wrapping `tiny_bclibc`
+#### `micropython-mod` — MicroPython native module
+- New `micropython-mod/` subtree: `.mpy` native module wrapping `tiny_bclibc`
   - Supports 11 architectures: x64, x86, armv6m, armv7m, armv7emsp, armv7emdp, xtensa, xtensawin, rv32imc, rv64imc (single and double precision variants)
   - Bundled math: `libm_dbl` (musl-derived, x64/x86 double), fdlibm (x64/x86 single, RISC-V); ARM/Xtensa uses newlib via `LINK_RUNTIME`
   - `math_shim.c`: `sincos`/`sincosf` shim for GCC `-O2` merge optimisation
@@ -102,7 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `math_shadow/math.h`: intercepts glibc `<math.h>` to prevent `__sin`/`__cos` signature conflict with musl libm_dbl
   - `tiny_bclibc_types.py`: `Shot`, `Wind`, `Config`, `Request` data classes with `pack()`/`unpack()`
   - `test_bclibc.py`: full test suite (integrate, find_zero_angle, find_apex, integrate_at, RAM test)
-  - `test_bclibc_ffi.py`: mirror test suite using MicroPython `ffi` module against `libtiny_bclibc.so` — works on any unix port architecture (aarch64, mipsel, …) without a native module
+  - `tests/test_ffi.py`: mirror test suite using MicroPython `ffi` module against `libtiny_bclibc.so` — works on any unix port architecture (aarch64, mipsel, …) without a native module
   - `ci/run_qemu.py`: QEMU pty bridge for running natmod tests on emulated MCU targets; supports `--machine` and `--qemu-extra` for any QEMU ARM board
 - CI workflow `.github/workflows/natmod.yml`:
   - Builds all arch/precision matrix in parallel
@@ -115,11 +101,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Ridder's height-error tolerance `acc` relaxed to `0.01 ft` (3 mm) — within `float` precision floor; angle-bracket convergence uses a separate `1e-5 rad` constant, unchanged
   - Final angle is computed by Ridder's at full `calc_step`; output accuracy is unchanged
   - Enabled automatically by natmod `Makefile` when `USE_FLOAT=1`; independent of `TINY_BCLIBC_USE_FLOAT`
-- `micropython-natmod/RISC-V_picolibc.md`: documents two `mpy_ld.py` bugs triggered by picolibc on RISC-V and the patch in `patches/micropython/mpy_ld_srodata.patch`
-- `micropython-natmod/sincosf_shim.md`: documents why `src/math_shim.c` is compiled only for x64/x86
+- `micropython-mod/natmod/RISC-V_picolibc.md`: documents two `mpy_ld.py` bugs triggered by picolibc on RISC-V and the patch in `natmod/patches/micropython/mpy_ld_srodata.patch`
+- `micropython-mod/src/sincosf_shim.md`: documents why `src/math_shim.c` is compiled only for x64/x86
 
 ### Changed
-- `README.md`: added repository structure overview; sections for `tiny_bclibc` and `micropython-natmod`
+- `README.md`: added repository structure overview; sections for `tiny_bclibc` and `micropython-mod`
 - Updated `Makefile`, `CMakeLists`, `build-libs` to be consistent and better structured
 - natmod `math_shim.c` (`sincosf` shim) removed from RISC-V build — GCC does not generate `sincosf` calls on ARM/RISC-V with the flags used; saves 68 B of flash
 - natmod armv6m QEMU test (`MICROBIT` board) removed — MICROBIT firmware does not support loading native `.mpy` for Cortex-M0; build verification in the `build` job is sufficient

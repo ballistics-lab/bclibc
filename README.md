@@ -10,7 +10,7 @@ High-performance ballistic trajectory solver with RK4 integration, Ridder's meth
 |-----------|-------------|
 | `src/` / `include/` | C++ engine + `libbclibc_ffi` — Dart/Flutter, Python, Rust FFI |
 | [`tiny_bclibc/`](tiny_bclibc/README.md) | Pure C99 engine — header-only, embeddable on MCUs |
-| [`micropython-natmod/`](micropython-natmod/README.md) | MicroPython native module wrapping `tiny_bclibc` |
+| **[micropython-bclibc](https://github.com/ballistics-lab/micropython-bclibc)** | MicroPython module — natmod (`.mpy`), usermod (baked-in firmware), FFI |
 
 ---
 
@@ -36,64 +36,24 @@ See [tiny_bclibc/README.md](tiny_bclibc/README.md) for full API and CMake option
 
 ---
 
-## MicroPython native module *(experimental)*
+## MicroPython module *(experimental)*
 
 > [!WARNING]
-> The MicroPython native module is an **experimental** feature. Build system, binary format,
+> The MicroPython module is an **experimental** feature. Build system, binary format,
 > and Python API may change without notice in future releases.
 
-[`micropython-natmod/`](micropython-natmod/README.md) wraps `tiny_bclibc` as a MicroPython
-`.mpy` native module. Supports all common MicroPython targets:
+The MicroPython module is maintained in a separate repository:
+**[github.com/ballistics-lab/micropython-bclibc](https://github.com/ballistics-lab/micropython-bclibc)**
 
-| Alias | Architecture | Precision | Target board |
-|-------|-------------|-----------|-------------|
-| `make x64` | x64 | double | Host (Linux/macOS) |
-| `make x64sp` | x64 | single | Host (Linux/macOS) |
-| `make x86` | x86 | double | Host 32-bit |
-| `make x86sp` | x86 | single | Host 32-bit |
-| `make rp2040` | armv6m | single | Raspberry Pi Pico |
-| `make armv7m` | armv7m | single | Cortex-M3 |
-| `make rp2350` | armv7emsp | single | Raspberry Pi Pico 2 |
-| `make stm32f4` | armv7emsp | single | STM32F4 |
-| `make stm32h7` | armv7emdp | single | STM32H7 |
-| `make stm32h7dp` | armv7emdp | double | STM32H7 (DP FPU) |
-| `make esp32s3` | xtensawin | single | ESP32-S3 |
-| `make esp32` | xtensa | single | ESP32 |
-| `make esp32c3` | rv32imc | single | ESP32-C3 / ESP32-C6 |
-| `make rv64` | rv64imc | single | RISC-V 64 |
+Three integration modes are available:
 
-```bash
-cd micropython-natmod
-make x64        # → build/x64_dp/_tiny_bclibc.mpy  tiny_bclibc.mpy
-ln -sf build/x64_dp/_tiny_bclibc.mpy _tiny_bclibc.mpy
-ln -sf build/x64_dp/tiny_bclibc.mpy  tiny_bclibc.mpy
-micropython test_bclibc.py   # run tests
-```
+| Mode | When to use |
+|------|-------------|
+| **natmod** (`.mpy`) | Deploy `.mpy` to device filesystem; works on any `mpy_ld.py`-supported arch |
+| **usermod** (baked-in) | Own the firmware build; module is always available as a built-in |
+| **FFI** (`libtiny_bclibc.so`) | Any unix port arch without native module support (aarch64, mipsel, …) |
 
-Two integration modes: `integrate()` returns a full `list` of trajectory rows (simple, random-access); `integrate_stream(shot, req, callback)` passes each filtered point directly to a Python callback with no intermediate buffer — useful on RAM-limited MCUs (RP2040: ~200 KB free heap) or when you need early-exit on a threshold. See [micropython-natmod/README.md](micropython-natmod/README.md) for a full comparison.
-
-**Float32 vs Float64:** measured deviation over 3000 m (G7, BC=0.310, 168 gr @ 2750 fps,
-25 m output steps, x64 MicroPython unix port) — max drop error **0.108 cm** at 2975 m,
-max velocity error **0.0015 fps** — float32 is sufficient for all supported MCU targets.
-See [micropython-natmod/README.md](micropython-natmod/README.md) for full methodology and results.
-
-See [micropython-natmod/README.md](micropython-natmod/README.md) for full build, test, and API docs.
-
-### MicroPython FFI example (unix, no native module needed)
-
-On architectures where `mpy_ld.py` does not yet produce a native `.mpy` (aarch64, mipsel, …),
-`examples/tiny_bclibc_mp_ffi/tiny_bclibc_mp_ffi.py` provides the same API backed by
-`libtiny_bclibc.so` via the unix-port `ffi` module:
-
-```bash
-# Build shared library
-cmake -B build-shared tiny_bclibc -DTINY_BCLIBC_BUILD_SHARED=ON
-cmake --build build-shared
-
-# Run — no .mpy required
-TINY_BCLIBC_SO=build-shared/libtiny_bclibc.so \
-micropython examples/tiny_bclibc_mp_ffi/test_mp_ffi.py
-```
+See the [micropython-bclibc README](https://github.com/ballistics-lab/micropython-bclibc) for build instructions, target matrix, API reference, and CI setup.
 
 ---
 
