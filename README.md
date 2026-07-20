@@ -2,6 +2,29 @@
 
 High-performance ballistic trajectory solver with RK4 integration, Ridder's method for zero-finding, PCHIP drag curves, Coriolis, and spin drift.
 
+[![Release][release badge]][release]
+[![Codecov][codecov badge]][codecov]
+
+---
+
+## Part of the Ballistics Lab ecosystem
+
+`bclibc` is the shared C++/C99 physics core behind the [**Ballistics Lab**][ballistics-lab] ecosystem —
+one engine, bound natively into [py-ballisticcalc][py-ballisticcalc] (Python/Cython),
+[js-ballistics][js-ballistics] (TypeScript/WASM), [dart-bclibc][dart-bclibc] (Dart FFI), and
+[micropython-bclibc][micropython-bclibc] (MCUs via the bundled `tiny_bclibc` C99 subset).
+
+---
+
+## Coverage
+
+`bclibc` has no test suite or coverage tooling of its own. Its C++ engine is exercised and
+correctness-tested through the Cython wrapper in [`py_ballisticcalc.exts`][py_ballisticcalc.exts],
+part of the [py-ballisticcalc][py-ballisticcalc] Python library — its pytest suite
+(`cythonized_euler_engine` / `cythonized_rk4_engine`) drives every `bclibc` code path
+end-to-end via the Cython bindings. The badge above reflects that project's overall
+coverage; line-level coverage of the compiled `.pyx`/C++ layer itself is not tracked separately.
+
 ---
 
 ## Repository structure
@@ -293,3 +316,19 @@ chmod +x pre-commit-check.sh
 > Therefore, the calculation results MUST NOT be considered as completely and reliably > reflecting actual behavior of projectiles. While these results may be used for educational purpose, they must NOT be considered as reliable for the areas where incorrect calculation may cause making a wrong decision, financial harm, or can put a human life at risk.
 > 
 > THE CODE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE MATERIALS OR THE USE OR OTHER DEALINGS IN THE MATERIALS.
+
+
+<!-- REUSABLE LINKS -->
+
+[release badge]: https://img.shields.io/github/v/release/ballistics-lab/bclibc?labelColor=%23181717&logo=github&logoColor=white
+[release]: https://github.com/ballistics-lab/bclibc/releases/latest
+
+[codecov badge]: https://codecov.io/gh/o-murphy/py-ballisticcalc/graph/badge.svg
+[codecov]: https://codecov.io/gh/o-murphy/py-ballisticcalc
+
+[ballistics-lab]: https://github.com/ballistics-lab
+[py-ballisticcalc]: https://github.com/o-murphy/py-ballisticcalc
+[py_ballisticcalc.exts]: https://github.com/o-murphy/py-ballisticcalc/tree/master/py_ballisticcalc.exts
+[js-ballistics]: https://github.com/ballistics-lab/js-ballistics
+[dart-bclibc]: https://github.com/ballistics-lab/dart-bclibc
+[micropython-bclibc]: https://github.com/ballistics-lab/micropython-bclibc
