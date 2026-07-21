@@ -1,4 +1,4 @@
-.PHONY: all build core ffi windows windows-debug linux macos clean info
+.PHONY: all build core ffi windows windows-debug linux macos test clean info
 
 # ============================================================================
 # Detect Operating System
@@ -55,6 +55,16 @@ core: cmake-configure
 ffi: cmake-configure
 	cmake --build build --target bclibc_ffi --config Release
 	@echo "FFI library built"
+
+# ============================================================================
+# Tests
+# ============================================================================
+test:
+	mkdir -p build
+	cd build && cmake $(CMAKE_GENERATOR_FLAG) -DCMAKE_BUILD_TYPE=Release -DBCLIBC_BUILD_TESTS=ON ..
+	$(MAKE_COMMAND)
+	cd build && ctest --output-on-failure -C Release
+	@echo "All tests passed"
 
 # ============================================================================
 # Windows Specific Targets

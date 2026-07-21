@@ -19,12 +19,14 @@ mkdir "$BUILD_DIR"
 cd "$BUILD_DIR"
 
 # Determine library names based on OS
+# LIB_CORE lives under lib/ (ARCHIVE_OUTPUT_DIRECTORY in CMakeLists.txt);
+# LIB_FFI is written to the build root (no LIBRARY_OUTPUT_DIRECTORY override).
 if [[ "$OS" == "Darwin" ]]; then
-    LIB_CORE="libbclibc_core.a"
+    LIB_CORE="lib/libbclibc_core.a"
     LIB_FFI="libbclibc_ffi.dylib"
     NM_CMD="nm -g"
 elif [[ "$OS" == "Linux" ]]; then
-    LIB_CORE="libbclibc_core.a"
+    LIB_CORE="lib/libbclibc_core.a"
     LIB_FFI="libbclibc_ffi.so"
     NM_CMD="nm -D"
 else
@@ -33,15 +35,24 @@ else
 fi
 
 # Compile with redirection of errors and warnings to a file
-cmake -DCMAKE_BUILD_TYPE=Release ..
+cmake -DCMAKE_BUILD_TYPE=Release -DBCLIBC_BUILD_TESTS=ON ..
 if [[ "$OS" == "Darwin" ]]; then
     make -j$(sysctl -n hw.ncpu) 2> build_warnings.log || (cat build_warnings.log && exit 1)
 else
     make -j$(nproc) 2> build_warnings.log || (cat build_warnings.log && exit 1)
 fi
 
-# 2. Check for artifacts
-echo -e "\n${GREEN}2. Checking build artifacts...${NC}"
+# 2. Run unit tests
+echo -e "\n${GREEN}2. Running unit tests...${NC}"
+if ctest --output-on-failure; then
+    echo -e "   ${GREEN}[OK]${NC} All tests passed."
+else
+    echo -e "   ${RED}[FAIL]${NC} Test failures detected!"
+    exit 1
+fi
+
+# 3. Check for artifacts
+echo -e "\n${GREEN}3. Checking build artifacts...${NC}"
 if [ -f "$LIB_CORE" ] && [ -f "$LIB_FFI" ]; then
     echo -e "   ${GREEN}[OK]${NC} Libraries found."
 else
@@ -49,8 +60,8 @@ else
     exit 1
 fi
 
-# 3. Check for warnings (Zero Warning Policy)
-echo -e "\n${GREEN}3. Validating warnings...${NC}"
+# 4. Check for warnings (Zero Warning Policy)
+echo -e "\n${GREEN}4. Validating warnings...${NC}"
 if [ -s build_warnings.log ]; then
     echo -e "   ${YELLOW}[WARNING]${NC} Warnings detected during build:"
     cat build_warnings.log
@@ -60,8 +71,8 @@ else
     echo -e "   ${GREEN}[OK]${NC} No warnings detected."
 fi
 
-# 4. Checking the version (extracting from the binary)
-echo -e "\n${GREEN}4. Checking version metadata...${NC}"
+# 5. Checking the version (extracting from the binary)
+echo -e "\n${GREEN}5. Checking version metadata...${NC}"
 
 # Get the expected version from the generated header
 if [ -f "generated/bclibc/version.h" ]; then
@@ -87,8 +98,8 @@ else
     exit 1
 fi
 
-# 5. Check symbols export (whitelist BCLIBCFFI_)
-echo -e "\n${GREEN}5. Validating exported symbols...${NC}"
+# 6. Check symbols export (whitelist BCLIBCFFI_)
+echo -e "\n${GREEN}6. Validating exported symbols...${NC}"
 
 if [[ "$OS" == "Darwin" ]]; then
     # macOS uses different symbol checking
@@ -105,9 +116,9 @@ else
     exit 1
 fi
 
-# 6. Check symlinks (Linux only)
+# 7. Check symlinks (Linux only)
 if [[ "$OS" == "Linux" ]]; then
-    echo -e "\n${GREEN}6. Checking SOVERSION symlinks...${NC}"
+    echo -e "\n${GREEN}7. Checking SOVERSION symlinks...${NC}"
     if ls libbclibc_ffi.so.[0-9]* 1> /dev/null 2>&1; then
         echo -e "   ${GREEN}[OK]${NC} Symlinks are generated."
     else

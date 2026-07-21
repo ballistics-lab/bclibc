@@ -394,6 +394,8 @@ namespace bclibc
      * @param out Output parameter - populated with exact or interpolated trajectory data.
      *
      * @throws std::domain_error if sequence has fewer than 3 points.
+     * @throws std::out_of_range if key_value falls outside the sequence's key range
+     *         (beyond a small epsilon tolerance), which would otherwise require extrapolation.
      * @throws std::logic_error if binary search fails.
      * @throws std::invalid_argument if interpolation encounters duplicate key values.
      *
@@ -411,6 +413,22 @@ namespace bclibc
         if (n < 3)
         {
             throw std::domain_error("Insufficient data points for interpolation (need >= 3)");
+        }
+
+        // Reject queries outside the sequence's key range before searching. Without this,
+        // bisect_center_idx_buf()/find_target_index() clamp their result index to [1, n-2] and
+        // get_at() would happily extrapolate through the boundary bracket instead of signaling
+        // that the trajectory never reaches key_value.
+        {
+            const double v0 = this->buffer[0][key_kind];
+            const double vN = this->buffer[n - 1][key_kind];
+            const double range_lo = (v0 <= vN) ? v0 : vN;
+            const double range_hi = (v0 <= vN) ? vN : v0;
+            constexpr double range_epsilon = 1e-9;
+            if (key_value < range_lo - range_epsilon || key_value > range_hi + range_epsilon)
+            {
+                throw std::out_of_range("key_value is outside the trajectory's range");
+            }
         }
 
         ssize_t target_idx = -1;

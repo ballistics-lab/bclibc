@@ -444,6 +444,8 @@ namespace bclibc
          * @param out Output parameter - populated with exact or interpolated trajectory data.
          *
          * @throws std::domain_error if sequence has fewer than 3 points.
+         * @throws std::out_of_range if key_value falls outside the sequence's key range
+         *         (beyond a small epsilon tolerance), which would otherwise require extrapolation.
          * @throws std::logic_error if binary search fails.
          * @throws std::invalid_argument if interpolation encounters duplicate key values.
          *
