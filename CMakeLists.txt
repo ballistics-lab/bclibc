@@ -219,6 +219,13 @@ if(LINUX_BUILD AND NOT CMAKE_BUILD_TYPE MATCHES "Debug")
     endif()
 endif()
 
+# ============================================================================
+# Tests
+# ============================================================================
+if(BCLIBC_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
 
 # ============================================================================
 # Installation rules

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.5] - 2026-07-21
+
+### Fixed
+- `BCLIBC_BaseTrajSeq::get_at()` (`src/traj_data.cpp`) silently extrapolated instead of raising when
+  `key_value` was outside the trajectory's range: `bisect_center_idx_buf()`/`find_target_index()` clamp
+  their bracket index to `[1, n-2]` regardless of how far `key_value` falls outside the sequence, so
+  `interpolate_at()` only ever validated the *index*, never the *value*. `get_at()` now checks `key_value`
+  against `[min(buffer[0][key], buffer[n-1][key]), max(...)]` (± a `1e-9` epsilon) before searching and
+  throws `std::out_of_range` if it falls outside. ([#19](https://github.com/ballistics-lab/bclibc/issues/19))
+- `pre-commit-check.sh`: artifact check looked for `libbclibc_core.a` in the build root, but
+  `ARCHIVE_OUTPUT_DIRECTORY` in `CMakeLists.txt` places it under `lib/`, so step 3 always failed
+  (silently, since `pr-check.yml` invoked the script with `|| true`). Fixed the expected path.
+
+### Added
+- `tests/`: minimal CTest-based unit test target (`bclibc_tests`) covering `BCLIBC_BaseTrajSeq::get_at()`,
+  wired up via the previously-unused `BCLIBC_BUILD_TESTS` CMake option
+- `make test`: configures with `-DBCLIBC_BUILD_TESTS=ON`, builds, and runs `ctest`
+
+### Changed
+- `pre-commit-check.sh` now builds with `-DBCLIBC_BUILD_TESTS=ON` and runs `ctest` as a required step
+
 ### Removed
 - Deprecated define `-DTINY_BCLIBC_USE_FLOAT` deleted from lib
 
@@ -208,8 +229,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.4...HEAD
-[1.1.4]: https://github.com/ballistics-lab/bclibc/compare/v1.1.2...v1.1.4
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.5...HEAD
+[1.1.5]: https://github.com/ballistics-lab/bclibc/compare/v1.1.4...v1.1.5
+[1.1.4]: https://github.com/ballistics-lab/bclibc/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/ballistics-lab/bclibc/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/ballistics-lab/bclibc/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/ballistics-lab/bclibc/compare/v1.1.0...v1.1.1
