@@ -5,13 +5,16 @@ High-performance ballistic trajectory solver with RK4 integration, Ridder's meth
 [![Release][release badge]][release]
 [![Codecov][codecov badge]][codecov]
 
+![Linux] ![Windows] ![macOS] ![WebAssembly]
+
 ---
 
 ## Part of the Ballistics Lab ecosystem
 
 `bclibc` is the shared C++/C99 physics core behind the [**Ballistics Lab**][ballistics-lab] ecosystem —
 one engine, bound natively into [py-ballisticcalc][py-ballisticcalc] (Python/Cython),
-[js-ballistics][js-ballistics] (TypeScript/WASM), [dart-bclibc][dart-bclibc] (Dart FFI), and
+[js-ballistics][js-ballistics] (TypeScript/WASM via Embind), [dart-bclibc][dart-bclibc]
+(Dart FFI natively, and WASM on web via `build_wasm.sh` — see [WASM build](#wasm-build)), and
 [micropython-bclibc][micropython-bclibc] (MCUs via the bundled `tiny_bclibc` C99 subset).
 
 ---
@@ -339,6 +342,11 @@ chmod +x pre-commit-check.sh
 
 [codecov badge]: https://codecov.io/gh/o-murphy/py-ballisticcalc/graph/badge.svg
 [codecov]: https://codecov.io/gh/o-murphy/py-ballisticcalc
+
+[Linux]: https://img.shields.io/badge/Linux-x86__64%20%7C%20arm64-grey?logo=linux&logoColor=black&labelColor=FCC624
+[Windows]: https://img.shields.io/badge/x86__64%20%7C%20arm64-grey?logo=windows&logoColor=black&label=Windows&labelColor=0078D4
+[macOS]: https://img.shields.io/badge/macOS-arm64%20%7C%20x86__64-grey?logo=apple&logoColor=white&labelColor=000000
+[WebAssembly]: https://img.shields.io/badge/WebAssembly-grey?logo=webassembly&logoColor=white&labelColor=654FF0
 
 [ballistics-lab]: https://github.com/ballistics-lab
 [py-ballisticcalc]: https://github.com/o-murphy/py-ballisticcalc
