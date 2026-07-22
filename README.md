@@ -163,6 +163,20 @@ cmake --build build --config Release
 
 ---
 
+## WASM build
+
+`build_wasm.sh` compiles the same `BCLIBCFFI_*` C ABI (`bclibc_ffi.cpp`) to WebAssembly via Emscripten, for platforms without `dart:ffi` (e.g. Flutter/Dart web). It self-installs a pinned Emscripten SDK into `tool/emsdk` on first run if `emcc` isn't already on `PATH`:
+
+```bash
+./build_wasm.sh
+```
+
+Output: `build/web/bclibc_ffi.js` + `build/web/bclibc_ffi.wasm` (Emscripten JS-glue module, `MODULARIZE=1`). Ship both files together — do **not** re-add `-sSINGLE_FILE=1`: as of emsdk 6.0.3 it produces a wasm blob Chrome's `WebAssembly.instantiate` rejects (`invalid value type 0x1`), even though the identical bytes load fine under Node. The two-file layout is the verified-working one.
+
+The module exports the flat `BCLIBCFFI_*` functions directly (no Embind) plus `BCLIBCFFI_get_layout()`, which returns every `BCLIBCFFI_Shot`-family struct's field byte offsets/sizes, computed via `offsetof()`/`sizeof()` by whichever compiler built the module. Callers marshal structs into wasm linear memory (`_malloc`/`HEAPU8`) using those offsets instead of hardcoding them — see `dart-bclibc`'s `lib/ffi/bclibc_ffi_web.dart` for a complete `dart:js_interop` binding built this way.
+
+---
+
 ## FFI API
 
 The public C API is declared in `include/bclibc/ffi/bclibc_ffi.h`. All symbols are prefixed with `BCLIBCFFI_`.
