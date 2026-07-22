@@ -21,6 +21,7 @@ on:
           - linux
           - windows
           - macos
+          - wasm
       upload_artifacts:
         description: "Upload artifacts"
         required: true
@@ -78,6 +79,16 @@ jobs:
       retention_days: 7
       upload_artifact: ${{ inputs.upload_artifacts }}
 
+  build-wasm:
+    if: inputs.platforms == 'all' || inputs.platforms == 'wasm'
+    uses: ./.github/workflows/build-lib.yml
+    with:
+      os: ubuntu-latest
+      arch: wasm
+      build_type: ${{ inputs.build_type }}
+      retention_days: 7
+      upload_artifact: ${{ inputs.upload_artifacts }}
+
   create-release:
     name: Create Release Package
     runs-on: ubuntu-latest
@@ -87,6 +98,7 @@ jobs:
       - build-macos
       - build-windows-x86_64
       - build-windows-arm64
+      - build-wasm
     if: always() && inputs.upload_artifacts == true
 
     steps:

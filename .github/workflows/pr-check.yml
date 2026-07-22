@@ -29,6 +29,9 @@ jobs:
           - os: windows-latest
             arch: x86_64
             build_type: Release
+          - os: ubuntu-latest
+            arch: wasm
+            build_type: Release
     uses: ./.github/workflows/build-lib.yml
     with:
       os: ${{ matrix.os }}
@@ -67,5 +70,6 @@ jobs:
           echo "| macOS    | arm64  | Release | ${{ needs.build.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Windows  | x86_64 | Debug   | ${{ needs.build.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Windows  | x86_64 | Release | ${{ needs.build.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| wasm     | -      | Release | ${{ needs.build.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Artifacts available for 24 hours." >> $GITHUB_STEP_SUMMARY

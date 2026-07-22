@@ -7,6 +7,9 @@ build_*/
 cmake-build-*/
 build-*/
 
+# Emscripten SDK, auto-installed by build_wasm.sh — not vendored/submoduled.
+tool/emsdk/
+
 *.o
 *.a
 *.so

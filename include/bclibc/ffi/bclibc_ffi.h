@@ -423,6 +423,25 @@ extern "C"
     /** Optimal Game Weight from bullet weight (grains) and velocity (fps). */
     BCLIBC_API double BCLIBCFFI_calculate_ogw(double bullet_weight_grain, double velocity_fps);
 
+    // ============================================================================
+    // ABI layout introspection (WASM/JS interop only — unused by dart:ffi,
+    // which derives struct layout at ffigen-generation time instead).
+    // ============================================================================
+
+    /**
+     * Fills `out` with byte sizes/offsets for every BCLIBCFFI_Shot-family
+     * struct field consumed by a hand-written (non-Embind) JS/wasm binding,
+     * computed via sizeof()/offsetof() by whichever compiler builds this
+     * library — so a JS-side binding never has to hardcode/guess struct
+     * layout. See bclibc_ffi.cpp for the fixed field order this fills.
+     *
+     * @param out      Caller-allocated buffer of at least BCLIBCFFI_LAYOUT_FIELD_COUNT int32s.
+     * @param out_len  Capacity of `out`, in int32 elements.
+     * @return Number of int32s written (== BCLIBCFFI_LAYOUT_FIELD_COUNT), or
+     *         -1 if out_len is too small.
+     */
+    BCLIBC_API int32_t BCLIBCFFI_get_layout(int32_t *out, int32_t out_len);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif
