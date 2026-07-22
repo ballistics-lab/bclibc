@@ -11,6 +11,7 @@
 #include "bclibc/ffi/bclibc_ffi.h"
 
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <cstdlib>
 #include <stdexcept>
@@ -592,6 +593,125 @@ extern "C"
             toC(raw, out->raw_data);
             toC(full, out->full_data);
             return BCLIBCFFI_OK; }, err);
+    }
+
+    // ============================================================================
+    // ABI layout introspection
+    //
+    // Fixed field order (must match the Dart-side reader in
+    // lib/ffi/bclibc_ffi_web.dart _Layout exactly):
+    //
+    //   [ sizeof(Config),      7 field offsets ]
+    //   [ sizeof(Wind),        4 field offsets ]
+    //   [ sizeof(Shot),       24 field offsets ]
+    //   [ sizeof(TrajectoryRequest), 4 field offsets ]
+    //   [ sizeof(TrajectoryData),   16 field offsets ]
+    //   [ sizeof(MaxRangeResult),    2 field offsets ]
+    //   [ sizeof(BaseTrajData),      8 field offsets ]
+    //   [ sizeof(Interception),      2 field offsets ]
+    //   [ sizeof(Error),             6 field offsets ]
+    // ============================================================================
+
+    int32_t BCLIBCFFI_get_layout(int32_t *out, int32_t out_len)
+    {
+        int32_t vals[] = {
+            // Config
+            (int32_t)sizeof(BCLIBCFFI_Config),
+            (int32_t)offsetof(BCLIBCFFI_Config, cStepMultiplier),
+            (int32_t)offsetof(BCLIBCFFI_Config, cZeroFindingAccuracy),
+            (int32_t)offsetof(BCLIBCFFI_Config, cMinimumVelocity),
+            (int32_t)offsetof(BCLIBCFFI_Config, cMaximumDrop),
+            (int32_t)offsetof(BCLIBCFFI_Config, cMaxIterations),
+            (int32_t)offsetof(BCLIBCFFI_Config, cGravityConstant),
+            (int32_t)offsetof(BCLIBCFFI_Config, cMinimumAltitude),
+            // Wind
+            (int32_t)sizeof(BCLIBCFFI_Wind),
+            (int32_t)offsetof(BCLIBCFFI_Wind, velocity_fps),
+            (int32_t)offsetof(BCLIBCFFI_Wind, direction_from_rad),
+            (int32_t)offsetof(BCLIBCFFI_Wind, until_distance_ft),
+            (int32_t)offsetof(BCLIBCFFI_Wind, max_distance_ft),
+            // Shot
+            (int32_t)sizeof(BCLIBCFFI_Shot),
+            (int32_t)offsetof(BCLIBCFFI_Shot, bc),
+            (int32_t)offsetof(BCLIBCFFI_Shot, weight_grain),
+            (int32_t)offsetof(BCLIBCFFI_Shot, diameter_inch),
+            (int32_t)offsetof(BCLIBCFFI_Shot, length_inch),
+            (int32_t)offsetof(BCLIBCFFI_Shot, muzzle_velocity_fps),
+            (int32_t)offsetof(BCLIBCFFI_Shot, sight_height_ft),
+            (int32_t)offsetof(BCLIBCFFI_Shot, twist_inch),
+            (int32_t)offsetof(BCLIBCFFI_Shot, temp_c),
+            (int32_t)offsetof(BCLIBCFFI_Shot, pressure_hpa),
+            (int32_t)offsetof(BCLIBCFFI_Shot, altitude_ft),
+            (int32_t)offsetof(BCLIBCFFI_Shot, humidity),
+            (int32_t)offsetof(BCLIBCFFI_Shot, mach_data),
+            (int32_t)offsetof(BCLIBCFFI_Shot, cd_data),
+            (int32_t)offsetof(BCLIBCFFI_Shot, drag_table_size),
+            (int32_t)offsetof(BCLIBCFFI_Shot, winds),
+            (int32_t)offsetof(BCLIBCFFI_Shot, wind_count),
+            (int32_t)offsetof(BCLIBCFFI_Shot, look_angle_rad),
+            (int32_t)offsetof(BCLIBCFFI_Shot, barrel_elevation_rad),
+            (int32_t)offsetof(BCLIBCFFI_Shot, barrel_azimuth_rad),
+            (int32_t)offsetof(BCLIBCFFI_Shot, cant_angle_rad),
+            (int32_t)offsetof(BCLIBCFFI_Shot, latitude_deg),
+            (int32_t)offsetof(BCLIBCFFI_Shot, azimuth_deg),
+            (int32_t)offsetof(BCLIBCFFI_Shot, config),
+            (int32_t)offsetof(BCLIBCFFI_Shot, method),
+            // TrajectoryRequest
+            (int32_t)sizeof(BCLIBCFFI_TrajectoryRequest),
+            (int32_t)offsetof(BCLIBCFFI_TrajectoryRequest, range_limit_ft),
+            (int32_t)offsetof(BCLIBCFFI_TrajectoryRequest, range_step_ft),
+            (int32_t)offsetof(BCLIBCFFI_TrajectoryRequest, time_step),
+            (int32_t)offsetof(BCLIBCFFI_TrajectoryRequest, filter_flags),
+            // TrajectoryData
+            (int32_t)sizeof(BCLIBCFFI_TrajectoryData),
+            (int32_t)offsetof(BCLIBCFFI_TrajectoryData, time),
+            (int32_t)offsetof(BCLIBCFFI_TrajectoryData, distance_ft),
+            (int32_t)offsetof(BCLIBCFFI_TrajectoryData, velocity_fps),
+            (int32_t)offsetof(BCLIBCFFI_TrajectoryData, mach),
+            (int32_t)offsetof(BCLIBCFFI_TrajectoryData, height_ft),
+            (int32_t)offsetof(BCLIBCFFI_TrajectoryData, slant_height_ft),
+            (int32_t)offsetof(BCLIBCFFI_TrajectoryData, drop_angle_rad),
+            (int32_t)offsetof(BCLIBCFFI_TrajectoryData, windage_ft),
+            (int32_t)offsetof(BCLIBCFFI_TrajectoryData, windage_angle_rad),
+            (int32_t)offsetof(BCLIBCFFI_TrajectoryData, slant_distance_ft),
+            (int32_t)offsetof(BCLIBCFFI_TrajectoryData, angle_rad),
+            (int32_t)offsetof(BCLIBCFFI_TrajectoryData, density_ratio),
+            (int32_t)offsetof(BCLIBCFFI_TrajectoryData, drag),
+            (int32_t)offsetof(BCLIBCFFI_TrajectoryData, energy_ft_lb),
+            (int32_t)offsetof(BCLIBCFFI_TrajectoryData, ogw_lb),
+            (int32_t)offsetof(BCLIBCFFI_TrajectoryData, flag),
+            // MaxRangeResult
+            (int32_t)sizeof(BCLIBCFFI_MaxRangeResult),
+            (int32_t)offsetof(BCLIBCFFI_MaxRangeResult, max_range_ft),
+            (int32_t)offsetof(BCLIBCFFI_MaxRangeResult, angle_at_max_rad),
+            // BaseTrajData
+            (int32_t)sizeof(BCLIBCFFI_BaseTrajData),
+            (int32_t)offsetof(BCLIBCFFI_BaseTrajData, time),
+            (int32_t)offsetof(BCLIBCFFI_BaseTrajData, px),
+            (int32_t)offsetof(BCLIBCFFI_BaseTrajData, py),
+            (int32_t)offsetof(BCLIBCFFI_BaseTrajData, pz),
+            (int32_t)offsetof(BCLIBCFFI_BaseTrajData, vx),
+            (int32_t)offsetof(BCLIBCFFI_BaseTrajData, vy),
+            (int32_t)offsetof(BCLIBCFFI_BaseTrajData, vz),
+            (int32_t)offsetof(BCLIBCFFI_BaseTrajData, mach),
+            // Interception
+            (int32_t)sizeof(BCLIBCFFI_Interception),
+            (int32_t)offsetof(BCLIBCFFI_Interception, raw_data),
+            (int32_t)offsetof(BCLIBCFFI_Interception, full_data),
+            // Error
+            (int32_t)sizeof(BCLIBCFFI_Error),
+            (int32_t)offsetof(BCLIBCFFI_Error, code),
+            (int32_t)offsetof(BCLIBCFFI_Error, message),
+            (int32_t)offsetof(BCLIBCFFI_Error, f64_0),
+            (int32_t)offsetof(BCLIBCFFI_Error, f64_1),
+            (int32_t)offsetof(BCLIBCFFI_Error, f64_2),
+            (int32_t)offsetof(BCLIBCFFI_Error, i32_0),
+        };
+        constexpr int32_t count = (int32_t)(sizeof(vals) / sizeof(vals[0]));
+        if (out_len < count)
+            return -1;
+        std::memcpy(out, vals, sizeof(vals));
+        return count;
     }
 
 } // extern "C"

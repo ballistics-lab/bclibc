@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.6] - 2026-07-22
+
+### Added
+- WebAssembly build: `build_wasm.sh` compiles the existing flat C ABI
+  (`bclibc_ffi.cpp`, `include/bclibc/ffi/bclibc_ffi.h`) to a WebAssembly +
+  Emscripten JS-glue module (`build/web/bclibc_ffi.js` + `.wasm`), for
+  consumers without `dart:ffi`/native FFI (e.g. Flutter/Dart web). No
+  Embind — same `BCLIBCFFI_*` exports as the native shared library.
+  Self-installs a pinned Emscripten SDK (`tool/emsdk/`, gitignored) on first
+  run if `emcc` isn't already on `PATH`.
+  - Everything the script writes stays inside `bclibc/` itself (not the
+    embedding parent repo's directory), so it works whether `bclibc` is
+    checked out standalone or as a submodule of any of its several
+    consumers (dart-bclibc, js-ballistics, py-ballisticcalc,
+    micropython-bclibc).
+  - Do not add `-sSINGLE_FILE=1` back to the build flags: as of emsdk 6.0.3
+    it produces a wasm blob Chrome's `WebAssembly.instantiate` rejects
+    (`invalid value type 0x1`), even though the identical bytes load fine
+    under Node. The two-file (`.js` + `.wasm`) layout is the
+    verified-working one.
+- `BCLIBCFFI_get_layout()`: new FFI export returning every
+  `BCLIBCFFI_Shot`-family struct's field byte offsets/sizes, computed via
+  `offsetof()`/`sizeof()` by whichever compiler built the library. Lets a
+  hand-written JS/wasm binding (no Embind, no struct-aware FFI shim)
+  marshal structs into wasm linear memory without hardcoding — or risking
+  drift from — the C struct layout. Unused by the native `dart:ffi` path,
+  which already gets struct layout from `ffigen` at bindings-generation
+  time.
+- CI: `arch: wasm` option on the reusable `build-lib.yml` (and wired into
+  `build-libs.yml` / `pr-check.yml`), building via `build_wasm.sh` instead
+  of CMake and caching the emsdk install.
+
 ## [1.1.5] - 2026-07-21
 
 ### Fixed
@@ -229,7 +261,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.5...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.6...HEAD
+[1.1.6]: https://github.com/ballistics-lab/bclibc/compare/v1.1.5...v1.1.6
 [1.1.5]: https://github.com/ballistics-lab/bclibc/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/ballistics-lab/bclibc/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/ballistics-lab/bclibc/compare/v1.1.2...v1.1.3

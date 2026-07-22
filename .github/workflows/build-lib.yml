@@ -20,6 +20,7 @@ on:
           - x86_64
           - arm64
           - universal
+          - wasm
       build_type:
         description: CMake build type
         required: true
@@ -92,7 +93,27 @@ jobs:
           fi
           echo "artifact_name=$NAME" >> $GITHUB_OUTPUT
 
+      - name: Cache emsdk
+        if: inputs.arch == 'wasm'
+        uses: actions/cache@v4
+        with:
+          path: tool/emsdk
+          key: emsdk-6.0.3-${{ runner.os }}
+
+      - name: Build (wasm)
+        if: inputs.arch == 'wasm'
+        run: ./build_wasm.sh
+
+      - name: Prepare artifacts (wasm)
+        if: inputs.arch == 'wasm'
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cp build/web/bclibc_ffi.js build/web/bclibc_ffi.wasm artifacts/
+          cp build/generated/bclibc/version.h artifacts/
+
       - name: Configure CMake
+        if: inputs.arch != 'wasm'
         shell: bash
         run: |
           mkdir -p build
@@ -108,7 +129,7 @@ jobs:
           fi
 
       - name: Build (Linux/macOS)
-        if: runner.os != 'Windows'
+        if: inputs.arch != 'wasm' && runner.os != 'Windows'
         shell: bash
         run: |
           cd build
@@ -126,7 +147,7 @@ jobs:
           cmake --build . --config ${{ inputs.build_type }}
 
       - name: Prepare artifacts (Linux/macOS)
-        if: runner.os != 'Windows'
+        if: inputs.arch != 'wasm' && runner.os != 'Windows'
         shell: bash
         run: |
           mkdir -p artifacts
