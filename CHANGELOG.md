@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.6] - 2026-07-22
+
 ### Added
 - WebAssembly build: `build_wasm.sh` compiles the existing flat C ABI
   (`bclibc_ffi.cpp`, `include/bclibc/ffi/bclibc_ffi.h`) to a WebAssembly +
@@ -259,7 +261,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.5...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.6...HEAD
+[1.1.6]: https://github.com/ballistics-lab/bclibc/compare/v1.1.5...v1.1.6
 [1.1.5]: https://github.com/ballistics-lab/bclibc/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/ballistics-lab/bclibc/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/ballistics-lab/bclibc/compare/v1.1.2...v1.1.3
