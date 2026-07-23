@@ -95,7 +95,7 @@ jobs:
 
       - name: Cache emsdk
         if: inputs.arch == 'wasm'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: tool/emsdk
           key: emsdk-6.0.3-${{ runner.os }}
