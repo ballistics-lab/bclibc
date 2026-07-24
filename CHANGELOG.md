@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.2.0] - 2026-07-24
+## [1.1.7] - 2026-07-24
 
 ### Added
 - Velocity Verlet integration engine (`src/velocity_verlet.cpp`, `include/bclibc/velocity_verlet.hpp`,
@@ -272,8 +272,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.2.0...HEAD
-[1.2.0]: https://github.com/ballistics-lab/bclibc/compare/v1.1.6...v1.2.0
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.7...HEAD
+[1.1.7]: https://github.com/ballistics-lab/bclibc/compare/v1.1.6...v1.1.7
 [1.1.6]: https://github.com/ballistics-lab/bclibc/compare/v1.1.5...v1.1.6
 [1.1.5]: https://github.com/ballistics-lab/bclibc/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/ballistics-lab/bclibc/compare/v1.1.3...v1.1.4
