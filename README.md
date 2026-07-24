@@ -1,6 +1,6 @@
 # bclibc — Ballistic Solver Engine
 
-High-performance ballistic trajectory solver with RK4 integration, Ridder's method for zero-finding, PCHIP drag curves, Coriolis, and spin drift.
+High-performance ballistic trajectory solver with RK4, Euler, and Velocity Verlet integration, Ridder's method for zero-finding, PCHIP drag curves, Coriolis, and spin drift.
 
 [![Release][release badge]][release]
 [![Codecov][codecov badge]][codecov]
@@ -293,6 +293,7 @@ chmod +x pre-commit-check.sh
 │       ├── traj_data.hpp
 │       ├── traj_filter.hpp
 │       ├── v3d.hpp
+│       ├── velocity_verlet.hpp
 │       └── ffi/
 │           └── bclibc_ffi.h       # Public C FFI API
 │
@@ -304,6 +305,7 @@ chmod +x pre-commit-check.sh
 │   ├── rk4.cpp
 │   ├── traj_data.cpp
 │   ├── traj_filter.cpp
+│   ├── velocity_verlet.cpp
 │   └── ffi/
 │       ├── bclibc_ffi.cpp
 │       └── bclibc_ffi.version     # Linux symbol visibility script
