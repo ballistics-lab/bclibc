@@ -23,6 +23,7 @@
 #include "bclibc/exceptions.hpp"
 #include "bclibc/rk4.hpp"
 #include "bclibc/euler.hpp"
+#include "bclibc/velocity_verlet.hpp"
 #include "bclibc/version.h" // This is the generated file
 
 using namespace bclibc;
@@ -89,13 +90,32 @@ static void setError(BCLIBCFFI_Error *e, BCLIBCFFI_Status code, const char *msg)
 
 static double calcStep(BCLIBCFFI_IntegrationMethod m, double multiplier)
 {
-    return (m == BCLIBCFFI_INTEGRATION_RK4 ? 0.0025 : 0.5) * multiplier;
+    switch (m)
+    {
+    case BCLIBCFFI_INTEGRATION_RK4:
+        return 0.0025 * multiplier;
+    case BCLIBCFFI_INTEGRATION_VELOCITY_VERLET:
+        // Velocity Verlet is a fixed-step (non-adaptive) method like RK4; use the
+        // same conservative base step size for comparable accuracy.
+        return 0.0025 * multiplier;
+    case BCLIBCFFI_INTEGRATION_EULER:
+    default:
+        return 0.5 * multiplier;
+    }
 }
 
 static BCLIBC_IntegrateCallable selectIntegrateFunc(BCLIBCFFI_IntegrationMethod m)
 {
-    return (m == BCLIBCFFI_INTEGRATION_RK4) ? BCLIBC_IntegrateCallable(BCLIBC_integrateRK4)
-                                            : BCLIBC_IntegrateCallable(BCLIBC_integrateEULER);
+    switch (m)
+    {
+    case BCLIBCFFI_INTEGRATION_RK4:
+        return BCLIBC_IntegrateCallable(BCLIBC_integrateRK4);
+    case BCLIBCFFI_INTEGRATION_VELOCITY_VERLET:
+        return BCLIBC_IntegrateCallable(BCLIBC_integrateVELOCITY_VERLET);
+    case BCLIBCFFI_INTEGRATION_EULER:
+    default:
+        return BCLIBC_IntegrateCallable(BCLIBC_integrateEULER);
+    }
 }
 
 static void initEngine(BCLIBC_BaseEngine &eng, const BCLIBCFFI_ShotProps *p)

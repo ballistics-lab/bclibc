@@ -107,6 +107,7 @@ extern "C"
     {
         BCLIBCFFI_INTEGRATION_RK4 = 0,
         BCLIBCFFI_INTEGRATION_EULER = 1,
+        BCLIBCFFI_INTEGRATION_VELOCITY_VERLET = 2,
     } BCLIBCFFI_IntegrationMethod;
 
     // ============================================================================

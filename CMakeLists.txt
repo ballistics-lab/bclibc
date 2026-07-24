@@ -80,6 +80,7 @@ set(BCLIBC_SOURCES
     "${BCLIBC_SRC_DIR}/rk4.cpp"
     "${BCLIBC_SRC_DIR}/traj_data.cpp"
     "${BCLIBC_SRC_DIR}/traj_filter.cpp"
+    "${BCLIBC_SRC_DIR}/velocity_verlet.cpp"
 )
 
 # ============================================================================

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Velocity Verlet integration engine (`src/velocity_verlet.cpp`, `include/bclibc/velocity_verlet.hpp`,
+  `BCLIBC_integrateVELOCITY_VERLET`): symplectic, time-reversible second-order integrator alongside
+  RK4 and Euler. Like RK4 it uses a fixed (non-adaptive) time step and carries the
+  end-of-step acceleration into the next step, so it costs one extra acceleration
+  evaluation per step versus RK4's four. Wired into the FFI as
+  `BCLIBCFFI_INTEGRATION_VELOCITY_VERLET = 2` (`BCLIBCFFI_IntegrationMethod`), selectable the same
+  way as `BCLIBCFFI_INTEGRATION_RK4`/`BCLIBCFFI_INTEGRATION_EULER`.
+
 ## [1.1.6] - 2026-07-22
 
 ### Added
