@@ -24,7 +24,7 @@ GENERATED_DIR="${SCRIPT_DIR}/build/generated"
 OUT_DIR="${SCRIPT_DIR}/build/web"
 
 # Pinned for reproducible builds/CI. Bump deliberately, not via "latest".
-EMSDK_VERSION="6.0.3"
+EMSDK_VERSION="6.0.4"
 EMSDK_DIR="${SCRIPT_DIR}/tool/emsdk"
 
 if ! command -v emcc >/dev/null 2>&1; then
@@ -67,6 +67,7 @@ CORE_SOURCES=(
     "${BCLIBC_SRC_DIR}/rk4.cpp"
     "${BCLIBC_SRC_DIR}/traj_data.cpp"
     "${BCLIBC_SRC_DIR}/traj_filter.cpp"
+    "${BCLIBC_SRC_DIR}/velocity_verlet.cpp"
 )
 
 EXPORTED_FUNCTIONS='["_malloc","_free","_BCLIBCFFI_get_version","_BCLIBCFFI_find_apex","_BCLIBCFFI_find_max_range","_BCLIBCFFI_find_zero_angle","_BCLIBCFFI_integrate","_BCLIBCFFI_free_trajectory","_BCLIBCFFI_integrate_at","_BCLIBCFFI_find_apex_shot","_BCLIBCFFI_find_max_range_shot","_BCLIBCFFI_find_zero_angle_shot","_BCLIBCFFI_integrate_shot","_BCLIBCFFI_integrate_at_shot","_BCLIBCFFI_get_correction","_BCLIBCFFI_calculate_energy","_BCLIBCFFI_calculate_ogw","_BCLIBCFFI_get_layout"]'
