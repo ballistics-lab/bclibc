@@ -22,9 +22,9 @@ else
 endif
 
 # ── User-configurable options ─────────────────────────────────────
-# Передаються в CMake. Використання:
+# Passed to CMake. Usage:
 #   make shared TINY_BCLIBC_SINGLE_PRECISION=ON
-#   make shared TINY_BCLIBC_SINGLE_PRECISION=OFF (за замовчуванням)
+#   make shared TINY_BCLIBC_SINGLE_PRECISION=OFF (by default)
 TINY_BCLIBC_SINGLE_PRECISION ?= OFF
 TINY_BCLIBC_NO_THREAD_LOCAL ?= OFF
 TINY_BCLIBC_NO_ERR_BUF ?= OFF
@@ -86,7 +86,7 @@ shared: cmake-configure-shared
 	@echo "Shared library: build-shared/$(LIB_PREFIX)tiny_bclibc$(LIB_SUFFIX)"
 	@echo "  Precision: $(if $(filter ON,$(TINY_BCLIBC_SINGLE_PRECISION)),single,double)"
 
-# Single precision shared (окрема ціль для зручності)
+# Single precision shared (separate target for convenience)
 shared-sp:
 	$(MAKE) shared TINY_BCLIBC_SINGLE_PRECISION=ON
 
@@ -95,7 +95,7 @@ static: cmake-configure-static
 	@echo "Static library: build-static/$(LIB_PREFIX)tiny_bclibc.a"
 	@echo "  Precision: $(if $(filter ON,$(TINY_BCLIBC_SINGLE_PRECISION)),single,double)"
 
-# Single precision static (окрема ціль для зручності)
+# Single precision static (separate target for convenience)
 static-sp:
 	$(MAKE) static TINY_BCLIBC_SINGLE_PRECISION=ON
 
