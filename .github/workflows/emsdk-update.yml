@@ -117,9 +117,10 @@ jobs:
           git checkout -b "$BRANCH"
           git add build_wasm.sh
           git commit -m "chore: bump pinned emsdk to ${VERSION}"
-          FORCE_FLAG=""
-          [ "${{ inputs.force }}" = "true" ] || [ -n "$OPEN_PR" ] && FORCE_FLAG="--force"
-          git push $FORCE_FLAG origin "$BRANCH"
+          # Branch is always rebuilt fresh from main above, so any pre-existing
+          # remote branch of the same name (e.g. left over from a prior run that
+          # pushed but failed before opening a PR) must be overwritten.
+          git push --force origin "$BRANCH"
 
           gh label create "automated" --color "#0075ca" --force || true
           gh label create "emsdk"     --color "#654FF0" --force || true
