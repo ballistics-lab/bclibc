@@ -24,7 +24,7 @@ GENERATED_DIR="${SCRIPT_DIR}/build/generated"
 OUT_DIR="${SCRIPT_DIR}/build/web"
 
 # Pinned for reproducible builds/CI. Bump deliberately, not via "latest".
-EMSDK_VERSION="6.0.5"
+EMSDK_VERSION="6.0.6"
 EMSDK_DIR="${SCRIPT_DIR}/tool/emsdk"
 
 if ! command -v emcc >/dev/null 2>&1; then
@@ -77,7 +77,11 @@ EXPORTED_FUNCTIONS='["_malloc","_free","_BCLIBCFFI_get_version","_BCLIBCFFI_find
 # same bytes work fine under Node. Two output files (.js + .wasm) is the
 # standard, verified-working layout; ship them together as a pair.
 echo "Building bclibc_ffi.js + bclibc_ffi.wasm (Emscripten JS-glue)..."
-emcc \
+# em++, not emcc: these are .cpp sources, and emcc's implicit C++-mode
+# detection is no longer reliable across emsdk versions — with plain emcc,
+# 6.0.6 dropped the C++ runtime (libc++/libc++abi) from the link, leaving
+# operator new/delete and exception symbols undefined at wasm-ld time.
+em++ \
     "${CORE_SOURCES[@]}" \
     "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp" \
     -I"${BCLIBC_INCLUDE_DIR}" \
