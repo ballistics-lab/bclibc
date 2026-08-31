@@ -24,7 +24,7 @@ GENERATED_DIR="${SCRIPT_DIR}/build/generated"
 OUT_DIR="${SCRIPT_DIR}/build/web"
 
 # Pinned for reproducible builds/CI. Bump deliberately, not via "latest".
-EMSDK_VERSION="6.0.6"
+EMSDK_VERSION="6.0.8"
 EMSDK_DIR="${SCRIPT_DIR}/tool/emsdk"
 
 if ! command -v emcc >/dev/null 2>&1; then
