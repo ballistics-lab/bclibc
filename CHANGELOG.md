@@ -58,6 +58,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   condition and got wrongly reported as a ZERO_DOWN crossing, since the ZERO_DOWN bit hadn't
   been cleared yet either. Fixed to branch on bit membership only, matching both reference
   implementations.
+- `tiny_bclibc__integrate_on_step`'s RANGE-step target was accumulated via repeated
+  `next_range_dist += range_step_ft`; replaced with a step index (`range_step_ft *
+  step_index`), so per-target rounding no longer compounds across iterations. Note this does
+  *not* recover full `range_limit_ft`/`range_step_ft` precision on its own: those fields are
+  `real_t`, so a caller requesting a target more precise than `real_t` can represent already
+  loses that precision at the call boundary, before this loop runs at all -- e.g. a
+  single-precision consumer asking for an exact ~741 m range step is off by ~3e-5 m purely from
+  that one rounding. Requesting sub-`real_t`-precision output from a `TINY_BCLIBC_SINGLE_PRECISION`
+  build is not something any amount of downstream arithmetic can fix; the index-based change
+  here only removes the *additional* drift repeated float32 addition was contributing on top of
+  that inherent limit.
 
 ## [1.1.7] - 2026-07-24
 

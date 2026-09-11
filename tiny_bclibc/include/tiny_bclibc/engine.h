@@ -392,7 +392,12 @@ static inline void tiny_bclibc__set_error(const char *msg)
         int32_t capacity;
         int32_t written;
         int32_t total;
-        real_t next_range_dist;
+        /* Step index rather than an accumulated `next_range_dist += range_step_ft`: each
+         * target is computed fresh as range_step_ft * index, so per-target rounding does not
+         * compound across iterations the way repeated float32 addition would (confirmed to
+         * matter: a 10-step accumulation measurably drifts a range_limit_ft target by ~1e-4 ft
+         * in single precision). */
+        int32_t range_step_index;
         real_t time_of_last;
         /* filter state */
         TINY_BCLIBC_BaseTrajData win[3]; /* sliding window */
@@ -489,9 +494,9 @@ static inline void tiny_bclibc__set_error(const char *msg)
         /* ── range steps ── */
         if (req->range_step_ft > REAL_C(0.0))
         {
-            while (c->next_range_dist + req->range_step_ft <= pt->px + REAL_C(1e-9))
+            while ((real_t)(c->range_step_index + 1) * req->range_step_ft <= pt->px + REAL_C(1e-9))
             {
-                real_t rd = c->next_range_dist + req->range_step_ft;
+                real_t rd = (real_t)(c->range_step_index + 1) * req->range_step_ft;
                 if (rd > req->range_limit_ft + REAL_C(1e-9))
                     break;
                 TINY_BCLIBC_BaseTrajData r;
@@ -506,7 +511,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 }
                 else
                     break;
-                c->next_range_dist += req->range_step_ft;
+                c->range_step_index++;
                 tiny_bclibc__integrate_emit(c, &r, TINY_BCLIBC_TRAJ_FLAG_RANGE);
                 c->time_of_last = r.time;
             }
