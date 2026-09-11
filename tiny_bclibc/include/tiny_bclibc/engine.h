@@ -102,6 +102,12 @@ static inline void tiny_bclibc__set_error(const char *msg)
     /* ── Streaming callback — returns 0 to continue, TINY_BCLIBC_TERM_HANDLER_STOP to stop ── */
     typedef int32_t (*tiny_bclibc_StreamCb)(const TINY_BCLIBC_TrajectoryData *pt, void *ctx);
 
+    /* ── Raw per-step callback (public) — same signature as the internal on_step callback,
+     *  so it can be handed straight through to tiny_bclibc__run_rk4 by tiny_bclibc_integrate_raw.
+     *  Receives every raw RK4 step (no C-side interpolation/filtering applied).
+     *  Return 0 to continue, non-zero to request early stop. ── */
+    typedef int32_t (*tiny_bclibc_RawStepCb)(const TINY_BCLIBC_BaseTrajData *pt, void *ctx);
+
     /* ── Stop control ────────────────────────────────────────────────── */
     typedef struct tiny_bclibc__StopCtrl
     {
@@ -181,15 +187,12 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
         tiny_bclibc__StopCtrl sc;
         tiny_bclibc__stop_ctrl_init(&sc, props, range_limit,
-                                    props->calc_step > REAL_C(0.0) ? REAL_C(0.0) : REAL_C(50.0),
-                                    REAL_C(-15000.0), REAL_C(-1500.0), out_reason);
-        /* use config for stop control */
+                                    props->cfg.cMinimumVelocity,
+                                    props->cfg.cMaximumDrop, props->cfg.cMinimumAltitude, out_reason);
 
         TINY_BCLIBC_WindSock ws = props->wind_sock; /* local copy */
 
-        TINY_BCLIBC_V3dT gravity = TINY_BCLIBC_V3dT_make(REAL_C(0.0), props->calc_step > REAL_C(0.0) ? REAL_C(-32.17405) : REAL_C(-32.17405), REAL_C(0.0));
-        /* gravity.y = cGravityConstant — no config available here, use constant */
-        gravity = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(-32.17405), REAL_C(0.0));
+        TINY_BCLIBC_V3dT gravity = TINY_BCLIBC_V3dT_make(REAL_C(0.0), props->cfg.cGravityConstant, REAL_C(0.0));
 
         TINY_BCLIBC_V3dT wind = ws.last_vector;
 
@@ -361,6 +364,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         out->cant_sine = TINY_BCLIBC_SIN(shot->cant_angle_rad);
         out->alt0 = shot->altitude_ft;
         out->calc_step = REAL_C(0.0025) * shot->config.cStepMultiplier;
+        out->cfg = shot->config;
         out->curve = curve_buf;
         out->mach_list = shot->mach_data;
         out->curve_count = shot->drag_table_size;
@@ -623,6 +627,57 @@ static inline void tiny_bclibc__set_error(const char *msg)
         *out_total = ctx.total;
         *out_reason = reason;
         return rc;
+    }
+
+    /* ── integrate_raw ────────────────────────────────────────────────
+     * Streams every raw RK4 step (time, position, velocity, mach — no C-side
+     * interpolation, filtering, or derived-field computation) to cb. Intended for
+     * external drivers (e.g. ctypes bindings) that want to reuse a host-language
+     * trajectory filter / zero-finding / apex / max-range implementation while
+     * delegating only the numerically-sensitive RK4 stepping to tiny_bclibc — so the
+     * host can exercise tiny_bclibc's compiled precision (float or double) as the
+     * physics core of its own engine.
+     *
+     * Stop conditions (min velocity, max drop, min altitude) are taken from
+     * props->cfg — see tiny_bclibc_build_shot_props, which populates props->cfg
+     * from TINY_BCLIBC_Shot::config. range_limit_ft is passed explicitly since
+     * callers typically vary it per call (e.g. zero-finding probes vs full
+     * trajectories) independent of the shot's own config. */
+    TINY_BCLIBC_FUNC int32_t tiny_bclibc_integrate_raw(
+        const TINY_BCLIBC_ShotProps *props,
+        real_t range_limit_ft,
+        tiny_bclibc_RawStepCb cb,
+        void *cb_ctx,
+        int32_t *out_reason)
+    {
+        if (!props || !cb || !out_reason)
+        {
+            tiny_bclibc__set_error("tiny_bclibc_integrate_raw: NULL argument");
+            return TINY_BCLIBC_ERR_INVALID_ARG;
+        }
+
+        TINY_BCLIBC_TrajectoryRequest req;
+        req.range_limit_ft = range_limit_ft;
+        req.range_step_ft = REAL_C(0.0);
+        req.time_step = REAL_C(0.0);
+        req.filter_flags = TINY_BCLIBC_TRAJ_FLAG_NONE;
+
+        int32_t reason = TINY_BCLIBC_TERM_NO_TERMINATE;
+        int32_t rc = tiny_bclibc__run_rk4(props, &req, cb, cb_ctx, &reason);
+        *out_reason = reason;
+        return rc;
+    }
+
+    /* ── sizeof helpers — let external (e.g. ctypes) callers validate their opaque
+     *  buffer sizes / struct mirrors against the actual compiled layout. ── */
+    TINY_BCLIBC_FUNC int32_t tiny_bclibc_sizeof_shot_props(void)
+    {
+        return (int32_t)sizeof(TINY_BCLIBC_ShotProps);
+    }
+
+    TINY_BCLIBC_FUNC int32_t tiny_bclibc_sizeof_curve_point(void)
+    {
+        return (int32_t)sizeof(TINY_BCLIBC_CurvePoint);
     }
 
     /* ── integrate_at ─────────────────────────────────────────────────── */

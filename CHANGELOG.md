@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `tiny_bclibc`: `tiny_bclibc_integrate_raw()` — streams every raw RK4 step
+  (`TINY_BCLIBC_BaseTrajData`: time/position/velocity/mach, no C-side filtering or
+  interpolation) to a caller-supplied callback. Intended for external drivers (e.g. ctypes/FFI
+  bindings) that want to reuse a host-language trajectory filter, zero-finding, apex, and
+  max-range implementation while delegating only the numerically-sensitive RK4 stepping to
+  tiny_bclibc, so the host can exercise tiny_bclibc's compiled precision (float or double) as
+  the physics core of its own engine.
+- `tiny_bclibc`: `tiny_bclibc_sizeof_shot_props()` / `tiny_bclibc_sizeof_curve_point()` — let
+  external callers validate an opaque buffer size, or a struct-layout mirror (e.g. a ctypes
+  `Structure`), against the actual compiled layout.
+
+### Fixed
+- `tiny_bclibc`: `tiny_bclibc__run_rk4`'s stop control (minimum velocity, maximum drop, minimum
+  altitude) now reads from `TINY_BCLIBC_ShotProps::cfg` instead of hardcoded constants, and
+  `tiny_bclibc_build_shot_props()` now populates `cfg` from `TINY_BCLIBC_Shot::config` (it
+  previously left `cfg` unset). Previously every trajectory was silently capped at a hardcoded
+  -15000 ft drop / -1500 ft altitude / 0 fps minimum velocity regardless of the caller's actual
+  config, which in particular broke long-search algorithms (e.g. max-range / zero-angle search
+  over a wide angle bracket) that rely on temporarily relaxing these limits.
+- `tiny_bclibc`: gravity acceleration in `tiny_bclibc__run_rk4` now uses
+  `props->cfg.cGravityConstant` instead of a hardcoded `-32.17405`, so a caller-supplied
+  non-default gravity constant is honored.
+
 ## [1.1.7] - 2026-07-24
 
 ### Added
