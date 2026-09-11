@@ -109,6 +109,33 @@ Measured via the precision comparison tool in
 This is negligible compared to any practical uncertainty source (wind, BC variance, MV
 spread) and float32 is sufficient for all supported embedded targets.
 
+### Python driver benchmark (ctypes, `tiny_bclibc_integrate_stream`)
+
+Measured via
+[py-ballisticcalc's `examples/tiny_bclibc`](https://github.com/o-murphy/py-ballisticcalc/tree/master/examples/tiny_bclibc)
+(`scripts/benchmark.py`, `Trajectory`/`Zero` cases, 1000 repeats + 100 warmup), driving
+`tiny_bclibc_integrate_stream` from Python via `ctypes` and comparing against
+`py_ballisticcalc.exts`' `cythonized_rk4_engine` (a genuine C-extension binding to bclibc's
+C++ engine — no FFI marshalling per call).
+
+| Case | Engine | Mean | Min | Max |
+|---|---|---|---|---|
+| Trajectory | `cythonized_rk4_engine` | 0.35 ms | 0.33 ms | 0.57 ms |
+| Trajectory | `tiny_bclibc` (single precision, ctypes) | 0.39 ms | 0.32 ms | 1.11 ms |
+| Trajectory | `tiny_bclibc` (double precision, ctypes) | 0.57 ms | 0.52 ms | 1.03 ms |
+| Zero | `cythonized_rk4_engine` | 0.92 ms | 0.87 ms | 1.30 ms |
+| Zero | `tiny_bclibc` (single precision, ctypes) | 0.96 ms | 0.84 ms | 1.72 ms |
+| Zero | `tiny_bclibc` (double precision, ctypes) | 2.03 ms | 1.79 ms | 2.99 ms |
+
+**Conclusion:** streaming filtered output rows (one Python callback per emitted row, not per
+RK4 step) puts a `ctypes` driver within noise of a real C-extension binding for both cases —
+the earlier, since-abandoned approach of streaming every *raw* RK4 step to Python
+(`tiny_bclibc_integrate_raw`, still available as a small primitive for other uses) was
+~20–34x slower on the same benchmark, confirming the per-step Python↔C transition — not the
+physics itself — was the actual bottleneck. Single precision's `Zero` case is faster than
+double's here because the driving engine relaxed `cZeroFindingAccuracy` to match float32's
+representable precision (fewer Newton iterations); see that project's `sp.py` docstring.
+
 ## Usage
 
 ### 1. Basic trajectory
