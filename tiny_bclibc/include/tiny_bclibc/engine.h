@@ -404,6 +404,10 @@ static inline void tiny_bclibc__set_error(const char *msg)
         tiny_bclibc_StreamCb stream_cb;
         void *stream_ctx;
         int32_t stream_stop;
+        /* last raw point seen (set unconditionally, whether or not it was emitted) --
+         * lets a caller reconstruct the exact terminal state of an incomplete trajectory
+         * even when it didn't happen to land on a requested range/time step. */
+        TINY_BCLIBC_BaseTrajData last_raw;
     } tiny_bclibc__IntegrateCtx;
 
     static inline void tiny_bclibc__integrate_emit(tiny_bclibc__IntegrateCtx *c,
@@ -441,6 +445,8 @@ static inline void tiny_bclibc__set_error(const char *msg)
         tiny_bclibc__IntegrateCtx *c = (tiny_bclibc__IntegrateCtx *)ctx_;
         const TINY_BCLIBC_TrajectoryRequest *req = c->req;
         int32_t can_interp = (c->win_n >= 3);
+
+        c->last_raw = *pt;
 
         /* ── initialiation (first point) ── */
         if (!c->initialized)
@@ -527,30 +533,66 @@ static inline void tiny_bclibc__set_error(const char *msg)
             c->active_flags &= ~TINY_BCLIBC_TRAJ_FLAG_APEX;
         }
 
-        /* ── mach crossing ── */
+        /* ── mach crossing ──
+         * pt->mach is a Mach *ratio* (relative_speed / speed_of_sound), not a speed --
+         * the crossing condition is simply "ratio dropped below 1", mirrored below by
+         * interpolating that same ratio field to the value 1.0. */
         if (can_interp && (c->active_flags & TINY_BCLIBC_TRAJ_FLAG_MACH))
         {
-            real_t vel = TINY_BCLIBC_SQRT(pt->vx * pt->vx + pt->vy * pt->vy + pt->vz * pt->vz);
-            if (vel < pt->mach)
+            if (pt->mach < REAL_C(1.0))
             {
                 tiny_bclibc__try_interp_emit(c, TINY_BCLIBC_KEY_MACH, REAL_C(1.0), TINY_BCLIBC_TRAJ_FLAG_MACH);
                 c->active_flags &= ~TINY_BCLIBC_TRAJ_FLAG_MACH;
             }
         }
 
-        /* ── zero crossings ── */
+        /* ── zero crossings ──
+         * Interpolate directly on slant height (py*cos(look_angle) - px*sin(look_angle),
+         * the signed distance orthogonal to the sight line) rather than comparing py
+         * against a reference height computed from the *current* point's px: that
+         * approximation drifts as px moves across the window and is only accurate for
+         * shallow look angles. Interpolating slant-to-zero is exact regardless of angle. */
         if (can_interp && (c->active_flags & TINY_BCLIBC_TRAJ_FLAG_ZERO))
         {
-            real_t ref = pt->px * c->look_angle_tan;
-            if ((c->active_flags & TINY_BCLIBC_TRAJ_FLAG_ZERO_UP) && pt->py >= ref)
+            real_t la_cos = TINY_BCLIBC_COS(c->props->look_angle);
+            real_t la_sin = TINY_BCLIBC_SIN(c->props->look_angle);
+            real_t slant = pt->py * la_cos - pt->px * la_sin;
+            int32_t cross_flag = 0;
+            /* Branch on which bit is still live, not on (bit && condition) together --
+             * ZERO_DOWN must never be considered while still waiting for ZERO_UP, even on
+             * steps where the UP condition itself isn't yet true (mirrors Python's
+             * `if ZERO_UP: ... elif ZERO_DOWN: ...` chain, gated on the bit alone). */
+            if (c->active_flags & TINY_BCLIBC_TRAJ_FLAG_ZERO_UP)
             {
-                tiny_bclibc__try_interp_emit(c, TINY_BCLIBC_KEY_POS_Y, ref, TINY_BCLIBC_TRAJ_FLAG_ZERO_UP);
-                c->active_flags = (c->active_flags & ~TINY_BCLIBC_TRAJ_FLAG_ZERO_UP);
+                if (slant >= REAL_C(0.0))
+                {
+                    cross_flag = TINY_BCLIBC_TRAJ_FLAG_ZERO_UP;
+                    c->active_flags &= ~TINY_BCLIBC_TRAJ_FLAG_ZERO_UP;
+                }
             }
-            else if ((c->active_flags & TINY_BCLIBC_TRAJ_FLAG_ZERO_DOWN) && pt->py < ref)
+            else if (c->active_flags & TINY_BCLIBC_TRAJ_FLAG_ZERO_DOWN)
             {
-                tiny_bclibc__try_interp_emit(c, TINY_BCLIBC_KEY_POS_Y, ref, TINY_BCLIBC_TRAJ_FLAG_ZERO_DOWN);
-                c->active_flags &= ~TINY_BCLIBC_TRAJ_FLAG_ZERO_DOWN;
+                if (slant < REAL_C(0.0))
+                {
+                    cross_flag = TINY_BCLIBC_TRAJ_FLAG_ZERO_DOWN;
+                    c->active_flags &= ~TINY_BCLIBC_TRAJ_FLAG_ZERO_DOWN;
+                }
+            }
+            if (cross_flag && c->win_n >= 3)
+            {
+                real_t s0 = c->win[0].py * la_cos - c->win[0].px * la_sin;
+                real_t s1 = c->win[1].py * la_cos - c->win[1].px * la_sin;
+                real_t s2 = c->win[2].py * la_cos - c->win[2].px * la_sin;
+                TINY_BCLIBC_BaseTrajData r;
+                r.time = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].time, c->win[1].time, c->win[2].time);
+                r.px = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].px, c->win[1].px, c->win[2].px);
+                r.py = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].py, c->win[1].py, c->win[2].py);
+                r.pz = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].pz, c->win[1].pz, c->win[2].pz);
+                r.vx = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].vx, c->win[1].vx, c->win[2].vx);
+                r.vy = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].vy, c->win[1].vy, c->win[2].vy);
+                r.vz = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].vz, c->win[1].vz, c->win[2].vz);
+                r.mach = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].mach, c->win[1].mach, c->win[2].mach);
+                tiny_bclibc__integrate_emit(c, &r, cross_flag);
             }
         }
 
@@ -606,7 +648,8 @@ static inline void tiny_bclibc__set_error(const char *msg)
         tiny_bclibc_StreamCb cb,
         void *cb_ctx,
         int32_t *out_total,
-        int32_t *out_reason)
+        int32_t *out_reason,
+        TINY_BCLIBC_BaseTrajData *out_final_raw /* optional (may be NULL) */)
     {
         if (!props || !req || !cb || !out_total || !out_reason)
         {
@@ -626,6 +669,8 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
         *out_total = ctx.total;
         *out_reason = reason;
+        if (out_final_raw)
+            *out_final_raw = ctx.last_raw;
         return rc;
     }
 
