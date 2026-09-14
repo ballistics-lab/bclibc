@@ -7,6 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.8] - 2026-09-26
+
+### Added
+- `tiny_bclibc`: `tiny_bclibc_integrate_raw()` — streams every raw RK4 step
+  (`TINY_BCLIBC_BaseTrajData`: time/position/velocity/mach, no C-side filtering or
+  interpolation) to a caller-supplied callback. Intended for external drivers (e.g. ctypes/FFI
+  bindings) that want to reuse a host-language trajectory filter, zero-finding, apex, and
+  max-range implementation while delegating only the numerically-sensitive RK4 stepping to
+  tiny_bclibc, so the host can exercise tiny_bclibc's compiled precision (float or double) as
+  the physics core of its own engine.
+- `tiny_bclibc`: `tiny_bclibc_sizeof_shot_props()` / `tiny_bclibc_sizeof_curve_point()` — let
+  external callers validate an opaque buffer size, or a struct-layout mirror (e.g. a ctypes
+  `Structure`), against the actual compiled layout.
+- `tiny_bclibc`: `tiny_bclibc_integrate_stream()` gains an optional `out_final_raw` parameter
+  (`TINY_BCLIBC_BaseTrajData *`, may be `NULL`) exposing the exact terminal raw kinematic state
+  of the integration, regardless of whether the C-side filter happened to emit a row for it.
+  Lets a caller reconstruct the equivalent of `BCLIBC_TrajectoryDataFilter`'s
+  destructor-time finalize (append the exact terminal point when a trajectory ends other than
+  by reaching the requested range) without tiny_bclibc itself needing to grow that logic.
+
+### Fixed
+- `tiny_bclibc`: `tiny_bclibc__run_rk4`'s stop control (minimum velocity, maximum drop, minimum
+  altitude) now reads from `TINY_BCLIBC_ShotProps::cfg` instead of hardcoded constants, and
+  `tiny_bclibc_build_shot_props()` now populates `cfg` from `TINY_BCLIBC_Shot::config` (it
+  previously left `cfg` unset). Previously every trajectory was silently capped at a hardcoded
+  -15000 ft drop / -1500 ft altitude / 0 fps minimum velocity regardless of the caller's actual
+  config, which in particular broke long-search algorithms (e.g. max-range / zero-angle search
+  over a wide angle bracket) that rely on temporarily relaxing these limits.
+- `tiny_bclibc`: gravity acceleration in `tiny_bclibc__run_rk4` now uses
+  `props->cfg.cGravityConstant` instead of a hardcoded `-32.17405`, so a caller-supplied
+  non-default gravity constant is honored.
+- `tiny_bclibc__integrate_on_step`'s MACH crossing check compared ground velocity (fps)
+  directly against `BaseTrajData::mach` (a dimensionless Mach *ratio* in this codebase, not a
+  speed) -- `vel < pt->mach` was therefore false for any realistic velocity, so a MACH crossing
+  could never be detected via this path. Now compares the ratio to `1.0` directly.
+- `tiny_bclibc__integrate_on_step`'s ZERO crossing interpolated raw `py` against a reference
+  height computed from the *current* point's `px` (`px * tan(look_angle)`), which drifts as
+  `px` moves across the 3-point window and is only accurate for shallow look angles (confirmed
+  ~27 ft off at a 30° look angle in a downstream consumer's test). Now interpolates the
+  slant height directly (`py*cos(look_angle) - px*sin(look_angle)`, the same geometric
+  quantity bclibc's C++ `BCLIBC_TrajectoryDataFilter`/`BCLIBC_TrajectoryData::interpolate`
+  interpolates to zero) via the existing `tiny_bclibc_interpolate3pt`, which is exact
+  regardless of angle.
+- `tiny_bclibc__integrate_on_step`'s ZERO_UP/ZERO_DOWN branch tested `(bit_is_set &&
+  geometric_condition)` for both directions in an if/else-if chain, rather than branching on
+  which bit is still live first (as bclibc's C++ `BCLIBC_TrajectoryDataFilter::record` and
+  py_ballisticcalc's `TrajectoryDataFilter.record` both do via `if ZERO_UP: ... elif
+  ZERO_DOWN: ...`, gated on the bit alone). Concretely: while still waiting for a shot to cross
+  *up* through the sight line, every step where it was still below the line (a legitimate,
+  common state, not just a brief transient) satisfied the `ZERO_DOWN` branch's combined
+  condition and got wrongly reported as a ZERO_DOWN crossing, since the ZERO_DOWN bit hadn't
+  been cleared yet either. Fixed to branch on bit membership only, matching both reference
+  implementations.
+- `tiny_bclibc__integrate_on_step`'s RANGE-step target was accumulated via repeated
+  `next_range_dist += range_step_ft`; replaced with a step index (`range_step_ft *
+  step_index`), so per-target rounding no longer compounds across iterations. Note this does
+  *not* recover full `range_limit_ft`/`range_step_ft` precision on its own: those fields are
+  `real_t`, so a caller requesting a target more precise than `real_t` can represent already
+  loses that precision at the call boundary, before this loop runs at all -- e.g. a
+  single-precision consumer asking for an exact ~741 m range step is off by ~3e-5 m purely from
+  that one rounding. Requesting sub-`real_t`-precision output from a `TINY_BCLIBC_SINGLE_PRECISION`
+  build is not something any amount of downstream arithmetic can fix; the index-based change
+  here only removes the *additional* drift repeated float32 addition was contributing on top of
+  that inherent limit.
+
 ## [1.1.7] - 2026-07-24
 
 ### Added
@@ -272,7 +337,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.7...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.8...HEAD
+[1.1.8]: https://github.com/ballistics-lab/bclibc/compare/v1.1.7...v1.1.8
 [1.1.7]: https://github.com/ballistics-lab/bclibc/compare/v1.1.6...v1.1.7
 [1.1.6]: https://github.com/ballistics-lab/bclibc/compare/v1.1.5...v1.1.6
 [1.1.5]: https://github.com/ballistics-lab/bclibc/compare/v1.1.4...v1.1.5

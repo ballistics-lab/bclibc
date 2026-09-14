@@ -102,6 +102,12 @@ static inline void tiny_bclibc__set_error(const char *msg)
     /* ── Streaming callback — returns 0 to continue, TINY_BCLIBC_TERM_HANDLER_STOP to stop ── */
     typedef int32_t (*tiny_bclibc_StreamCb)(const TINY_BCLIBC_TrajectoryData *pt, void *ctx);
 
+    /* ── Raw per-step callback (public) — same signature as the internal on_step callback,
+     *  so it can be handed straight through to tiny_bclibc__run_rk4 by tiny_bclibc_integrate_raw.
+     *  Receives every raw RK4 step (no C-side interpolation/filtering applied).
+     *  Return 0 to continue, non-zero to request early stop. ── */
+    typedef int32_t (*tiny_bclibc_RawStepCb)(const TINY_BCLIBC_BaseTrajData *pt, void *ctx);
+
     /* ── Stop control ────────────────────────────────────────────────── */
     typedef struct tiny_bclibc__StopCtrl
     {
@@ -181,15 +187,12 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
         tiny_bclibc__StopCtrl sc;
         tiny_bclibc__stop_ctrl_init(&sc, props, range_limit,
-                                    props->calc_step > REAL_C(0.0) ? REAL_C(0.0) : REAL_C(50.0),
-                                    REAL_C(-15000.0), REAL_C(-1500.0), out_reason);
-        /* use config for stop control */
+                                    props->cfg.cMinimumVelocity,
+                                    props->cfg.cMaximumDrop, props->cfg.cMinimumAltitude, out_reason);
 
         TINY_BCLIBC_WindSock ws = props->wind_sock; /* local copy */
 
-        TINY_BCLIBC_V3dT gravity = TINY_BCLIBC_V3dT_make(REAL_C(0.0), props->calc_step > REAL_C(0.0) ? REAL_C(-32.17405) : REAL_C(-32.17405), REAL_C(0.0));
-        /* gravity.y = cGravityConstant — no config available here, use constant */
-        gravity = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(-32.17405), REAL_C(0.0));
+        TINY_BCLIBC_V3dT gravity = TINY_BCLIBC_V3dT_make(REAL_C(0.0), props->cfg.cGravityConstant, REAL_C(0.0));
 
         TINY_BCLIBC_V3dT wind = ws.last_vector;
 
@@ -361,6 +364,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         out->cant_sine = TINY_BCLIBC_SIN(shot->cant_angle_rad);
         out->alt0 = shot->altitude_ft;
         out->calc_step = REAL_C(0.0025) * shot->config.cStepMultiplier;
+        out->cfg = shot->config;
         out->curve = curve_buf;
         out->mach_list = shot->mach_data;
         out->curve_count = shot->drag_table_size;
@@ -388,7 +392,12 @@ static inline void tiny_bclibc__set_error(const char *msg)
         int32_t capacity;
         int32_t written;
         int32_t total;
-        real_t next_range_dist;
+        /* Step index rather than an accumulated `next_range_dist += range_step_ft`: each
+         * target is computed fresh as range_step_ft * index, so per-target rounding does not
+         * compound across iterations the way repeated float32 addition would (confirmed to
+         * matter: a 10-step accumulation measurably drifts a range_limit_ft target by ~1e-4 ft
+         * in single precision). */
+        int32_t range_step_index;
         real_t time_of_last;
         /* filter state */
         TINY_BCLIBC_BaseTrajData win[3]; /* sliding window */
@@ -400,6 +409,10 @@ static inline void tiny_bclibc__set_error(const char *msg)
         tiny_bclibc_StreamCb stream_cb;
         void *stream_ctx;
         int32_t stream_stop;
+        /* last raw point seen (set unconditionally, whether or not it was emitted) --
+         * lets a caller reconstruct the exact terminal state of an incomplete trajectory
+         * even when it didn't happen to land on a requested range/time step. */
+        TINY_BCLIBC_BaseTrajData last_raw;
     } tiny_bclibc__IntegrateCtx;
 
     static inline void tiny_bclibc__integrate_emit(tiny_bclibc__IntegrateCtx *c,
@@ -437,6 +450,8 @@ static inline void tiny_bclibc__set_error(const char *msg)
         tiny_bclibc__IntegrateCtx *c = (tiny_bclibc__IntegrateCtx *)ctx_;
         const TINY_BCLIBC_TrajectoryRequest *req = c->req;
         int32_t can_interp = (c->win_n >= 3);
+
+        c->last_raw = *pt;
 
         /* ── initialiation (first point) ── */
         if (!c->initialized)
@@ -479,9 +494,9 @@ static inline void tiny_bclibc__set_error(const char *msg)
         /* ── range steps ── */
         if (req->range_step_ft > REAL_C(0.0))
         {
-            while (c->next_range_dist + req->range_step_ft <= pt->px + REAL_C(1e-9))
+            while ((real_t)(c->range_step_index + 1) * req->range_step_ft <= pt->px + REAL_C(1e-9))
             {
-                real_t rd = c->next_range_dist + req->range_step_ft;
+                real_t rd = (real_t)(c->range_step_index + 1) * req->range_step_ft;
                 if (rd > req->range_limit_ft + REAL_C(1e-9))
                     break;
                 TINY_BCLIBC_BaseTrajData r;
@@ -496,7 +511,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 }
                 else
                     break;
-                c->next_range_dist += req->range_step_ft;
+                c->range_step_index++;
                 tiny_bclibc__integrate_emit(c, &r, TINY_BCLIBC_TRAJ_FLAG_RANGE);
                 c->time_of_last = r.time;
             }
@@ -523,30 +538,66 @@ static inline void tiny_bclibc__set_error(const char *msg)
             c->active_flags &= ~TINY_BCLIBC_TRAJ_FLAG_APEX;
         }
 
-        /* ── mach crossing ── */
+        /* ── mach crossing ──
+         * pt->mach is a Mach *ratio* (relative_speed / speed_of_sound), not a speed --
+         * the crossing condition is simply "ratio dropped below 1", mirrored below by
+         * interpolating that same ratio field to the value 1.0. */
         if (can_interp && (c->active_flags & TINY_BCLIBC_TRAJ_FLAG_MACH))
         {
-            real_t vel = TINY_BCLIBC_SQRT(pt->vx * pt->vx + pt->vy * pt->vy + pt->vz * pt->vz);
-            if (vel < pt->mach)
+            if (pt->mach < REAL_C(1.0))
             {
                 tiny_bclibc__try_interp_emit(c, TINY_BCLIBC_KEY_MACH, REAL_C(1.0), TINY_BCLIBC_TRAJ_FLAG_MACH);
                 c->active_flags &= ~TINY_BCLIBC_TRAJ_FLAG_MACH;
             }
         }
 
-        /* ── zero crossings ── */
+        /* ── zero crossings ──
+         * Interpolate directly on slant height (py*cos(look_angle) - px*sin(look_angle),
+         * the signed distance orthogonal to the sight line) rather than comparing py
+         * against a reference height computed from the *current* point's px: that
+         * approximation drifts as px moves across the window and is only accurate for
+         * shallow look angles. Interpolating slant-to-zero is exact regardless of angle. */
         if (can_interp && (c->active_flags & TINY_BCLIBC_TRAJ_FLAG_ZERO))
         {
-            real_t ref = pt->px * c->look_angle_tan;
-            if ((c->active_flags & TINY_BCLIBC_TRAJ_FLAG_ZERO_UP) && pt->py >= ref)
+            real_t la_cos = TINY_BCLIBC_COS(c->props->look_angle);
+            real_t la_sin = TINY_BCLIBC_SIN(c->props->look_angle);
+            real_t slant = pt->py * la_cos - pt->px * la_sin;
+            int32_t cross_flag = 0;
+            /* Branch on which bit is still live, not on (bit && condition) together --
+             * ZERO_DOWN must never be considered while still waiting for ZERO_UP, even on
+             * steps where the UP condition itself isn't yet true (mirrors Python's
+             * `if ZERO_UP: ... elif ZERO_DOWN: ...` chain, gated on the bit alone). */
+            if (c->active_flags & TINY_BCLIBC_TRAJ_FLAG_ZERO_UP)
             {
-                tiny_bclibc__try_interp_emit(c, TINY_BCLIBC_KEY_POS_Y, ref, TINY_BCLIBC_TRAJ_FLAG_ZERO_UP);
-                c->active_flags = (c->active_flags & ~TINY_BCLIBC_TRAJ_FLAG_ZERO_UP);
+                if (slant >= REAL_C(0.0))
+                {
+                    cross_flag = TINY_BCLIBC_TRAJ_FLAG_ZERO_UP;
+                    c->active_flags &= ~TINY_BCLIBC_TRAJ_FLAG_ZERO_UP;
+                }
             }
-            else if ((c->active_flags & TINY_BCLIBC_TRAJ_FLAG_ZERO_DOWN) && pt->py < ref)
+            else if (c->active_flags & TINY_BCLIBC_TRAJ_FLAG_ZERO_DOWN)
             {
-                tiny_bclibc__try_interp_emit(c, TINY_BCLIBC_KEY_POS_Y, ref, TINY_BCLIBC_TRAJ_FLAG_ZERO_DOWN);
-                c->active_flags &= ~TINY_BCLIBC_TRAJ_FLAG_ZERO_DOWN;
+                if (slant < REAL_C(0.0))
+                {
+                    cross_flag = TINY_BCLIBC_TRAJ_FLAG_ZERO_DOWN;
+                    c->active_flags &= ~TINY_BCLIBC_TRAJ_FLAG_ZERO_DOWN;
+                }
+            }
+            if (cross_flag && c->win_n >= 3)
+            {
+                real_t s0 = c->win[0].py * la_cos - c->win[0].px * la_sin;
+                real_t s1 = c->win[1].py * la_cos - c->win[1].px * la_sin;
+                real_t s2 = c->win[2].py * la_cos - c->win[2].px * la_sin;
+                TINY_BCLIBC_BaseTrajData r;
+                r.time = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].time, c->win[1].time, c->win[2].time);
+                r.px = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].px, c->win[1].px, c->win[2].px);
+                r.py = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].py, c->win[1].py, c->win[2].py);
+                r.pz = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].pz, c->win[1].pz, c->win[2].pz);
+                r.vx = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].vx, c->win[1].vx, c->win[2].vx);
+                r.vy = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].vy, c->win[1].vy, c->win[2].vy);
+                r.vz = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].vz, c->win[1].vz, c->win[2].vz);
+                r.mach = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].mach, c->win[1].mach, c->win[2].mach);
+                tiny_bclibc__integrate_emit(c, &r, cross_flag);
             }
         }
 
@@ -602,7 +653,8 @@ static inline void tiny_bclibc__set_error(const char *msg)
         tiny_bclibc_StreamCb cb,
         void *cb_ctx,
         int32_t *out_total,
-        int32_t *out_reason)
+        int32_t *out_reason,
+        TINY_BCLIBC_BaseTrajData *out_final_raw /* optional (may be NULL) */)
     {
         if (!props || !req || !cb || !out_total || !out_reason)
         {
@@ -622,7 +674,60 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
         *out_total = ctx.total;
         *out_reason = reason;
+        if (out_final_raw)
+            *out_final_raw = ctx.last_raw;
         return rc;
+    }
+
+    /* ── integrate_raw ────────────────────────────────────────────────
+     * Streams every raw RK4 step (time, position, velocity, mach — no C-side
+     * interpolation, filtering, or derived-field computation) to cb. Intended for
+     * external drivers (e.g. ctypes bindings) that want to reuse a host-language
+     * trajectory filter / zero-finding / apex / max-range implementation while
+     * delegating only the numerically-sensitive RK4 stepping to tiny_bclibc — so the
+     * host can exercise tiny_bclibc's compiled precision (float or double) as the
+     * physics core of its own engine.
+     *
+     * Stop conditions (min velocity, max drop, min altitude) are taken from
+     * props->cfg — see tiny_bclibc_build_shot_props, which populates props->cfg
+     * from TINY_BCLIBC_Shot::config. range_limit_ft is passed explicitly since
+     * callers typically vary it per call (e.g. zero-finding probes vs full
+     * trajectories) independent of the shot's own config. */
+    TINY_BCLIBC_FUNC int32_t tiny_bclibc_integrate_raw(
+        const TINY_BCLIBC_ShotProps *props,
+        real_t range_limit_ft,
+        tiny_bclibc_RawStepCb cb,
+        void *cb_ctx,
+        int32_t *out_reason)
+    {
+        if (!props || !cb || !out_reason)
+        {
+            tiny_bclibc__set_error("tiny_bclibc_integrate_raw: NULL argument");
+            return TINY_BCLIBC_ERR_INVALID_ARG;
+        }
+
+        TINY_BCLIBC_TrajectoryRequest req;
+        req.range_limit_ft = range_limit_ft;
+        req.range_step_ft = REAL_C(0.0);
+        req.time_step = REAL_C(0.0);
+        req.filter_flags = TINY_BCLIBC_TRAJ_FLAG_NONE;
+
+        int32_t reason = TINY_BCLIBC_TERM_NO_TERMINATE;
+        int32_t rc = tiny_bclibc__run_rk4(props, &req, cb, cb_ctx, &reason);
+        *out_reason = reason;
+        return rc;
+    }
+
+    /* ── sizeof helpers — let external (e.g. ctypes) callers validate their opaque
+     *  buffer sizes / struct mirrors against the actual compiled layout. ── */
+    TINY_BCLIBC_FUNC int32_t tiny_bclibc_sizeof_shot_props(void)
+    {
+        return (int32_t)sizeof(TINY_BCLIBC_ShotProps);
+    }
+
+    TINY_BCLIBC_FUNC int32_t tiny_bclibc_sizeof_curve_point(void)
+    {
+        return (int32_t)sizeof(TINY_BCLIBC_CurvePoint);
     }
 
     /* ── integrate_at ─────────────────────────────────────────────────── */
