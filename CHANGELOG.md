@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.8] - 2026-09-26
+
 ### Added
 - `tiny_bclibc`: `tiny_bclibc_integrate_raw()` — streams every raw RK4 step
   (`TINY_BCLIBC_BaseTrajData`: time/position/velocity/mach, no C-side filtering or
@@ -335,7 +337,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.7...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.8...HEAD
+[1.1.8]: https://github.com/ballistics-lab/bclibc/compare/v1.1.7...v1.1.8
 [1.1.7]: https://github.com/ballistics-lab/bclibc/compare/v1.1.6...v1.1.7
 [1.1.6]: https://github.com/ballistics-lab/bclibc/compare/v1.1.5...v1.1.6
 [1.1.5]: https://github.com/ballistics-lab/bclibc/compare/v1.1.4...v1.1.5
