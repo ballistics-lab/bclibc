@@ -196,6 +196,43 @@ namespace
         }
         assert(coalesced_count == 1);
     }
+
+    void test_streaming_step_coalesces_zero_down_and_range()
+    {
+        std::vector<BCLIBC_TrajectoryData> records;
+        BCLIBC_TerminationReason reason = BCLIBC_TerminationReason::NO_TERMINATE;
+        BCLIBC_ShotProps props = make_filter_test_props();
+
+        BCLIBC_TrajectoryDataFilter filter(
+            records, props, BCLIBC_TRAJ_FLAG_ZERO, reason,
+            100.0, 35.0, 0.0);
+        BCLIBC_BaseTrajDataHandlerCompositor handler(&filter);
+
+        // Symmetric to ZERO_UP: the Hermite path crosses the sight line
+        // downward at x=35, t=1 inside this single accepted step.
+        const BCLIBC_BaseTrajData start(0.0, 0.0, 1.0, 0.0,
+                                        20.0, -1.0, 0.0, 1100.0);
+        const BCLIBC_BaseTrajData end(2.0, 100.0, -1.0, 0.0,
+                                      80.0, -1.0, 0.0, 1100.0);
+
+        handler.handle(start);
+        handler.handle_step(start, end);
+
+        int coalesced_count = 0;
+        for (const BCLIBC_TrajectoryData &row : records)
+        {
+            const bool is_zero_down = (row.flag & BCLIBC_TRAJ_FLAG_ZERO_DOWN) != 0;
+            const bool is_range = (row.flag & BCLIBC_TRAJ_FLAG_RANGE) != 0;
+            if (is_zero_down && is_range)
+            {
+                ++coalesced_count;
+                assert(std::fabs(row.distance_ft - 35.0) < 1e-9);
+                assert(std::fabs(row.time - 1.0) < 1e-9);
+                assert(std::fabs(row.height_ft) < 1e-9);
+            }
+        }
+        assert(coalesced_count == 1);
+    }
 }
 
 int main()
@@ -208,6 +245,7 @@ int main()
     test_get_at_tolerates_epsilon_boundary_jitter();
     test_get_at_requires_at_least_three_points();
     test_streaming_step_coalesces_zero_and_range();
+    test_streaming_step_coalesces_zero_down_and_range();
 
     std::printf("test_traj_data: all tests passed\n");
     return 0;
