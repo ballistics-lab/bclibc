@@ -83,7 +83,19 @@ namespace bclibc
                     hi = mid;
                 }
             }
-            return hermite_at_time(start, end, 0.5 * (lo + hi), out);
+            if (!hermite_at_time(start, end, 0.5 * (lo + hi), out))
+            {
+                return false;
+            }
+            // The query axis is assigned the exact target, not re-derived from the converged
+            // Hermite sample: bisection only guarantees the *time* has converged, and
+            // re-evaluating px from that time carries the Hermite polynomial's own rounding on
+            // top of the bisection residual. Free to do, and matters once this code runs at a
+            // precision/magnitude where that residual isn't negligible (see tiny_bclibc's
+            // engine.h port of this same function, where it measurably misses an exact
+            // RANGE-step target in single precision without this).
+            out.px = target_x;
+            return true;
         }
 
         bool hermite_at_value(const BCLIBC_BaseTrajData &start,
