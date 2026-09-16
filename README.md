@@ -98,9 +98,13 @@ with C bindings.
 `BCLIBC_integrateCashKarp` (`bclibc/cash_karp.hpp`) is an embedded adaptive RK45 integrator
 (Numerical Recipes `rkck`), selectable via `BCLIBC_BaseEngine::integrate_func` like any other
 integrator. It grows its step up to 64x the configured base step during smooth flight and
-shrinks it down to base/64 whenever its embedded 4th/5th-order error estimate exceeds
-`BCLIBC_cashKarpSetRelativeTolerance` (default `1e-6`), retrying the attempted step rather than
-accepting it — typically 2-6x fewer total steps than fixed-step RK4 for the same accuracy.
+shrinks it down to base/64 whenever its embedded 4th/5th-order error estimate exceeds its
+SciPy-compatible tolerances. `BCLIBC_cashKarpSetRelativeTolerance()` and
+`BCLIBC_cashKarpSetAbsoluteTolerance()` each default to `1e-6`; the scalar `atol` and `rtol`
+scale every one of the three position and three velocity components as
+`atol + rtol * max(abs(y), abs(y_new))`, and their errors use an RMS norm. It retries a rejected
+attempt rather than accepting it — typically 2-6x fewer total steps than fixed-step RK4 for the
+same accuracy.
 
 Unlike `BCLIBC_integrateRK4`, which freezes the drag coefficient once per step, Cash-Karp
 recomputes both the drag coefficient *and* the atmosphere sample fresh at each of its 6 stages:

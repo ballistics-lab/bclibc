@@ -33,8 +33,9 @@ namespace bclibc
         constexpr double D6 = C6 - 0.25;
 
         constexpr double kSafety = 0.9;
-        constexpr double kAtolVelocity = 1e-3; // fps floor
-        constexpr double kAtolPosition = 1e-4; // ft floor
+        // Keep the same scalar atol semantics as scipy.integrate.solve_ivp:
+        // each state component is scaled by atol + rtol * abs(y_i).
+        constexpr double kDefaultAbsoluteTolerance = 1e-6;
         constexpr double kDefaultRelTolerance = 1e-6;
         constexpr int kMaxRetryPerStep = 24;
         constexpr double kMinDtDivisor = 64.0;
@@ -43,6 +44,7 @@ namespace bclibc
         thread_local int g_ck_accepted = 0;
         thread_local int g_ck_rejected = 0;
         thread_local double g_ck_rel_tolerance = kDefaultRelTolerance;
+        thread_local double g_ck_absolute_tolerance = kDefaultAbsoluteTolerance;
 
         struct Deriv
         {
@@ -96,6 +98,13 @@ namespace bclibc
         if (!std::isfinite(tolerance) || tolerance <= 0.0)
             throw std::invalid_argument("Cash-Karp relative tolerance must be finite and positive");
         g_ck_rel_tolerance = tolerance;
+    }
+
+    void BCLIBC_cashKarpSetAbsoluteTolerance(double tolerance)
+    {
+        if (!std::isfinite(tolerance) || tolerance < 0.0)
+            throw std::invalid_argument("Cash-Karp absolute tolerance must be finite and non-negative");
+        g_ck_absolute_tolerance = tolerance;
     }
 
     void BCLIBC_integrateCashKarp(
@@ -194,9 +203,19 @@ namespace bclibc
                 const BCLIBC_V3dT err_v = (k1.dvr * D1 + k3.dvr * D3 + k4.dvr * D4 + k5.dvr * D5 + k6.dvr * D6) * dt;
                 const BCLIBC_V3dT err_p = (k1.dp * D1 + k3.dp * D3 + k4.dp * D4 + k5.dp * D5 + k6.dp * D6) * dt;
 
-                const double scale_v = kAtolVelocity + g_ck_rel_tolerance * vr_next.mag();
-                const double scale_p = kAtolPosition + g_ck_rel_tolerance * pos_next.mag();
-                const double err_norm = std::max(err_v.mag() / scale_v, err_p.mag() / scale_p);
+                // This exactly matches scipy.integrate._ivp.rk's error norm:
+                // scale = atol + max(abs(y), abs(y_new)) * rtol; norm(error / scale).
+                // (y is included because SciPy uses both endpoints, not just y_new.)
+                const double sv_x = g_ck_absolute_tolerance + g_ck_rel_tolerance * std::max(std::abs(vr.x), std::abs(vr_next.x));
+                const double sv_y = g_ck_absolute_tolerance + g_ck_rel_tolerance * std::max(std::abs(vr.y), std::abs(vr_next.y));
+                const double sv_z = g_ck_absolute_tolerance + g_ck_rel_tolerance * std::max(std::abs(vr.z), std::abs(vr_next.z));
+                const double sp_x = g_ck_absolute_tolerance + g_ck_rel_tolerance * std::max(std::abs(range_vector.x), std::abs(pos_next.x));
+                const double sp_y = g_ck_absolute_tolerance + g_ck_rel_tolerance * std::max(std::abs(range_vector.y), std::abs(pos_next.y));
+                const double sp_z = g_ck_absolute_tolerance + g_ck_rel_tolerance * std::max(std::abs(range_vector.z), std::abs(pos_next.z));
+                const double ev_x = err_v.x / sv_x, ev_y = err_v.y / sv_y, ev_z = err_v.z / sv_z;
+                const double ep_x = err_p.x / sp_x, ep_y = err_p.y / sp_y, ep_z = err_p.z / sp_z;
+                const double err_norm = std::sqrt(
+                    (ev_x * ev_x + ev_y * ev_y + ev_z * ev_z + ep_x * ep_x + ep_y * ep_y + ep_z * ep_z) / 6.0);
 
                 if (err_norm <= 1.0 || dt <= min_dt * 1.0001)
                 {

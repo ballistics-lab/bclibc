@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Cash-Karp error control now matches `scipy.integrate.solve_ivp`'s Runge-Kutta convention:
+  `BCLIBC_cashKarpSetAbsoluteTolerance()` sets one thread-local scalar `atol` (default `1e-6`)
+  for all six position/velocity components, replacing unequal hidden position/velocity floors.
+  Each component is scaled by `atol + rtol * max(abs(y), abs(y_new))`, and the adaptive
+  acceptance norm is the RMS across those six scaled errors.
+
 ## [2.0.0-beta.1] - 2026-09-16
 
 ### Added
