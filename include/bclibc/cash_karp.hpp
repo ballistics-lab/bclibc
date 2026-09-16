@@ -74,6 +74,32 @@ namespace bclibc
      * The default is 1e-6. The setting is thread-local so independent engine
      * instances can integrate concurrently with different tolerances.
      *
+     * DO NOT tighten this default without re-measuring -- it is not an
+     * arbitrary "safe" choice, it is empirically the best available tradeoff
+     * among the values actually tested (project issue #350; see
+     * py-ballisticcalc's tests/test_cashkarp.py::test_cashkarp_accuracy_across_tolerances
+     * for the harness). Measured against a 5x-finer fixed-step RK4 reference
+     * on one shot profile (0.22 BC / 800 m/s / 3 MOA zero / 2000 m):
+     *
+     *   rtol   total steps   max height err   max event-root-distance err
+     *   1e-6   48            0.045 ft         0.258 ft   <- best
+     *   1e-7   50            0.042 ft         0.978 ft
+     *   1e-8   54            0.043 ft         1.818 ft
+     *   1e-9   52            0.051 ft         0.730 ft
+     *
+     * Height/velocity accuracy plateaus past 1e-6 (no benefit from going
+     * tighter); event-root distance (ZERO/MACH/APEX crossings, found by
+     * Hermite root-finding within whichever accepted-step interval brackets
+     * them) does NOT improve monotonically with tolerance -- it depends on
+     * where that interval's boundaries happen to fall relative to the
+     * crossing, not on the global error tolerance directly. 1e-6 costs the
+     * *fewest* total steps of the four and gives the *best* event accuracy
+     * of the four in this measurement -- tightening further is a pure loss
+     * (more compute, no better and sometimes worse accuracy), not a
+     * conservative choice. Not yet verified across multiple shot profiles --
+     * if this default is ever revisited, re-run the same sweep on at least
+     * 2-3 different calibers/BCs/ranges first, not just trust this one.
+     *
      * @throws std::invalid_argument if @p tolerance is not finite and positive.
      */
     void BCLIBC_cashKarpSetRelativeTolerance(double tolerance);
