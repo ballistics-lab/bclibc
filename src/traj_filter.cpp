@@ -309,7 +309,7 @@ namespace bclibc
         }
 
         if ((this->filter & BCLIBC_TRAJ_FLAG_MACH) &&
-            start.velocity().mag() >= start.mach && end.velocity().mag() < end.mach)
+            start.velocity().mag() > start.mach && end.velocity().mag() < end.mach)
         {
             BCLIBC_BaseTrajData sample;
             if (hermite_at_value(start, end,
@@ -327,7 +327,7 @@ namespace bclibc
             { return data.py - data.px * this->look_angle_tangent; };
         const double start_slant = slant_height(start);
         const double end_slant = slant_height(end);
-        if ((this->filter & BCLIBC_TRAJ_FLAG_ZERO_UP) && start_slant < 0.0 && end_slant >= 0.0)
+        if ((this->filter & BCLIBC_TRAJ_FLAG_ZERO_UP) && start_slant < 0.0 && end_slant > 0.0)
         {
             BCLIBC_BaseTrajData sample;
             if (hermite_at_value(start, end, slant_height, 0.0, sample))
@@ -336,7 +336,7 @@ namespace bclibc
                 this->filter = (BCLIBC_TrajFlag)(this->filter & ~BCLIBC_TRAJ_FLAG_ZERO_UP);
             }
         }
-        else if ((this->filter & BCLIBC_TRAJ_FLAG_ZERO_DOWN) && start_slant >= 0.0 && end_slant < 0.0)
+        else if ((this->filter & BCLIBC_TRAJ_FLAG_ZERO_DOWN) && start_slant > 0.0 && end_slant < 0.0)
         {
             BCLIBC_BaseTrajData sample;
             if (hermite_at_value(start, end, slant_height, 0.0, sample))
