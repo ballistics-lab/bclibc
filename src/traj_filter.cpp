@@ -7,6 +7,145 @@
 
 namespace bclibc
 {
+    namespace
+    {
+        double hermite_derivative(double time,
+                                  double start_time,
+                                  double end_time,
+                                  double start_value,
+                                  double end_value,
+                                  double start_derivative,
+                                  double end_derivative)
+        {
+            const double dt = end_time - start_time;
+            const double u = (time - start_time) / dt;
+            const double u2 = u * u;
+            return ((6.0 * u2 - 6.0 * u) * start_value +
+                    (-6.0 * u2 + 6.0 * u) * end_value) / dt +
+                   (3.0 * u2 - 4.0 * u + 1.0) * start_derivative +
+                   (3.0 * u2 - 2.0 * u) * end_derivative;
+        }
+
+        bool hermite_at_time(const BCLIBC_BaseTrajData &start,
+                             const BCLIBC_BaseTrajData &end,
+                             double time,
+                             BCLIBC_BaseTrajData &out)
+        {
+            const double dt = end.time - start.time;
+            if (dt <= 0.0)
+            {
+                return false;
+            }
+
+            const double u = (time - start.time) / dt;
+            out.time = time;
+            out.px = BCLIBC_hermite(time, start.time, end.time, start.px, end.px, start.vx, end.vx);
+            out.py = BCLIBC_hermite(time, start.time, end.time, start.py, end.py, start.vy, end.vy);
+            out.pz = BCLIBC_hermite(time, start.time, end.time, start.pz, end.pz, start.vz, end.vz);
+            // Derive velocity from the positional Hermite polynomial.  This
+            // retains the endpoint velocities exactly and keeps state fields
+            // internally consistent without retaining prior accepted steps.
+            out.vx = hermite_derivative(time, start.time, end.time, start.px, end.px, start.vx, end.vx);
+            out.vy = hermite_derivative(time, start.time, end.time, start.py, end.py, start.vy, end.vy);
+            out.vz = hermite_derivative(time, start.time, end.time, start.pz, end.pz, start.vz, end.vz);
+            out.mach = start.mach + u * (end.mach - start.mach);
+            return true;
+        }
+
+        bool hermite_at_x(const BCLIBC_BaseTrajData &start,
+                          const BCLIBC_BaseTrajData &end,
+                          double target_x,
+                          BCLIBC_BaseTrajData &out)
+        {
+            if (!((start.px <= target_x && target_x <= end.px) ||
+                  (end.px <= target_x && target_x <= start.px)))
+            {
+                return false;
+            }
+
+            double lo = start.time;
+            double hi = end.time;
+            const bool increasing = end.px >= start.px;
+            for (int i = 0; i < 40; ++i)
+            {
+                const double mid = 0.5 * (lo + hi);
+                BCLIBC_BaseTrajData sample;
+                if (!hermite_at_time(start, end, mid, sample))
+                {
+                    return false;
+                }
+                if ((sample.px < target_x) == increasing)
+                {
+                    lo = mid;
+                }
+                else
+                {
+                    hi = mid;
+                }
+            }
+            if (!hermite_at_time(start, end, 0.5 * (lo + hi), out))
+            {
+                return false;
+            }
+            // The query axis is assigned the exact target, not re-derived from the converged
+            // Hermite sample: bisection only guarantees the *time* has converged, and
+            // re-evaluating px from that time carries the Hermite polynomial's own rounding on
+            // top of the bisection residual. Free to do, and matters once this code runs at a
+            // precision/magnitude where that residual isn't negligible (see tiny_bclibc's
+            // engine.h port of this same function, where it measurably misses an exact
+            // RANGE-step target in single precision without this).
+            out.px = target_x;
+            return true;
+        }
+
+        bool hermite_at_value(const BCLIBC_BaseTrajData &start,
+                              const BCLIBC_BaseTrajData &end,
+                              const std::function<double(const BCLIBC_BaseTrajData &)> &value,
+                              double target,
+                              BCLIBC_BaseTrajData &out)
+        {
+            double lo = start.time;
+            double hi = end.time;
+            double flo = value(start) - target;
+            const double fhi = value(end) - target;
+            if (flo == 0.0)
+            {
+                out = start;
+                return true;
+            }
+            if (fhi == 0.0)
+            {
+                out = end;
+                return true;
+            }
+            if ((flo < 0.0) == (fhi < 0.0))
+            {
+                return false;
+            }
+
+            for (int i = 0; i < 40; ++i)
+            {
+                const double mid = 0.5 * (lo + hi);
+                BCLIBC_BaseTrajData sample;
+                if (!hermite_at_time(start, end, mid, sample))
+                {
+                    return false;
+                }
+                const double fmid = value(sample) - target;
+                if ((flo < 0.0) != (fmid < 0.0))
+                {
+                    hi = mid;
+                }
+                else
+                {
+                    lo = mid;
+                    flo = fmid;
+                }
+            }
+            return hermite_at_time(start, end, 0.5 * (lo + hi), out);
+        }
+    } // namespace
+
     // ============================================================================
     // BCLIBC_TrajectoryDataFilter
     // ============================================================================
@@ -121,6 +260,118 @@ namespace bclibc
     {
         this->record(data);
     };
+
+    void BCLIBC_TrajectoryDataFilter::handle_step(
+        const BCLIBC_BaseTrajData &start,
+        const BCLIBC_BaseTrajData &end)
+    {
+        std::vector<BCLIBC_FlaggedData> rows;
+
+        // Accepted Cash-Karp steps may be much wider than output sampling
+        // intervals.  Produce all requested rows from this one step instead
+        // of retaining a history only to interpolate it later.
+        if (this->range_step > 0.0)
+        {
+            while (this->next_record_distance + this->range_step - this->EPSILON <= end.px)
+            {
+                const double record_distance = this->next_record_distance + this->range_step;
+                if (record_distance > this->range_limit + this->EPSILON)
+                {
+                    this->range_step = -1.0;
+                    break;
+                }
+
+                BCLIBC_BaseTrajData sample;
+                if (!hermite_at_x(start, end, record_distance, sample))
+                {
+                    break;
+                }
+                this->next_record_distance += this->range_step;
+                this->time_of_last_record = sample.time;
+                this->add_row(rows, sample, BCLIBC_TRAJ_FLAG_RANGE);
+            }
+        }
+
+        if (this->time_step > 0.0)
+        {
+            while (this->time_of_last_record + this->time_step - this->EPSILON <= end.time)
+            {
+                const double record_time = this->time_of_last_record + this->time_step;
+                BCLIBC_BaseTrajData sample;
+                if (!hermite_at_time(start, end, record_time, sample))
+                {
+                    break;
+                }
+                this->time_of_last_record = record_time;
+                this->add_row(rows, sample, BCLIBC_TRAJ_FLAG_RANGE);
+            }
+        }
+
+        if ((this->filter & BCLIBC_TRAJ_FLAG_APEX) && start.vy > 0.0 && end.vy <= 0.0)
+        {
+            BCLIBC_BaseTrajData sample;
+            if (hermite_at_value(start, end,
+                                 [](const BCLIBC_BaseTrajData &data)
+                                 { return data.vy; },
+                                 0.0, sample))
+            {
+                this->add_row(rows, sample, BCLIBC_TRAJ_FLAG_APEX);
+                this->filter = (BCLIBC_TrajFlag)(this->filter & ~BCLIBC_TRAJ_FLAG_APEX);
+            }
+        }
+
+        if ((this->filter & BCLIBC_TRAJ_FLAG_MACH) &&
+            start.velocity().mag() > start.mach && end.velocity().mag() < end.mach)
+        {
+            BCLIBC_BaseTrajData sample;
+            if (hermite_at_value(start, end,
+                                 [](const BCLIBC_BaseTrajData &data)
+                                 { return data.velocity().mag() - data.mach; },
+                                 0.0, sample))
+            {
+                this->add_row(rows, sample, BCLIBC_TRAJ_FLAG_MACH);
+                this->filter = (BCLIBC_TrajFlag)(this->filter & ~BCLIBC_TRAJ_FLAG_MACH);
+            }
+        }
+
+        const std::function<double(const BCLIBC_BaseTrajData &)> slant_height =
+            [this](const BCLIBC_BaseTrajData &data)
+            { return data.py - data.px * this->look_angle_tangent; };
+        const double start_slant = slant_height(start);
+        const double end_slant = slant_height(end);
+        if ((this->filter & BCLIBC_TRAJ_FLAG_ZERO_UP) && start_slant < 0.0 && end_slant > 0.0)
+        {
+            BCLIBC_BaseTrajData sample;
+            if (hermite_at_value(start, end, slant_height, 0.0, sample))
+            {
+                this->add_row(rows, sample, BCLIBC_TRAJ_FLAG_ZERO_UP);
+                this->filter = (BCLIBC_TrajFlag)(this->filter & ~BCLIBC_TRAJ_FLAG_ZERO_UP);
+            }
+        }
+        else if ((this->filter & BCLIBC_TRAJ_FLAG_ZERO_DOWN) && start_slant > 0.0 && end_slant < 0.0)
+        {
+            BCLIBC_BaseTrajData sample;
+            if (hermite_at_value(start, end, slant_height, 0.0, sample))
+            {
+                this->add_row(rows, sample, BCLIBC_TRAJ_FLAG_ZERO_DOWN);
+                this->filter = (BCLIBC_TrajFlag)(this->filter & ~BCLIBC_TRAJ_FLAG_ZERO_DOWN);
+            }
+        }
+
+        std::stable_sort(rows.begin(), rows.end(),
+                         [](const BCLIBC_FlaggedData &a, const BCLIBC_FlaggedData &b)
+                         { return a.data.time < b.data.time; });
+        for (const auto &row : rows)
+        {
+            // Event roots and scheduled samples are separate observations.
+            // Do not rewrite either one merely because their timestamps happen
+            // to be close (or even equal at a step endpoint).
+            this->records.emplace_back(this->props, row);
+        }
+
+        this->prev_prev_data = start;
+        this->prev_data = end;
+    }
 
     /**
      * @brief Checks if interpolation between previous data points is possible.
@@ -389,8 +640,8 @@ namespace bclibc
     };
 
     /**
-     * @brief Inserts a new record into a sorted container, merging with existing entries
-     *        if the time difference is below `SEPARATE_ROW_TIME_DELTA`.
+     * @brief Inserts a legacy record into a sorted container, merging only at
+     *        an exactly identical timestamp.
      * @tparam T Type of record (TrajectoryData or FlaggedData)
      * @tparam TimeAccessor Function to access time from record.
      * @param container The vector to insert into.
@@ -414,7 +665,7 @@ namespace bclibc
                 return getTime(record_data) < time_to_find;
             });
 
-        if (it != container.end() && std::fabs(getTime(*it) - new_time) < this->SEPARATE_ROW_TIME_DELTA)
+        if (it != container.end() && getTime(*it) == new_time)
         {
             it->flag = (BCLIBC_TrajFlag)(it->flag | new_record.flag);
             return;
@@ -424,7 +675,7 @@ namespace bclibc
         {
             auto prev_it = std::prev(it);
 
-            if (std::fabs(getTime(*prev_it) - new_time) < this->SEPARATE_ROW_TIME_DELTA)
+            if (getTime(*prev_it) == new_time)
             {
                 prev_it->flag = (BCLIBC_TrajFlag)(prev_it->flag | new_record.flag);
                 return;
@@ -443,13 +694,7 @@ namespace bclibc
      */
     void BCLIBC_TrajectoryDataFilter::add_row(std::vector<BCLIBC_FlaggedData> &rows, const BCLIBC_BaseTrajData &data, BCLIBC_TrajFlag flag)
     {
-        BCLIBC_FlaggedData new_row = {data, flag};
-
-        this->merge_sorted_record(
-            rows,
-            new_row,
-            [](const BCLIBC_FlaggedData &f)
-            { return f.data.time; });
+        rows.push_back({data, flag});
     };
 
     // ============================================================================
@@ -629,6 +874,34 @@ namespace bclibc
             }
         }
     };
+
+    void BCLIBC_SinglePointHandler::handle_step(
+        const BCLIBC_BaseTrajData &start,
+        const BCLIBC_BaseTrajData &end)
+    {
+        if (this->is_found || this->key_kind != BCLIBC_BaseTrajData_InterpKey::POS_X)
+        {
+            if (!this->is_found)
+            {
+                this->handle(end);
+            }
+            return;
+        }
+
+        if (!hermite_at_x(start, end, this->target_value, this->result))
+        {
+            this->handle(end);
+            return;
+        }
+
+        this->is_found = true;
+        this->target_passed = true;
+        if (this->termination_reason_ptr != nullptr)
+        {
+            *this->termination_reason_ptr = BCLIBC_TerminationReason::HANDLER_REQUESTED_STOP;
+            BCLIBC_INFO("BCLIBC_SinglePointHandler requested early termination");
+        }
+    }
 
     /**
      * @brief Returns whether target point was found and interpolated.

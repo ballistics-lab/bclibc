@@ -1,6 +1,6 @@
 # bclibc — Ballistic Solver Engine
 
-High-performance ballistic trajectory solver with RK4, Euler, and Velocity Verlet integration, Ridder's method for zero-finding, PCHIP drag curves, Coriolis, and spin drift.
+High-performance ballistic trajectory solver with RK4, Euler, Velocity Verlet, and Cash-Karp adaptive RK45 integration, Ridder's method for zero-finding, PCHIP drag curves, Coriolis, and spin drift.
 
 [![Release][release badge]][release]
 [![Codecov][codecov badge]][codecov]
@@ -50,8 +50,10 @@ coverage; line-level coverage of the compiled `.pyx`/C++ layer itself is not tra
 Header-only by default (`static inline`); can also be compiled as a shared or static library
 from a single TU (`src/tiny_bclibc_impl.c`).
 
-**Features:** RK4, PCHIP drag, CIPM-2007 atmosphere, Coriolis, spin drift, Ridder zero-finding,
-`float` or `double` precision, bare-metal / RTOS compatible (no TLS, no heap required).
+**Features:** Cash-Karp adaptive RK45 (`tiny_bclibc_integrate`/`_stream`/`_raw`), fixed-step RK4
+(used internally for zero-angle/apex finding), PCHIP drag, CIPM-2007 atmosphere, Coriolis, spin
+drift, Ridder zero-finding, `float` or `double` precision, bare-metal / RTOS compatible (no TLS,
+no heap required).
 
 ```cmake
 add_subdirectory(tiny_bclibc)
@@ -88,6 +90,38 @@ See the [micropython-bclibc README](https://github.com/ballistics-lab/micropytho
 The `src/` / `include/` tree contains the original C++ engine with a stable C FFI layer
 (`libbclibc_ffi.so` / `.dll`) for use from Dart/Flutter, Python, Rust, and any language
 with C bindings.
+
+---
+
+## Adaptive integration (Cash-Karp)
+
+`BCLIBC_integrateCashKarp` (`bclibc/cash_karp.hpp`) is an embedded adaptive RK45 integrator
+(Numerical Recipes `rkck`), selectable via `BCLIBC_BaseEngine::integrate_func` like any other
+integrator. It grows its step up to 64x the configured base step during smooth flight and
+shrinks it down to base/64 whenever its embedded 4th/5th-order error estimate exceeds
+`BCLIBC_cashKarpSetRelativeTolerance` (default `1e-6`), retrying the attempted step rather than
+accepting it — typically 2-6x fewer total steps than fixed-step RK4 for the same accuracy.
+
+Unlike `BCLIBC_integrateRK4`, which freezes the drag coefficient once per step, Cash-Karp
+recomputes both the drag coefficient *and* the atmosphere sample fresh at each of its 6 stages:
+an earlier variant that reused RK4's once-per-step freeze produced real, tolerance-independent
+accuracy failures, because the embedded error estimator is blind to model error from a stale
+drag/atmosphere sample once the step grows tens of times past the fixed-step size.
+
+Adaptive steps are also far sparser and less uniformly spaced than fixed-step RK4's output,
+which broke the original per-raw-point, 3-point finite-difference (PCHIP) event/row
+interpolation: it estimates slopes from neighboring raw-point spacing, which is accurate when
+points are dense and uniform but measurably wrong once they are not. The fix, now used by every
+integrator (`BCLIBC_TrajectoryDataFilter::handle_step` in `src/traj_filter.cpp`): integrators
+stream each accepted `(start, end)` interval to the handler via `handle_step`, and RANGE/time-step
+rows and APEX/MACH/ZERO event roots are reconstructed with a 2-point cubic Hermite built from
+each interval's *exact* endpoint positions and velocities (not a finite-difference estimate),
+solved by bisection where needed. Scheduled samples and physical events are kept as independent
+records rather than merged when their timestamps happen to land close together — merging them
+depended on raw-sample spacing that adaptive stepping no longer guarantees.
+
+See `CHANGELOG.md` for the specific fixes (per-stage recompute, streaming handler contract,
+exact-derivative Hermite reconstruction).
 
 ---
 

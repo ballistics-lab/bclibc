@@ -108,6 +108,16 @@ static inline void tiny_bclibc__set_error(const char *msg)
      *  Return 0 to continue, non-zero to request early stop. ── */
     typedef int32_t (*tiny_bclibc_RawStepCb)(const TINY_BCLIBC_BaseTrajData *pt, void *ctx);
 
+    /* ── Interval callback — receives one accepted integration step (start, end).
+     *  Return 0 to continue, non-zero to request early stop. Used by adaptive
+     *  integrators (Cash-Karp) whose accepted steps are sparse and irregularly
+     *  spaced, so downstream event/row reconstruction cannot assume dense,
+     *  near-uniform raw sampling the way tiny_bclibc__OnStep's per-raw-point
+     *  contract does -- see tiny_bclibc__hermite_at_x/_at_value below. ── */
+    typedef int32_t (*tiny_bclibc__OnInterval)(const TINY_BCLIBC_BaseTrajData *start,
+                                               const TINY_BCLIBC_BaseTrajData *end,
+                                               void *ctx);
+
     /* ── Stop control ────────────────────────────────────────────────── */
     typedef struct tiny_bclibc__StopCtrl
     {
@@ -165,6 +175,405 @@ static inline void tiny_bclibc__set_error(const char *msg)
             if (alt < sc->min_altitude_ft)
                 *sc->reason_out = TINY_BCLIBC_TERM_MIN_ALTITUDE_REACHED;
         }
+    }
+
+    /* ════════════════════════════════════════════════════════════════════
+     *  Exact-derivative 2-point Hermite reconstruction within one accepted
+     *  interval (start, end) -- used by the adaptive (Cash-Karp) filter to
+     *  recover RANGE/time-step rows and APEX/MACH/ZERO events without
+     *  assuming dense, near-uniform raw sampling. Position uses
+     *  tiny_bclibc_hermite() with the *exact* endpoint velocities as slopes;
+     *  velocity is the derivative of that same cubic
+     *  (tiny_bclibc_hermite_derivative()), not a separately-interpolated
+     *  series, so position and velocity stay mutually consistent. Mirrors
+     *  bclibc's src/traj_filter.cpp hermite_at_time/_at_x/_at_value
+     *  (project issue #350).
+     * ════════════════════════════════════════════════════════════════════ */
+
+    static inline int32_t tiny_bclibc__hermite_at_time(
+        const TINY_BCLIBC_BaseTrajData *a, const TINY_BCLIBC_BaseTrajData *b,
+        real_t t, TINY_BCLIBC_BaseTrajData *out)
+    {
+        real_t dt = b->time - a->time;
+        if (dt <= REAL_C(0.0))
+            return 0;
+        real_t u = (t - a->time) / dt;
+        out->time = t;
+        out->px = tiny_bclibc_hermite(t, a->time, b->time, a->px, b->px, a->vx, b->vx);
+        out->py = tiny_bclibc_hermite(t, a->time, b->time, a->py, b->py, a->vy, b->vy);
+        out->pz = tiny_bclibc_hermite(t, a->time, b->time, a->pz, b->pz, a->vz, b->vz);
+        out->vx = tiny_bclibc_hermite_derivative(t, a->time, b->time, a->px, b->px, a->vx, b->vx);
+        out->vy = tiny_bclibc_hermite_derivative(t, a->time, b->time, a->py, b->py, a->vy, b->vy);
+        out->vz = tiny_bclibc_hermite_derivative(t, a->time, b->time, a->pz, b->pz, a->vz, b->vz);
+        out->mach = a->mach + u * (b->mach - a->mach);
+        return 1;
+    }
+
+    /* Bisects on time for the sample within [a,b] whose px equals target_x.
+     * Returns 0 if target_x isn't bracketed by a->px/b->px. */
+    static inline int32_t tiny_bclibc__hermite_at_x(
+        const TINY_BCLIBC_BaseTrajData *a, const TINY_BCLIBC_BaseTrajData *b,
+        real_t target_x, TINY_BCLIBC_BaseTrajData *out)
+    {
+        if (!((a->px <= target_x && target_x <= b->px) ||
+              (b->px <= target_x && target_x <= a->px)))
+            return 0;
+
+        real_t lo = a->time, hi = b->time;
+        int32_t increasing = (b->px >= a->px);
+        int32_t i;
+        for (i = 0; i < 40; i++)
+        {
+            real_t mid = REAL_C(0.5) * (lo + hi);
+            TINY_BCLIBC_BaseTrajData sample;
+            if (!tiny_bclibc__hermite_at_time(a, b, mid, &sample))
+                return 0;
+            if ((sample.px < target_x) == increasing)
+                lo = mid;
+            else
+                hi = mid;
+        }
+        if (!tiny_bclibc__hermite_at_time(a, b, REAL_C(0.5) * (lo + hi), out))
+            return 0;
+        /* The query axis is assigned the exact target, not re-derived from the converged
+         * Hermite sample -- mirrors TINY_BCLIBC_BaseTrajData_interpolate's own convention
+         * (`out->px = (key == KEY_POS_X) ? key_val : ...`). At double precision the converged
+         * sample.px already matches target_x to within solver residual either way, but at
+         * single precision one float32 ULP near a large position (e.g. ~0.004 ft at 36000 ft)
+         * is *larger* than that residual, so re-deriving it measurably misses an exact RANGE
+         * step target instead of hitting it bit-for-bit. */
+        out->px = target_x;
+        return 1;
+    }
+
+    /* aux lets the value function close over extra state (e.g. look-angle
+     * trig) without a global -- see tiny_bclibc__value_slant below. */
+    typedef real_t (*tiny_bclibc__ValueFn)(const TINY_BCLIBC_BaseTrajData *pt, const void *aux);
+
+    /* Bisects on time for the sample within [a,b] where value(sample)==target.
+     * Returns 0 if target isn't bracketed by value(a)/value(b). */
+    static inline int32_t tiny_bclibc__hermite_at_value(
+        const TINY_BCLIBC_BaseTrajData *a, const TINY_BCLIBC_BaseTrajData *b,
+        tiny_bclibc__ValueFn value, const void *aux, real_t target, TINY_BCLIBC_BaseTrajData *out)
+    {
+        real_t lo = a->time, hi = b->time;
+        real_t flo = value(a, aux) - target;
+        real_t fhi = value(b, aux) - target;
+        if (flo == REAL_C(0.0)) { *out = *a; return 1; }
+        if (fhi == REAL_C(0.0)) { *out = *b; return 1; }
+        if ((flo < REAL_C(0.0)) == (fhi < REAL_C(0.0)))
+            return 0;
+
+        int32_t i;
+        for (i = 0; i < 40; i++)
+        {
+            real_t mid = REAL_C(0.5) * (lo + hi);
+            TINY_BCLIBC_BaseTrajData sample;
+            if (!tiny_bclibc__hermite_at_time(a, b, mid, &sample))
+                return 0;
+            real_t fmid = value(&sample, aux) - target;
+            if ((flo < REAL_C(0.0)) != (fmid < REAL_C(0.0)))
+                hi = mid;
+            else
+            {
+                lo = mid;
+                flo = fmid;
+            }
+        }
+        return tiny_bclibc__hermite_at_time(a, b, REAL_C(0.5) * (lo + hi), out);
+    }
+
+    static inline real_t tiny_bclibc__value_vy(const TINY_BCLIBC_BaseTrajData *pt, const void *aux)
+    {
+        (void)aux;
+        return pt->vy;
+    }
+
+    static inline real_t tiny_bclibc__value_mach(const TINY_BCLIBC_BaseTrajData *pt, const void *aux)
+    {
+        (void)aux;
+        return pt->mach;
+    }
+
+    typedef struct tiny_bclibc__SlantAux
+    {
+        real_t la_cos, la_sin;
+    } tiny_bclibc__SlantAux;
+
+    static inline real_t tiny_bclibc__value_slant(const TINY_BCLIBC_BaseTrajData *pt, const void *aux_)
+    {
+        const tiny_bclibc__SlantAux *aux = (const tiny_bclibc__SlantAux *)aux_;
+        return pt->py * aux->la_cos - pt->px * aux->la_sin;
+    }
+
+    /* ════════════════════════════════════════════════════════════════════
+     *  Cash-Karp adaptive RK45 (Numerical Recipes `rkck`)
+     * ════════════════════════════════════════════════════════════════════ */
+
+    typedef struct tiny_bclibc__CkDeriv
+    {
+        TINY_BCLIBC_V3dT dvr; /* d(v_rel)/dt */
+        TINY_BCLIBC_V3dT dp;  /* d(pos)/dt   */
+    } tiny_bclibc__CkDeriv;
+
+    /* Per-stage derivative: the drag coefficient AND the atmosphere sample are
+     * both re-evaluated fresh from this stage's own intermediate
+     * velocity/altitude, unlike tiny_bclibc__run_rk4's once-per-step
+     * memoization. This is required, not optional: an earlier variant that
+     * froze km once per step (mirroring RK4's own trick, extended to 6
+     * stages) produced real, tolerance-independent accuracy failures,
+     * because the embedded 4th/5th-order error estimator cannot see model
+     * error from a stale drag/atmosphere sample -- only discretization error
+     * of the frozen sub-problem (project issue #350). */
+    static inline tiny_bclibc__CkDeriv tiny_bclibc__ck_deriv(
+        const TINY_BCLIBC_ShotProps *props,
+        TINY_BCLIBC_V3dT wind,
+        TINY_BCLIBC_V3dT gpc,
+        TINY_BCLIBC_V3dT vr,
+        TINY_BCLIBC_V3dT pos)
+    {
+        real_t density_ratio, mach_fps;
+        TINY_BCLIBC_Atmosphere_update_density_mach(&props->atmo,
+                                                    props->alt0 + pos.y, &density_ratio, &mach_fps);
+        real_t inv_mach = (mach_fps != REAL_C(0.0)) ? (REAL_C(1.0) / mach_fps) : REAL_C(1.0);
+        real_t speed = TINY_BCLIBC_V3dT_mag(vr);
+        real_t mach = speed * inv_mach;
+        real_t km = density_ratio * TINY_BCLIBC_ShotProps_drag_by_mach(props, mach);
+
+        tiny_bclibc__CkDeriv d;
+        tiny_bclibc__calc_dvdt(vr, gpc, km, speed, &d.dvr);
+        d.dp = TINY_BCLIBC_V3dT_add(vr, wind);
+        return d;
+    }
+
+    /* ── Cash-Karp adaptive RK45 loop ────────────────────────────────────
+     * Adaptive-step alternative to tiny_bclibc__run_rk4: grows the step
+     * during smooth flight (up to 64x the configured base step) and shrinks
+     * it (down to base/64) whenever the embedded error estimate exceeds
+     * tolerance, retrying the same attempted step. Produces far fewer, much
+     * less uniformly spaced raw points than run_rk4's fixed step -- callers
+     * MUST reconstruct RANGE/time-step rows and APEX/MACH/ZERO events via
+     * the 2-point exact-derivative Hermite helpers above
+     * (tiny_bclibc__hermite_at_x/_at_value), not the 3-point
+     * finite-difference PCHIP window run_rk4's consumers use: that scheme's
+     * slopes are estimated from neighboring raw-point spacing and
+     * measurably mispredict crossings once points are sparse/irregular
+     * (project issue #350). See tiny_bclibc__integrate_on_interval below
+     * for the consumer that does this correctly. ── */
+    TINY_BCLIBC_INTERNAL int32_t tiny_bclibc__run_cashkarp(
+        const TINY_BCLIBC_ShotProps *props,
+        const TINY_BCLIBC_TrajectoryRequest *req,
+        tiny_bclibc__OnStep on_first,
+        tiny_bclibc__OnInterval on_interval,
+        void *ctx,
+        int32_t *out_reason)
+    {
+        const real_t base_dt = props->calc_step;
+        if (base_dt <= REAL_C(0.0))
+        {
+            tiny_bclibc__set_error("calc_step must be > 0");
+            *out_reason = TINY_BCLIBC_TERM_NO_TERMINATE;
+            return TINY_BCLIBC_ERR_INVALID_ARG;
+        }
+        const real_t min_dt = base_dt / REAL_C(64.0);
+        const real_t max_dt = base_dt * REAL_C(64.0);
+        real_t dt = base_dt;
+
+        real_t range_limit = req ? req->range_limit_ft : TINY_BCLIBC_MAX_INTEGRATION_RANGE;
+
+        tiny_bclibc__StopCtrl sc;
+        tiny_bclibc__stop_ctrl_init(&sc, props, range_limit,
+                                    props->cfg.cMinimumVelocity,
+                                    props->cfg.cMaximumDrop, props->cfg.cMinimumAltitude, out_reason);
+
+        TINY_BCLIBC_WindSock ws = props->wind_sock;
+        TINY_BCLIBC_V3dT gravity = TINY_BCLIBC_V3dT_make(REAL_C(0.0), props->cfg.cGravityConstant, REAL_C(0.0));
+        TINY_BCLIBC_V3dT wind = ws.last_vector;
+
+        real_t muzzle = props->muzzle_velocity;
+        real_t cos_el = TINY_BCLIBC_COS(props->barrel_elevation);
+        TINY_BCLIBC_V3dT dir = TINY_BCLIBC_V3dT_make(
+            cos_el * TINY_BCLIBC_COS(props->barrel_azimuth),
+            TINY_BCLIBC_SIN(props->barrel_elevation),
+            cos_el * TINY_BCLIBC_SIN(props->barrel_azimuth));
+
+        TINY_BCLIBC_V3dT pos = TINY_BCLIBC_V3dT_make(
+            REAL_C(0.0),
+            -props->cant_cosine * props->sight_height,
+            -props->cant_sine * props->sight_height);
+        TINY_BCLIBC_V3dT vel = TINY_BCLIBC_V3dT_scale(dir, muzzle);
+        TINY_BCLIBC_V3dT vr = TINY_BCLIBC_V3dT_sub(vel, wind);
+
+        real_t time = REAL_C(0.0);
+        *out_reason = TINY_BCLIBC_TERM_NO_TERMINATE;
+
+        TINY_BCLIBC_BaseTrajData step_start;
+        {
+            real_t density_ratio, mach_fps;
+            TINY_BCLIBC_Atmosphere_update_density_mach(&props->atmo,
+                                                        props->alt0 + pos.y, &density_ratio, &mach_fps);
+            real_t inv_mach = (mach_fps != REAL_C(0.0)) ? (REAL_C(1.0) / mach_fps) : REAL_C(1.0);
+            step_start.time = time;
+            step_start.px = pos.x; step_start.py = pos.y; step_start.pz = pos.z;
+            step_start.vx = vel.x; step_start.vy = vel.y; step_start.vz = vel.z;
+            step_start.mach = TINY_BCLIBC_V3dT_mag(vr) * inv_mach;
+            if (on_first(&step_start, ctx) != 0)
+            {
+                *out_reason = TINY_BCLIBC_TERM_HANDLER_STOP;
+                return TINY_BCLIBC_OK;
+            }
+        }
+
+        while (*out_reason == TINY_BCLIBC_TERM_NO_TERMINATE)
+        {
+            if (pos.x >= ws.next_range)
+                wind = TINY_BCLIBC_WindSock_vector_for_range(&ws, pos.x);
+
+            TINY_BCLIBC_V3dT gpc = gravity;
+            if (!props->coriolis.flat_fire_only)
+            {
+                TINY_BCLIBC_V3dT ca;
+                TINY_BCLIBC_Coriolis_acceleration_local(&props->coriolis, vel, &ca);
+                gpc.x += ca.x;
+                gpc.y += ca.y;
+                gpc.z += ca.z;
+            }
+
+            TINY_BCLIBC_V3dT vr_next = vr, pos_next = pos;
+            real_t dt_used = dt;
+            int32_t attempt;
+            for (attempt = 0; attempt < 24; attempt++)
+            {
+                tiny_bclibc__CkDeriv k1 = tiny_bclibc__ck_deriv(props, wind, gpc, vr, pos);
+
+                TINY_BCLIBC_V3dT vr2 = vr, p2 = pos;
+                TINY_BCLIBC_V3dT_fma(&vr2, k1.dvr, dt * REAL_C(0.2));
+                TINY_BCLIBC_V3dT_fma(&p2, k1.dp, dt * REAL_C(0.2));
+                tiny_bclibc__CkDeriv k2 = tiny_bclibc__ck_deriv(props, wind, gpc, vr2, p2);
+
+                TINY_BCLIBC_V3dT vr3 = vr, p3 = pos;
+                TINY_BCLIBC_V3dT_fma(&vr3, k1.dvr, dt * (REAL_C(3.0) / REAL_C(40.0)));
+                TINY_BCLIBC_V3dT_fma(&vr3, k2.dvr, dt * (REAL_C(9.0) / REAL_C(40.0)));
+                TINY_BCLIBC_V3dT_fma(&p3, k1.dp, dt * (REAL_C(3.0) / REAL_C(40.0)));
+                TINY_BCLIBC_V3dT_fma(&p3, k2.dp, dt * (REAL_C(9.0) / REAL_C(40.0)));
+                tiny_bclibc__CkDeriv k3 = tiny_bclibc__ck_deriv(props, wind, gpc, vr3, p3);
+
+                TINY_BCLIBC_V3dT vr4 = vr, p4 = pos;
+                TINY_BCLIBC_V3dT_fma(&vr4, k1.dvr, dt * (REAL_C(3.0) / REAL_C(10.0)));
+                TINY_BCLIBC_V3dT_fma(&vr4, k2.dvr, dt * (REAL_C(-9.0) / REAL_C(10.0)));
+                TINY_BCLIBC_V3dT_fma(&vr4, k3.dvr, dt * (REAL_C(6.0) / REAL_C(5.0)));
+                TINY_BCLIBC_V3dT_fma(&p4, k1.dp, dt * (REAL_C(3.0) / REAL_C(10.0)));
+                TINY_BCLIBC_V3dT_fma(&p4, k2.dp, dt * (REAL_C(-9.0) / REAL_C(10.0)));
+                TINY_BCLIBC_V3dT_fma(&p4, k3.dp, dt * (REAL_C(6.0) / REAL_C(5.0)));
+                tiny_bclibc__CkDeriv k4 = tiny_bclibc__ck_deriv(props, wind, gpc, vr4, p4);
+
+                TINY_BCLIBC_V3dT vr5 = vr, p5 = pos;
+                TINY_BCLIBC_V3dT_fma(&vr5, k1.dvr, dt * (REAL_C(-11.0) / REAL_C(54.0)));
+                TINY_BCLIBC_V3dT_fma(&vr5, k2.dvr, dt * REAL_C(2.5));
+                TINY_BCLIBC_V3dT_fma(&vr5, k3.dvr, dt * (REAL_C(-70.0) / REAL_C(27.0)));
+                TINY_BCLIBC_V3dT_fma(&vr5, k4.dvr, dt * (REAL_C(35.0) / REAL_C(27.0)));
+                TINY_BCLIBC_V3dT_fma(&p5, k1.dp, dt * (REAL_C(-11.0) / REAL_C(54.0)));
+                TINY_BCLIBC_V3dT_fma(&p5, k2.dp, dt * REAL_C(2.5));
+                TINY_BCLIBC_V3dT_fma(&p5, k3.dp, dt * (REAL_C(-70.0) / REAL_C(27.0)));
+                TINY_BCLIBC_V3dT_fma(&p5, k4.dp, dt * (REAL_C(35.0) / REAL_C(27.0)));
+                tiny_bclibc__CkDeriv k5 = tiny_bclibc__ck_deriv(props, wind, gpc, vr5, p5);
+
+                TINY_BCLIBC_V3dT vr6 = vr, p6 = pos;
+                TINY_BCLIBC_V3dT_fma(&vr6, k1.dvr, dt * (REAL_C(1631.0) / REAL_C(55296.0)));
+                TINY_BCLIBC_V3dT_fma(&vr6, k2.dvr, dt * (REAL_C(175.0) / REAL_C(512.0)));
+                TINY_BCLIBC_V3dT_fma(&vr6, k3.dvr, dt * (REAL_C(575.0) / REAL_C(13824.0)));
+                TINY_BCLIBC_V3dT_fma(&vr6, k4.dvr, dt * (REAL_C(44275.0) / REAL_C(110592.0)));
+                TINY_BCLIBC_V3dT_fma(&vr6, k5.dvr, dt * (REAL_C(253.0) / REAL_C(4096.0)));
+                TINY_BCLIBC_V3dT_fma(&p6, k1.dp, dt * (REAL_C(1631.0) / REAL_C(55296.0)));
+                TINY_BCLIBC_V3dT_fma(&p6, k2.dp, dt * (REAL_C(175.0) / REAL_C(512.0)));
+                TINY_BCLIBC_V3dT_fma(&p6, k3.dp, dt * (REAL_C(575.0) / REAL_C(13824.0)));
+                TINY_BCLIBC_V3dT_fma(&p6, k4.dp, dt * (REAL_C(44275.0) / REAL_C(110592.0)));
+                TINY_BCLIBC_V3dT_fma(&p6, k5.dp, dt * (REAL_C(253.0) / REAL_C(4096.0)));
+                tiny_bclibc__CkDeriv k6 = tiny_bclibc__ck_deriv(props, wind, gpc, vr6, p6);
+
+                /* 5th-order solution */
+                vr_next = vr; pos_next = pos;
+                TINY_BCLIBC_V3dT_fma(&vr_next, k1.dvr, dt * (REAL_C(37.0) / REAL_C(378.0)));
+                TINY_BCLIBC_V3dT_fma(&vr_next, k3.dvr, dt * (REAL_C(250.0) / REAL_C(621.0)));
+                TINY_BCLIBC_V3dT_fma(&vr_next, k4.dvr, dt * (REAL_C(125.0) / REAL_C(594.0)));
+                TINY_BCLIBC_V3dT_fma(&vr_next, k6.dvr, dt * (REAL_C(512.0) / REAL_C(1771.0)));
+                TINY_BCLIBC_V3dT_fma(&pos_next, k1.dp, dt * (REAL_C(37.0) / REAL_C(378.0)));
+                TINY_BCLIBC_V3dT_fma(&pos_next, k3.dp, dt * (REAL_C(250.0) / REAL_C(621.0)));
+                TINY_BCLIBC_V3dT_fma(&pos_next, k4.dp, dt * (REAL_C(125.0) / REAL_C(594.0)));
+                TINY_BCLIBC_V3dT_fma(&pos_next, k6.dp, dt * (REAL_C(512.0) / REAL_C(1771.0)));
+
+                /* Error estimate: 5th-order minus embedded 4th-order coefficients. */
+                TINY_BCLIBC_V3dT err_v = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT err_p = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                const real_t D1 = REAL_C(37.0) / REAL_C(378.0) - REAL_C(2825.0) / REAL_C(27648.0);
+                const real_t D3 = REAL_C(250.0) / REAL_C(621.0) - REAL_C(18575.0) / REAL_C(48384.0);
+                const real_t D4 = REAL_C(125.0) / REAL_C(594.0) - REAL_C(13525.0) / REAL_C(55296.0);
+                const real_t D5 = REAL_C(0.0) - REAL_C(277.0) / REAL_C(14336.0);
+                const real_t D6 = REAL_C(512.0) / REAL_C(1771.0) - REAL_C(0.25);
+                TINY_BCLIBC_V3dT_fma(&err_v, k1.dvr, D1);
+                TINY_BCLIBC_V3dT_fma(&err_v, k3.dvr, D3);
+                TINY_BCLIBC_V3dT_fma(&err_v, k4.dvr, D4);
+                TINY_BCLIBC_V3dT_fma(&err_v, k5.dvr, D5);
+                TINY_BCLIBC_V3dT_fma(&err_v, k6.dvr, D6);
+                TINY_BCLIBC_V3dT_scale_assign(&err_v, dt);
+                TINY_BCLIBC_V3dT_fma(&err_p, k1.dp, D1);
+                TINY_BCLIBC_V3dT_fma(&err_p, k3.dp, D3);
+                TINY_BCLIBC_V3dT_fma(&err_p, k4.dp, D4);
+                TINY_BCLIBC_V3dT_fma(&err_p, k5.dp, D5);
+                TINY_BCLIBC_V3dT_fma(&err_p, k6.dp, D6);
+                TINY_BCLIBC_V3dT_scale_assign(&err_p, dt);
+
+                real_t scale_v = REAL_C(1e-3) + REAL_C(1e-6) * TINY_BCLIBC_V3dT_mag(vr_next);
+                real_t scale_p = REAL_C(1e-4) + REAL_C(1e-6) * TINY_BCLIBC_V3dT_mag(pos_next);
+                real_t err_norm_v = TINY_BCLIBC_V3dT_mag(err_v) / scale_v;
+                real_t err_norm_p = TINY_BCLIBC_V3dT_mag(err_p) / scale_p;
+                real_t err_norm = (err_norm_v > err_norm_p) ? err_norm_v : err_norm_p;
+
+                if (err_norm <= REAL_C(1.0) || dt <= min_dt * REAL_C(1.0001))
+                {
+                    dt_used = dt; /* the step actually just integrated, before growing dt for next time */
+                    real_t grow = (err_norm > REAL_C(1.89e-4))
+                                      ? REAL_C(0.9) * TINY_BCLIBC_POW(err_norm, REAL_C(-0.20))
+                                      : REAL_C(5.0);
+                    grow = (grow < REAL_C(1.0)) ? REAL_C(1.0) : ((grow > REAL_C(5.0)) ? REAL_C(5.0) : grow);
+                    dt = dt * grow;
+                    if (dt > max_dt)
+                        dt = max_dt;
+                    break;
+                }
+                real_t shrink = REAL_C(0.9) * TINY_BCLIBC_POW(err_norm, REAL_C(-0.25));
+                shrink = (shrink < REAL_C(0.1)) ? REAL_C(0.1) : ((shrink > REAL_C(0.9)) ? REAL_C(0.9) : shrink);
+                dt = dt * shrink;
+                if (dt < min_dt)
+                    dt = min_dt;
+            }
+
+            time += dt_used;
+            vr = vr_next;
+            pos = pos_next;
+            vel = TINY_BCLIBC_V3dT_add(vr, wind);
+
+            TINY_BCLIBC_BaseTrajData step_end;
+            {
+                real_t density_ratio, mach_fps;
+                TINY_BCLIBC_Atmosphere_update_density_mach(&props->atmo,
+                                                            props->alt0 + pos.y, &density_ratio, &mach_fps);
+                real_t inv_mach = (mach_fps != REAL_C(0.0)) ? (REAL_C(1.0) / mach_fps) : REAL_C(1.0);
+                step_end.time = time;
+                step_end.px = pos.x; step_end.py = pos.y; step_end.pz = pos.z;
+                step_end.vx = vel.x; step_end.vy = vel.y; step_end.vz = vel.z;
+                step_end.mach = TINY_BCLIBC_V3dT_mag(vr) * inv_mach;
+            }
+
+            if (on_interval(&step_start, &step_end, ctx) != 0)
+            {
+                *out_reason = TINY_BCLIBC_TERM_HANDLER_STOP;
+                break;
+            }
+            step_start = step_end;
+            tiny_bclibc__stop_ctrl_check(&sc, &step_end);
+        }
+        return TINY_BCLIBC_OK;
     }
 
     /* ── Main RK4 loop ───────────────────────────────────────────────── */
@@ -381,7 +790,13 @@ static inline void tiny_bclibc__set_error(const char *msg)
     }
 
     /* ════════════════════════════════════════════════════════════════════
-     *  tiny_bclibc_integrate  — context for on_step
+     *  tiny_bclibc_integrate  — interval-based filter (Cash-Karp consumer)
+     *
+     *  Reconstructs RANGE/time-step rows and APEX/MACH/ZERO events from
+     *  each accepted (start, end) interval via the 2-point exact-derivative
+     *  Hermite helpers above, instead of a 3-point finite-difference window
+     *  over raw points -- see tiny_bclibc__run_cashkarp's doc comment for
+     *  why that distinction matters once raw samples are sparse/irregular.
      * ════════════════════════════════════════════════════════════════════ */
 
     typedef struct tiny_bclibc__IntegrateCtx
@@ -400,11 +815,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         int32_t range_step_index;
         real_t time_of_last;
         /* filter state */
-        TINY_BCLIBC_BaseTrajData win[3]; /* sliding window */
-        int32_t win_n;
         int32_t active_flags;
-        real_t look_angle_tan;
-        int32_t initialized;
         /* streaming - if specified, emit calls cb instead of writing to buf */
         tiny_bclibc_StreamCb stream_cb;
         void *stream_ctx;
@@ -434,82 +845,48 @@ static inline void tiny_bclibc__set_error(const char *msg)
         }
     }
 
-    static inline void tiny_bclibc__try_interp_emit(tiny_bclibc__IntegrateCtx *c,
-                                                    int32_t key, real_t key_val, int32_t flag)
-    {
-        if (c->win_n < 3)
-            return;
-        TINY_BCLIBC_BaseTrajData r;
-        TINY_BCLIBC_BaseTrajData_interpolate(key, key_val,
-                                             &c->win[0], &c->win[1], &c->win[2], &r);
-        tiny_bclibc__integrate_emit(c, &r, flag);
-    }
-
-    static inline int32_t tiny_bclibc__integrate_on_step(const TINY_BCLIBC_BaseTrajData *pt, void *ctx_)
+    static inline int32_t tiny_bclibc__integrate_on_first(const TINY_BCLIBC_BaseTrajData *pt, void *ctx_)
     {
         tiny_bclibc__IntegrateCtx *c = (tiny_bclibc__IntegrateCtx *)ctx_;
         const TINY_BCLIBC_TrajectoryRequest *req = c->req;
-        int32_t can_interp = (c->win_n >= 3);
-
         c->last_raw = *pt;
 
-        /* ── initialiation (first point) ── */
-        if (!c->initialized)
+        int32_t ff = req->filter_flags;
+        /* if the start is above zero, we do not search ZERO_UP */
+        if ((ff & TINY_BCLIBC_TRAJ_FLAG_ZERO_UP) && pt->py >= REAL_C(0.0))
+            ff &= ~TINY_BCLIBC_TRAJ_FLAG_ZERO_UP;
+        if ((ff & TINY_BCLIBC_TRAJ_FLAG_ZERO) && pt->py < REAL_C(0.0))
         {
-            c->initialized = 1;
-            int32_t ff = req->filter_flags;
-            /* if the start is above zero, we do not search ZERO_UP */
-            if ((ff & TINY_BCLIBC_TRAJ_FLAG_ZERO_UP) && pt->py >= REAL_C(0.0))
-                ff &= ~TINY_BCLIBC_TRAJ_FLAG_ZERO_UP;
-            if ((ff & TINY_BCLIBC_TRAJ_FLAG_ZERO) && pt->py < REAL_C(0.0))
-            {
-                real_t look_el = TINY_BCLIBC_ATAN2(pt->vy, pt->vx);
-                if (look_el <= c->props->look_angle)
-                    ff &= ~(TINY_BCLIBC_TRAJ_FLAG_ZERO | TINY_BCLIBC_TRAJ_FLAG_MRT);
-            }
-            c->active_flags = ff;
-            c->look_angle_tan = TINY_BCLIBC_SIN(c->props->look_angle) / TINY_BCLIBC_COS(c->props->look_angle);
-            /* the first point always comes out */
-            if (req->range_step_ft > REAL_C(0.0) || req->time_step > REAL_C(0.0))
-                tiny_bclibc__integrate_emit(c, pt, TINY_BCLIBC_TRAJ_FLAG_RANGE);
-            /* sliding window */
-            c->win[0] = *pt;
-            c->win_n = 1;
-            return 0;
+            real_t look_el = TINY_BCLIBC_ATAN2(pt->vy, pt->vx);
+            if (look_el <= c->props->look_angle)
+                ff &= ~(TINY_BCLIBC_TRAJ_FLAG_ZERO | TINY_BCLIBC_TRAJ_FLAG_MRT);
         }
+        c->active_flags = ff;
+        /* the first point always comes out */
+        if (req->range_step_ft > REAL_C(0.0) || req->time_step > REAL_C(0.0))
+            tiny_bclibc__integrate_emit(c, pt, TINY_BCLIBC_TRAJ_FLAG_RANGE);
+        return 0;
+    }
 
-        /* ── update sliding window ── */
-        if (c->win_n < 3)
-        {
-            c->win[c->win_n++] = *pt;
-        }
-        else
-        {
-            c->win[0] = c->win[1];
-            c->win[1] = c->win[2];
-            c->win[2] = *pt;
-        }
-        can_interp = (c->win_n >= 3);
+    static inline int32_t tiny_bclibc__integrate_on_interval(
+        const TINY_BCLIBC_BaseTrajData *start, const TINY_BCLIBC_BaseTrajData *end, void *ctx_)
+    {
+        tiny_bclibc__IntegrateCtx *c = (tiny_bclibc__IntegrateCtx *)ctx_;
+        const TINY_BCLIBC_TrajectoryRequest *req = c->req;
+        c->last_raw = *end;
 
         /* ── range steps ── */
         if (req->range_step_ft > REAL_C(0.0))
         {
-            while ((real_t)(c->range_step_index + 1) * req->range_step_ft <= pt->px + REAL_C(1e-9))
+            while ((real_t)(c->range_step_index + 1) * req->range_step_ft <= end->px + REAL_C(1e-9))
             {
                 real_t rd = (real_t)(c->range_step_index + 1) * req->range_step_ft;
                 if (rd > req->range_limit_ft + REAL_C(1e-9))
                     break;
                 TINY_BCLIBC_BaseTrajData r;
-                if (TINY_BCLIBC_FABS(rd - pt->px) < REAL_C(1e-9))
-                {
-                    r = *pt;
-                }
-                else if (can_interp)
-                {
-                    TINY_BCLIBC_BaseTrajData_interpolate(TINY_BCLIBC_KEY_POS_X, rd,
-                                                         &c->win[0], &c->win[1], &c->win[2], &r);
-                }
-                else
+                if (TINY_BCLIBC_FABS(rd - end->px) < REAL_C(1e-9))
+                    r = *end;
+                else if (!tiny_bclibc__hermite_at_x(start, end, rd, &r))
                     break;
                 c->range_step_index++;
                 tiny_bclibc__integrate_emit(c, &r, TINY_BCLIBC_TRAJ_FLAG_RANGE);
@@ -518,86 +895,81 @@ static inline void tiny_bclibc__set_error(const char *msg)
         }
 
         /* ── time steps ── */
-        if (can_interp && req->time_step > REAL_C(0.0))
+        if (req->time_step > REAL_C(0.0))
         {
-            while (c->time_of_last + req->time_step <= pt->time + REAL_C(1e-9))
+            while (c->time_of_last + req->time_step <= end->time + REAL_C(1e-9))
             {
-                c->time_of_last += req->time_step;
+                real_t rt = c->time_of_last + req->time_step;
                 TINY_BCLIBC_BaseTrajData r;
-                TINY_BCLIBC_BaseTrajData_interpolate(TINY_BCLIBC_KEY_TIME, c->time_of_last,
-                                                     &c->win[0], &c->win[1], &c->win[2], &r);
+                if (!tiny_bclibc__hermite_at_time(start, end, rt, &r))
+                    break;
+                c->time_of_last = rt;
                 tiny_bclibc__integrate_emit(c, &r, TINY_BCLIBC_TRAJ_FLAG_RANGE);
             }
         }
 
         /* ── apex ── */
-        if (can_interp && (c->active_flags & TINY_BCLIBC_TRAJ_FLAG_APEX) &&
-            c->win[1].vy > REAL_C(0.0) && pt->vy <= REAL_C(0.0))
+        if ((c->active_flags & TINY_BCLIBC_TRAJ_FLAG_APEX) &&
+            start->vy > REAL_C(0.0) && end->vy <= REAL_C(0.0))
         {
-            tiny_bclibc__try_interp_emit(c, TINY_BCLIBC_KEY_VEL_Y, REAL_C(0.0), TINY_BCLIBC_TRAJ_FLAG_APEX);
+            TINY_BCLIBC_BaseTrajData r;
+            if (tiny_bclibc__hermite_at_value(start, end, tiny_bclibc__value_vy, NULL, REAL_C(0.0), &r))
+                tiny_bclibc__integrate_emit(c, &r, TINY_BCLIBC_TRAJ_FLAG_APEX);
             c->active_flags &= ~TINY_BCLIBC_TRAJ_FLAG_APEX;
         }
 
         /* ── mach crossing ──
-         * pt->mach is a Mach *ratio* (relative_speed / speed_of_sound), not a speed --
+         * .mach is a Mach *ratio* (relative_speed / speed_of_sound), not a speed --
          * the crossing condition is simply "ratio dropped below 1", mirrored below by
-         * interpolating that same ratio field to the value 1.0. */
-        if (can_interp && (c->active_flags & TINY_BCLIBC_TRAJ_FLAG_MACH))
+         * bisecting that same ratio field to the value 1.0. Strict `>` on the start side
+         * (not `>=`) matters: a muzzle velocity exactly at Mach 1 must NOT count as an
+         * already-crossed state on the very first interval (it would otherwise bisect to
+         * a root at essentially t=0, merging a MACH flag onto the muzzle row) -- mirrors
+         * base_engine.py's TrajectoryDataFilter.record_step. */
+        if ((c->active_flags & TINY_BCLIBC_TRAJ_FLAG_MACH) &&
+            start->mach > REAL_C(1.0) && end->mach < REAL_C(1.0))
         {
-            if (pt->mach < REAL_C(1.0))
-            {
-                tiny_bclibc__try_interp_emit(c, TINY_BCLIBC_KEY_MACH, REAL_C(1.0), TINY_BCLIBC_TRAJ_FLAG_MACH);
-                c->active_flags &= ~TINY_BCLIBC_TRAJ_FLAG_MACH;
-            }
+            TINY_BCLIBC_BaseTrajData r;
+            if (tiny_bclibc__hermite_at_value(start, end, tiny_bclibc__value_mach, NULL, REAL_C(1.0), &r))
+                tiny_bclibc__integrate_emit(c, &r, TINY_BCLIBC_TRAJ_FLAG_MACH);
+            c->active_flags &= ~TINY_BCLIBC_TRAJ_FLAG_MACH;
         }
 
         /* ── zero crossings ──
-         * Interpolate directly on slant height (py*cos(look_angle) - px*sin(look_angle),
-         * the signed distance orthogonal to the sight line) rather than comparing py
-         * against a reference height computed from the *current* point's px: that
-         * approximation drifts as px moves across the window and is only accurate for
-         * shallow look angles. Interpolating slant-to-zero is exact regardless of angle. */
-        if (can_interp && (c->active_flags & TINY_BCLIBC_TRAJ_FLAG_ZERO))
+         * Bisect directly on slant height (py*cos(look_angle) - px*sin(look_angle), the
+         * signed distance orthogonal to the sight line), exact regardless of look angle.
+         * Strict `<`/`>` on BOTH sides (not `>=`/`<=`) -- a start exactly on the sight line
+         * must not count as an already-crossed state on the interval that starts there
+         * (same reasoning as the Mach-ratio gate above); mirrors base_engine.py's
+         * TrajectoryDataFilter.record_step. */
+        if (c->active_flags & TINY_BCLIBC_TRAJ_FLAG_ZERO)
         {
-            real_t la_cos = TINY_BCLIBC_COS(c->props->look_angle);
-            real_t la_sin = TINY_BCLIBC_SIN(c->props->look_angle);
-            real_t slant = pt->py * la_cos - pt->px * la_sin;
+            tiny_bclibc__SlantAux aux;
+            aux.la_cos = TINY_BCLIBC_COS(c->props->look_angle);
+            aux.la_sin = TINY_BCLIBC_SIN(c->props->look_angle);
+            real_t start_slant = start->py * aux.la_cos - start->px * aux.la_sin;
+            real_t end_slant = end->py * aux.la_cos - end->px * aux.la_sin;
             int32_t cross_flag = 0;
             /* Branch on which bit is still live, not on (bit && condition) together --
-             * ZERO_DOWN must never be considered while still waiting for ZERO_UP, even on
-             * steps where the UP condition itself isn't yet true (mirrors Python's
-             * `if ZERO_UP: ... elif ZERO_DOWN: ...` chain, gated on the bit alone). */
+             * ZERO_DOWN must never be considered while still waiting for ZERO_UP. */
             if (c->active_flags & TINY_BCLIBC_TRAJ_FLAG_ZERO_UP)
             {
-                if (slant >= REAL_C(0.0))
-                {
+                if (start_slant < REAL_C(0.0) && end_slant > REAL_C(0.0))
                     cross_flag = TINY_BCLIBC_TRAJ_FLAG_ZERO_UP;
-                    c->active_flags &= ~TINY_BCLIBC_TRAJ_FLAG_ZERO_UP;
-                }
             }
             else if (c->active_flags & TINY_BCLIBC_TRAJ_FLAG_ZERO_DOWN)
             {
-                if (slant < REAL_C(0.0))
-                {
+                if (start_slant > REAL_C(0.0) && end_slant < REAL_C(0.0))
                     cross_flag = TINY_BCLIBC_TRAJ_FLAG_ZERO_DOWN;
-                    c->active_flags &= ~TINY_BCLIBC_TRAJ_FLAG_ZERO_DOWN;
-                }
             }
-            if (cross_flag && c->win_n >= 3)
+            if (cross_flag)
             {
-                real_t s0 = c->win[0].py * la_cos - c->win[0].px * la_sin;
-                real_t s1 = c->win[1].py * la_cos - c->win[1].px * la_sin;
-                real_t s2 = c->win[2].py * la_cos - c->win[2].px * la_sin;
                 TINY_BCLIBC_BaseTrajData r;
-                r.time = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].time, c->win[1].time, c->win[2].time);
-                r.px = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].px, c->win[1].px, c->win[2].px);
-                r.py = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].py, c->win[1].py, c->win[2].py);
-                r.pz = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].pz, c->win[1].pz, c->win[2].pz);
-                r.vx = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].vx, c->win[1].vx, c->win[2].vx);
-                r.vy = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].vy, c->win[1].vy, c->win[2].vy);
-                r.vz = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].vz, c->win[1].vz, c->win[2].vz);
-                r.mach = tiny_bclibc_interpolate3pt(REAL_C(0.0), s0, s1, s2, c->win[0].mach, c->win[1].mach, c->win[2].mach);
-                tiny_bclibc__integrate_emit(c, &r, cross_flag);
+                if (tiny_bclibc__hermite_at_value(start, end, tiny_bclibc__value_slant, &aux, REAL_C(0.0), &r))
+                {
+                    tiny_bclibc__integrate_emit(c, &r, cross_flag);
+                    c->active_flags &= ~cross_flag;
+                }
             }
         }
 
@@ -632,7 +1004,10 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
         /* Modified copy of ShotProps with config for break */
         int32_t reason = TINY_BCLIBC_TERM_NO_TERMINATE;
-        int32_t rc = tiny_bclibc__run_rk4(props, req, tiny_bclibc__integrate_on_step, &ctx, &reason);
+        int32_t rc = tiny_bclibc__run_cashkarp(props, req,
+                                               tiny_bclibc__integrate_on_first,
+                                               tiny_bclibc__integrate_on_interval,
+                                               &ctx, &reason);
 
         *out_written = ctx.written;
         *out_total = ctx.total;
@@ -670,7 +1045,10 @@ static inline void tiny_bclibc__set_error(const char *msg)
         ctx.stream_ctx = cb_ctx;
 
         int32_t reason = TINY_BCLIBC_TERM_NO_TERMINATE;
-        int32_t rc = tiny_bclibc__run_rk4(props, req, tiny_bclibc__integrate_on_step, &ctx, &reason);
+        int32_t rc = tiny_bclibc__run_cashkarp(props, req,
+                                               tiny_bclibc__integrate_on_first,
+                                               tiny_bclibc__integrate_on_interval,
+                                               &ctx, &reason);
 
         *out_total = ctx.total;
         *out_reason = reason;

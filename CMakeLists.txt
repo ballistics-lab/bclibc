@@ -74,6 +74,7 @@ set(BCLIBC_SRC_DIR     "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 set(BCLIBC_SOURCES
     "${BCLIBC_SRC_DIR}/base_types.cpp"
+    "${BCLIBC_SRC_DIR}/cash_karp.cpp"
     "${BCLIBC_SRC_DIR}/engine.cpp"
     "${BCLIBC_SRC_DIR}/euler.cpp"
     "${BCLIBC_SRC_DIR}/interp.cpp"
@@ -256,6 +257,7 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 
   install(FILES
       "${BCLIBC_INCLUDE_DIR}/bclibc/base_types.hpp"
+      "${BCLIBC_INCLUDE_DIR}/bclibc/cash_karp.hpp"
       "${BCLIBC_INCLUDE_DIR}/bclibc/engine.hpp"
       "${BCLIBC_INCLUDE_DIR}/bclibc/euler.hpp"
       "${BCLIBC_INCLUDE_DIR}/bclibc/exceptions.hpp"

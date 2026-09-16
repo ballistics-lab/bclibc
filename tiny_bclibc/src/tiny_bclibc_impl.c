@@ -7,6 +7,6 @@
  *       src/tiny_bclibc_impl.c -o libtiny_bclibc.so
  */
 #ifndef TINY_BCLIBC_BUILD_SHARED
-#  define TINY_BCLIBC_BUILD_SHARED
+#define TINY_BCLIBC_BUILD_SHARED
 #endif
 #include "tiny_bclibc.h"

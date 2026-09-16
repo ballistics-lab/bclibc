@@ -6,9 +6,10 @@
 
 Pure C99 ballistics engine — header-only by default, or compiled as a shared/static library.
 
-Implements RK4 integration, PCHIP drag curves, Coriolis, spin drift, CIPM-2007 atmosphere,
-and Ridder's method for zero-finding. Designed for embedded targets (MicroPython natmod,
-bare-metal MCUs) as well as desktop use.
+Implements Cash-Karp adaptive RK45 integration (`tiny_bclibc_integrate`/`_stream`/`_raw`), fixed-step
+RK4 (used internally for zero-angle and apex finding), PCHIP drag curves, Coriolis, spin drift,
+CIPM-2007 atmosphere, and Ridder's method for zero-finding. Designed for embedded targets
+(MicroPython natmod, bare-metal MCUs) as well as desktop use.
 
 ## Usage modes
 
@@ -113,28 +114,39 @@ spread) and float32 is sufficient for all supported embedded targets.
 
 Measured via
 [py-ballisticcalc's `examples/tiny_bclibc`](https://github.com/o-murphy/py-ballisticcalc/tree/master/examples/tiny_bclibc)
-(`scripts/benchmark.py`, `Trajectory`/`Zero` cases, 1000 repeats + 100 warmup), driving
-`tiny_bclibc_integrate_stream` from Python via `ctypes` and comparing against
-`py_ballisticcalc.exts`' `cythonized_rk4_engine` (a genuine C-extension binding to bclibc's
-C++ engine — no FFI marshalling per call).
+(`scripts/benchmark.py`, `Trajectory`/`Zero` cases, 500 repeats + 50 warmup), driving
+`tiny_bclibc_integrate_stream` — now backed by the Cash-Karp adaptive core, not fixed-step RK4
+(see [Adaptive integration](#adaptive-integration-cash-karp) below) — from Python via `ctypes`
+and comparing against `py_ballisticcalc.exts`' `cythonized_rk4_engine` (a genuine C-extension
+binding to bclibc's C++ engine, still fixed-step RK4 — no FFI marshalling per call).
 
 | Case | Engine | Mean | Min | Max |
 |---|---|---|---|---|
-| Trajectory | `cythonized_rk4_engine` | 0.35 ms | 0.33 ms | 0.57 ms |
-| Trajectory | `tiny_bclibc` (single precision, ctypes) | 0.39 ms | 0.32 ms | 1.11 ms |
-| Trajectory | `tiny_bclibc` (double precision, ctypes) | 0.57 ms | 0.52 ms | 1.03 ms |
-| Zero | `cythonized_rk4_engine` | 0.92 ms | 0.87 ms | 1.30 ms |
-| Zero | `tiny_bclibc` (single precision, ctypes) | 0.96 ms | 0.84 ms | 1.72 ms |
-| Zero | `tiny_bclibc` (double precision, ctypes) | 2.03 ms | 1.79 ms | 2.99 ms |
+| Trajectory | `cythonized_rk4_engine` | 0.59 ms | 0.58 ms | 0.65 ms |
+| Trajectory | `tiny_bclibc` (single precision, ctypes) | 0.34 ms | 0.33 ms | 0.44 ms |
+| Trajectory | `tiny_bclibc` (double precision, ctypes) | 0.35 ms | 0.34 ms | 0.47 ms |
+| Zero | `cythonized_rk4_engine` | 1.71 ms | 1.70 ms | 1.91 ms |
+| Zero | `tiny_bclibc` (single precision, ctypes) | 0.96 ms | 0.94 ms | 1.10 ms |
+| Zero | `tiny_bclibc` (double precision, ctypes) | 0.60 ms | 0.59 ms | 0.75 ms |
 
 **Conclusion:** streaming filtered output rows (one Python callback per emitted row, not per
-RK4 step) puts a `ctypes` driver within noise of a real C-extension binding for both cases —
-the earlier, since-abandoned approach of streaming every *raw* RK4 step to Python
+accepted step) puts a `ctypes` driver within noise of a real C-extension binding, or faster —
+the earlier, since-abandoned approach of streaming every *raw* step to Python
 (`tiny_bclibc_integrate_raw`, still available as a small primitive for other uses) was
 ~20–34x slower on the same benchmark, confirming the per-step Python↔C transition — not the
-physics itself — was the actual bottleneck. Single precision's `Zero` case is faster than
-double's here because the driving engine relaxed `cZeroFindingAccuracy` to match float32's
-representable precision (fewer Newton iterations); see that project's `sp.py` docstring.
+physics itself — was the actual bottleneck. Switching `tiny_bclibc_integrate_stream` from
+fixed-step RK4 to adaptive Cash-Karp (needing far fewer accepted steps for comparable accuracy)
+made both precisions faster than the fixed-step Cython RK4 reference on this benchmark shot.
+
+## Adaptive integration (Cash-Karp)
+
+See the [top-level README](../README.md#adaptive-integration-cash-karp) for the Cash-Karp
+integrator itself (per-stage drag/atmosphere recompute, step accept/reject control) and the
+event/row interpolation fix it required. `tiny_bclibc_integrate()`/`tiny_bclibc_integrate_stream()`
+run `tiny_bclibc__run_cashkarp` (`engine.h`); `tiny_bclibc_integrate_raw()`, `integrate_at()`,
+`find_apex()`, and `find_zero_angle()` are unchanged (still `tiny_bclibc__run_rk4` internally —
+zero-angle/apex finding does many short, cheap integrations per Newton iteration and wasn't the
+target of this change).
 
 ## Usage
 
@@ -257,7 +269,7 @@ int32_t rc = tiny_bclibc_build_shot_props(&shot, curve, &props);
 ### Trajectory functions
 
 ```c
-// Full trajectory at fixed range / time steps
+// Full trajectory, sampled at the requested range/time steps (Cash-Karp adaptive core)
 int32_t tiny_bclibc_integrate(
     const TINY_BCLIBC_ShotProps        *props,
     const TINY_BCLIBC_TrajectoryRequest *req,
@@ -317,7 +329,7 @@ real_t tiny_bclibc_calculate_ogw(real_t weight_grain, real_t vel_fps);     // �
 | `TINY_BCLIBC_Coriolis` | Coriolis pre-computed sines/cosines |
 | `TINY_BCLIBC_TrajectoryRequest` | Step / range / filter config |
 | `TINY_BCLIBC_TrajectoryData` | Full output row (16 fields) |
-| `TINY_BCLIBC_BaseTrajData` | Raw RK4 state (time, position, velocity, mach) |
+| `TINY_BCLIBC_BaseTrajData` | Raw integrator state (time, position, velocity, mach) |
 
 ### Interpolation keys (`TINY_BCLIBC_InterpKey`)
 
@@ -370,10 +382,10 @@ tiny_bclibc/
 ├── include/tiny_bclibc/
 │   ├── platform.h      # real_t, macros, visibility
 │   ├── v3d.h           # 3-component vector helpers
-│   ├── interp.h        # 3-point PCHIP interpolation
+│   ├── interp.h        # 3-point PCHIP + 2-point exact-derivative Hermite interpolation
 │   ├── base_types.h    # Shot, ShotProps, Wind, Config, Atmosphere, Coriolis
 │   ├── traj_data.h     # TrajectoryData, BaseTrajData, TrajectoryRequest
-│   └── engine.h        # Public API + RK4 implementation
+│   └── engine.h        # Public API + RK4 and Cash-Karp implementations
 ├── src/
 │   └── tiny_bclibc_impl.c   # Single-file library entry point
 ├── tests/

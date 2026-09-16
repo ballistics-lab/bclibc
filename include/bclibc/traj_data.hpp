@@ -275,6 +275,20 @@ namespace bclibc
          * @param data Trajectory data to distribute.
          */
         virtual void handle(const BCLIBC_BaseTrajData &data) = 0;
+
+        /**
+         * @brief Receives one accepted integration interval.
+         *
+         * Integrators with a continuous interpolant call this instead of
+         * materialising intermediate raw points.  Existing handlers retain
+         * their endpoint-only behaviour through this default implementation.
+         */
+        virtual void handle_step(const BCLIBC_BaseTrajData &start,
+                                 const BCLIBC_BaseTrajData &end)
+        {
+            (void)start;
+            this->handle(end);
+        }
     };
 
     using BCLIBC_BaseTrajDataHandlerCompositorIterator = std::vector<BCLIBC_BaseTrajDataHandlerInterface *>::iterator;
@@ -304,6 +318,9 @@ namespace bclibc
          * @param data Trajectory data to distribute.
          */
         void handle(const BCLIBC_BaseTrajData &data) override;
+
+        void handle_step(const BCLIBC_BaseTrajData &start,
+                         const BCLIBC_BaseTrajData &end) override;
 
         /**
          * @brief Adds a handler to the distribution list.

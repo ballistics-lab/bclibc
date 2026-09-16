@@ -276,6 +276,19 @@ namespace bclibc
         }
     }
 
+    void BCLIBC_BaseTrajDataHandlerCompositor::handle_step(
+        const BCLIBC_BaseTrajData &start,
+        const BCLIBC_BaseTrajData &end)
+    {
+        for (auto *handler : this->handlers)
+        {
+            if (handler != nullptr)
+            {
+                handler->handle_step(start, end);
+            }
+        }
+    }
+
     // ============================================================================
     // Trajectory Sequence
     // ============================================================================

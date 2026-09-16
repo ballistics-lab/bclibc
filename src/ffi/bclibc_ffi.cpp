@@ -24,6 +24,7 @@
 #include "bclibc/rk4.hpp"
 #include "bclibc/euler.hpp"
 #include "bclibc/velocity_verlet.hpp"
+#include "bclibc/cash_karp.hpp"
 #include "bclibc/version.h" // This is the generated file
 
 using namespace bclibc;
@@ -98,6 +99,11 @@ static double calcStep(BCLIBCFFI_IntegrationMethod m, double multiplier)
         // Velocity Verlet is a fixed-step (non-adaptive) method like RK4; use the
         // same conservative base step size for comparable accuracy.
         return 0.0025 * multiplier;
+    case BCLIBCFFI_INTEGRATION_CASH_KARP:
+        // This is the *base* step Cash-Karp starts from and can grow up to 64x
+        // (or shrink down to 1/64x) via its own adaptive error control -- same
+        // base as RK4's fixed step, not a separate tuning.
+        return 0.0025 * multiplier;
     case BCLIBCFFI_INTEGRATION_EULER:
     default:
         return 0.5 * multiplier;
@@ -112,6 +118,8 @@ static BCLIBC_IntegrateCallable selectIntegrateFunc(BCLIBCFFI_IntegrationMethod 
         return BCLIBC_IntegrateCallable(BCLIBC_integrateRK4);
     case BCLIBCFFI_INTEGRATION_VELOCITY_VERLET:
         return BCLIBC_IntegrateCallable(BCLIBC_integrateVELOCITY_VERLET);
+    case BCLIBCFFI_INTEGRATION_CASH_KARP:
+        return BCLIBC_IntegrateCallable(BCLIBC_integrateCashKarp);
     case BCLIBCFFI_INTEGRATION_EULER:
     default:
         return BCLIBC_IntegrateCallable(BCLIBC_integrateEULER);

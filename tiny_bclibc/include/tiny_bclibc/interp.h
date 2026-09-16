@@ -26,6 +26,28 @@ extern "C"
         return h00 * yk + h * (h10 * mk + h11 * mk1) + h01 * yk1;
     }
 
+    /* ── Cubic Hermite derivative (w.r.t. x) ────────────────────────────
+     * d/dx of tiny_bclibc_hermite() above -- the exact tangent of the same
+     * 2-point cubic, not a new estimate. Used to reconstruct a physically
+     * consistent velocity from a position Hermite built on (position, exact
+     * velocity) endpoint pairs, instead of re-interpolating velocity as an
+     * independent series (see engine.h's interval-based event/row filter). */
+    TINY_BCLIBC_INLINE_FUNC real_t
+    tiny_bclibc_hermite_derivative(real_t x,
+                                   real_t xk, real_t xk1,
+                                   real_t yk, real_t yk1,
+                                   real_t mk, real_t mk1)
+    {
+        real_t h = xk1 - xk;
+        real_t t = (x - xk) / h;
+        real_t t2 = t * t;
+        real_t dh00 = REAL_C(6.0) * t2 - REAL_C(6.0) * t;
+        real_t dh10 = REAL_C(3.0) * t2 - REAL_C(4.0) * t + REAL_C(1.0);
+        real_t dh01 = -REAL_C(6.0) * t2 + REAL_C(6.0) * t;
+        real_t dh11 = REAL_C(3.0) * t2 - REAL_C(2.0) * t;
+        return (dh00 * yk + dh01 * yk1) / h + dh10 * mk + dh11 * mk1;
+    }
+
     /* ── 3-point PCHIP slopes ────────────────────────────────────────── */
     TINY_BCLIBC_INLINE_FUNC void
     tiny_bclibc__pchip_slopes3(real_t x0, real_t y0,

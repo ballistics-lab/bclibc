@@ -1,6 +1,7 @@
 #pragma once
 // compare.hpp — tolerance-based comparison of bclibc vs tbclibc trajectory points.
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -13,18 +14,26 @@ namespace identity
     // Double mode: bclibc (double) vs tbclibc (double) → tight tolerance.
     static constexpr double kAbsTol = 1e-9;
 
-    struct FieldCmp {
+    struct FieldCmp
+    {
         const char *name;
         double bclibc_val;
         double tbclibc_val;
     };
 
     inline bool check_field(const char *name, double a, double b, double tol,
-                             int point_idx, bool verbose)
+                            int point_idx, bool verbose, double rel_tol = 0.0)
     {
         double diff = std::fabs(a - b);
-        bool ok = (diff <= tol);
-        if (!ok || verbose) {
+        // rel_tol scales the bound by the larger operand's magnitude -- needed when comparing
+        // two genuinely different (but both correct) algorithms, e.g. adaptive Cash-Karp vs a
+        // fixed-step reference (see compare_trajectories' rel_tol doc comment), where a single
+        // absolute tolerance can't cover fields spanning several orders of magnitude at once
+        // (e.g. ogw_lb ~100 vs height_ft ~0.02 in the same trajectory).
+        double bound = tol + rel_tol * std::max(std::fabs(a), std::fabs(b));
+        bool ok = (diff <= bound);
+        if (!ok || verbose)
+        {
             std::printf("  [pt %d] %-22s  bclibc=%.12g  tbclibc=%.12g  diff=%.3e  %s\n",
                         point_idx, name, a, b, diff, ok ? "OK" : "FAIL");
         }
@@ -32,13 +41,14 @@ namespace identity
     }
 
     // Compare one full TrajectoryData point.
-    // Returns true if all fields within tolerance.
+    // Returns true if all fields within tolerance (tol + rel_tol * max(|a|,|b|)).
     inline bool compare_point(const bclibc::BCLIBC_TrajectoryData &bc,
-                               const TINY_BCLIBC_TrajectoryData &tb,
-                               int idx, double tol = kAbsTol, bool verbose = false)
+                              const TINY_BCLIBC_TrajectoryData &tb,
+                              int idx, double tol = kAbsTol, bool verbose = false,
+                              double rel_tol = 0.0)
     {
         bool ok = true;
-#define CMP(field) ok &= check_field(#field, bc.field, tb.field, tol, idx, verbose)
+#define CMP(field) ok &= check_field(#field, bc.field, tb.field, tol, idx, verbose, rel_tol)
         CMP(time);
         CMP(distance_ft);
         CMP(velocity_fps);
@@ -67,24 +77,33 @@ namespace identity
     }
 
     // Compare full trajectories (must be same length, matched by index).
+    // rel_tol > 0 widens the bound to tol + rel_tol*max(|a|,|b|) per field -- use this when
+    // comparing two different (but both individually correct) integration algorithms rather
+    // than the same algorithm on two implementations (e.g. tiny_bclibc's Cash-Karp adaptive
+    // integrator against bclibc's fixed-step RK4 reference): their raw sample points land at
+    // different times, so even an exact reconstruction of the *requested* output rows still
+    // differs from the reference by real, small, algorithm-dependent amounts -- not a bug.
     inline bool compare_trajectories(
         const std::vector<bclibc::BCLIBC_TrajectoryData> &bc_traj,
-        const std::vector<TINY_BCLIBC_TrajectoryData>        &tb_traj,
-        const char *label, double tol = kAbsTol)
+        const std::vector<TINY_BCLIBC_TrajectoryData> &tb_traj,
+        const char *label, double tol = kAbsTol, double rel_tol = 0.0)
     {
         std::printf("\n=== %s ===\n", label);
 
-        if (bc_traj.size() != tb_traj.size()) {
+        if (bc_traj.size() != tb_traj.size())
+        {
             std::printf("  FAIL: different point counts: bclibc=%zu  tbclibc=%zu\n",
                         bc_traj.size(), tb_traj.size());
             return false;
         }
         bool all_ok = true;
         int failures = 0;
-        for (int i = 0; i < static_cast<int>(bc_traj.size()); ++i) {
-            bool ok = compare_point(bc_traj[i], tb_traj[i], i, tol, false);
-            if (!ok) {
-                compare_point(bc_traj[i], tb_traj[i], i, tol, true); // verbose on fail
+        for (int i = 0; i < static_cast<int>(bc_traj.size()); ++i)
+        {
+            bool ok = compare_point(bc_traj[i], tb_traj[i], i, tol, false, rel_tol);
+            if (!ok)
+            {
+                compare_point(bc_traj[i], tb_traj[i], i, tol, true, rel_tol); // verbose on fail
                 ++failures;
             }
             all_ok &= ok;
@@ -98,7 +117,7 @@ namespace identity
 
     // Compare a single scalar (e.g., zero_angle result).
     inline bool compare_scalar(const char *label, double bc_val, double tb_val,
-                                double tol = kAbsTol)
+                               double tol = kAbsTol)
     {
         double diff = std::fabs(bc_val - tb_val);
         bool ok = (diff <= tol);
