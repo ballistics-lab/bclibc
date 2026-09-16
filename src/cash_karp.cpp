@@ -194,12 +194,15 @@ namespace bclibc
                     double grow = (err_norm > 1.89e-4)
                                       ? kSafety * std::pow(err_norm, -0.20)
                                       : 5.0;
-                    grow = std::clamp(grow, 1.0, 5.0); // never shrink on an accepted step
+                    // clamp(grow, 1.0, 5.0) -- never shrink on an accepted step
+                    grow = std::max(1.0, std::min(grow, 5.0));
                     dt = std::min(dt * grow, max_dt);
                     break;
                 }
                 ++g_ck_rejected;
-                const double shrink = std::clamp(kSafety * std::pow(err_norm, -0.25), 0.1, 0.9);
+                // clamp(shrink, 0.1, 0.9) -- must actually shrink, but not collapse
+                double shrink = kSafety * std::pow(err_norm, -0.25);
+                shrink = std::max(0.1, std::min(shrink, 0.9));
                 dt = std::max(dt * shrink, min_dt);
             }
 
