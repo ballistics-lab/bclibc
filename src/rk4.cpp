@@ -159,6 +159,13 @@ namespace bclibc
 
         BCLIBC_DEBUG("Velocity vector: %f, %f, %f\n", velocity_vector.x, velocity_vector.y, velocity_vector.z);
 
+        eng.shot.atmo.update_density_factor_and_mach_for_altitude(
+            eng.shot.alt0 + range_vector.y,
+            density_ratio,
+            mach);
+        BCLIBC_BaseTrajData step_start(time, range_vector, velocity_vector, mach);
+        handler.handle(step_start);
+
         // Main trajectory integration loop
         // Continue until range limit is reached or termination condition is met
         // Minimum of 3 steps ensures proper initialization
@@ -182,9 +189,6 @@ namespace bclibc
                 eng.shot.alt0 + range_vector.y,
                 density_ratio,
                 mach);
-
-            // Call handler with current point
-            handler.handle(BCLIBC_BaseTrajData(time, range_vector, velocity_vector, mach));
 
             // Relative velocity and its magnitude (single sqrt per step and per sub-step as needed)
             relative_velocity = velocity_vector - wind_vector;
@@ -283,6 +287,13 @@ namespace bclibc
             // Update scalar velocity magnitude and simulation time
             velocity = velocity_vector.mag();
             time += delta_time;
+            eng.shot.atmo.update_density_factor_and_mach_for_altitude(
+                eng.shot.alt0 + range_vector.y,
+                density_ratio,
+                mach);
+            BCLIBC_BaseTrajData step_end(time, range_vector, velocity_vector, mach);
+            handler.handle_step(step_start, step_end);
+            step_start = step_end;
 
             BCLIBC_DEBUG("Velocity=%f, Time=%f\n", velocity, time);
 
@@ -294,8 +305,6 @@ namespace bclibc
 
         BCLIBC_DEBUG("Loop exited, appending final point\n");
 
-        // Final point
-        handler.handle(BCLIBC_BaseTrajData(time, range_vector, velocity_vector, mach));
         BCLIBC_DEBUG("Function exit, reason=%d\n", reason);
     }
 

@@ -103,7 +103,6 @@ namespace bclibc
     private:
         // constants
         static constexpr double EPSILON = 1e-6;
-        static constexpr double SEPARATE_ROW_TIME_DELTA = 1e-5;
 
         // data fields
         std::vector<BCLIBC_TrajectoryData> &records;
@@ -122,8 +121,8 @@ namespace bclibc
         BCLIBC_TerminationReason &termination_reason_ref;
 
         /**
-         * @brief Inserts a new record into a sorted container, merging with existing entries
-         *        if the time difference is below `SEPARATE_ROW_TIME_DELTA`.
+         * @brief Inserts a legacy record into a sorted container, merging only
+         *        when its timestamp is exactly identical.
          * @tparam T Type of record (TrajectoryData or FlaggedData)
          * @tparam TimeAccessor Function to access time from record.
          * @param container The vector to insert into.

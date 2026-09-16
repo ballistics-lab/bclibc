@@ -297,10 +297,11 @@ namespace bclibc
 
         if ((this->filter & BCLIBC_TRAJ_FLAG_APEX) && start.vy > 0.0 && end.vy <= 0.0)
         {
-            const double apex_time = start.time +
-                                     (end.time - start.time) * start.vy / (start.vy - end.vy);
             BCLIBC_BaseTrajData sample;
-            if (hermite_at_time(start, end, apex_time, sample))
+            if (hermite_at_value(start, end,
+                                 [](const BCLIBC_BaseTrajData &data)
+                                 { return data.vy; },
+                                 0.0, sample))
             {
                 this->add_row(rows, sample, BCLIBC_TRAJ_FLAG_APEX);
                 this->filter = (BCLIBC_TrajFlag)(this->filter & ~BCLIBC_TRAJ_FLAG_APEX);
@@ -345,13 +346,15 @@ namespace bclibc
             }
         }
 
+        std::stable_sort(rows.begin(), rows.end(),
+                         [](const BCLIBC_FlaggedData &a, const BCLIBC_FlaggedData &b)
+                         { return a.data.time < b.data.time; });
         for (const auto &row : rows)
         {
-            this->merge_sorted_record(
-                this->records,
-                BCLIBC_TrajectoryData(this->props, row),
-                [](const BCLIBC_TrajectoryData &data)
-                { return data.time; });
+            // Event roots and scheduled samples are separate observations.
+            // Do not rewrite either one merely because their timestamps happen
+            // to be close (or even equal at a step endpoint).
+            this->records.emplace_back(this->props, row);
         }
 
         this->prev_prev_data = start;
@@ -625,8 +628,8 @@ namespace bclibc
     };
 
     /**
-     * @brief Inserts a new record into a sorted container, merging with existing entries
-     *        if the time difference is below `SEPARATE_ROW_TIME_DELTA`.
+     * @brief Inserts a legacy record into a sorted container, merging only at
+     *        an exactly identical timestamp.
      * @tparam T Type of record (TrajectoryData or FlaggedData)
      * @tparam TimeAccessor Function to access time from record.
      * @param container The vector to insert into.
@@ -650,7 +653,7 @@ namespace bclibc
                 return getTime(record_data) < time_to_find;
             });
 
-        if (it != container.end() && std::fabs(getTime(*it) - new_time) < this->SEPARATE_ROW_TIME_DELTA)
+        if (it != container.end() && getTime(*it) == new_time)
         {
             it->flag = (BCLIBC_TrajFlag)(it->flag | new_record.flag);
             return;
@@ -660,7 +663,7 @@ namespace bclibc
         {
             auto prev_it = std::prev(it);
 
-            if (std::fabs(getTime(*prev_it) - new_time) < this->SEPARATE_ROW_TIME_DELTA)
+            if (getTime(*prev_it) == new_time)
             {
                 prev_it->flag = (BCLIBC_TrajFlag)(prev_it->flag | new_record.flag);
                 return;
@@ -679,13 +682,7 @@ namespace bclibc
      */
     void BCLIBC_TrajectoryDataFilter::add_row(std::vector<BCLIBC_FlaggedData> &rows, const BCLIBC_BaseTrajData &data, BCLIBC_TrajFlag flag)
     {
-        BCLIBC_FlaggedData new_row = {data, flag};
-
-        this->merge_sorted_record(
-            rows,
-            new_row,
-            [](const BCLIBC_FlaggedData &f)
-            { return f.data.time; });
+        rows.push_back({data, flag});
     };
 
     // ============================================================================

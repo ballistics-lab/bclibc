@@ -121,6 +121,8 @@ namespace bclibc
         BCLIBC_velocity_verlet_acceleration(
             eng, velocity_vector, relative_velocity, relative_velocity.mag(),
             gravity_vector, density_ratio, mach, acceleration_vector);
+        BCLIBC_BaseTrajData step_start(time, range_vector, velocity_vector, mach);
+        handler.handle(step_start);
 
         // Main trajectory integration loop
         // Continue until range limit is reached or termination condition is met
@@ -139,10 +141,6 @@ namespace bclibc
                 eng.shot.alt0 + range_vector.y,
                 density_ratio,
                 mach);
-
-            // Record current trajectory point
-            handler.handle(
-                BCLIBC_BaseTrajData(time, range_vector, velocity_vector, mach));
 
             // === Velocity Verlet Integration Step ===
             // 1. Update position using the acceleration carried over from the previous step:
@@ -171,11 +169,14 @@ namespace bclibc
             // 6. Update scalar velocity magnitude and simulation time
             velocity = velocity_vector.mag();
             time += delta_time;
+            eng.shot.atmo.update_density_factor_and_mach_for_altitude(
+                eng.shot.alt0 + range_vector.y,
+                density_ratio,
+                mach);
+            BCLIBC_BaseTrajData step_end(time, range_vector, velocity_vector, mach);
+            handler.handle_step(step_start, step_end);
+            step_start = step_end;
         }
-
-        // Record final trajectory point
-        handler.handle(
-            BCLIBC_BaseTrajData(time, range_vector, velocity_vector, mach));
 
         BCLIBC_DEBUG("Function exit, reason=%d\n", reason);
     }
