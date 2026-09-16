@@ -7,6 +7,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-beta.1] - 2026-09-16
+
+### Added
+- Cash-Karp adaptive RK45 integrator (`BCLIBC_integrateCashKarp`, `bclibc/cash_karp.hpp`) —
+  Numerical Recipes' `rkck` embedded 4th/5th-order method, selectable via
+  `BCLIBC_BaseEngine::integrate_func` like `BCLIBC_integrateRK4`. Grows its step up to 64x the
+  configured base step during smooth flight and shrinks to base/64 on error-estimate rejection
+  (retrying rather than accepting), typically needing 2-6x fewer total steps than fixed-step
+  RK4 for comparable accuracy. `BCLIBC_cashKarpSetRelativeTolerance()` sets the thread-local
+  relative error tolerance (default `1e-6`, empirically Pareto-optimal on the one profile
+  measured so far — see its doc comment for the data); `BCLIBC_cashKarpGetStats()` returns the
+  accepted/rejected step counts from the most recent call on the current thread.
+- `tiny_bclibc`: adaptive Cash-Karp core (`tiny_bclibc__run_cashkarp`, `engine.h`), now backing
+  `tiny_bclibc_integrate()`/`tiny_bclibc_integrate_stream()`.
+- `tiny_bclibc`/`interp.h`: `tiny_bclibc_hermite_derivative()` — the exact derivative of
+  `tiny_bclibc_hermite()`'s cubic, used to reconstruct a physically consistent velocity from an
+  interval's endpoint (position, velocity) pairs instead of a separate finite-difference
+  velocity estimate.
+
+### Changed
+- **Event/row interpolation is now interval-based, not per-raw-point.** Every integrator
+  (`BCLIBC_integrateRK4`, `BCLIBC_integrateCashKarp`, Euler, Velocity Verlet; `tiny_bclibc`'s
+  Cash-Karp core) streams each accepted `(start, end)` interval to the handler
+  (`BCLIBC_BaseTrajDataHandlerInterface::handle_step`, added with a default that falls back to
+  `handle(end)`). `BCLIBC_TrajectoryDataFilter`/`BCLIBC_SinglePointHandler` and `tiny_bclibc`'s
+  own filter now reconstruct RANGE/time-step rows and APEX/MACH/ZERO event roots with a 2-point
+  cubic Hermite built from each interval's *exact* endpoint state (bisecting on time where
+  needed), replacing per-point interpolation over a 3-point window of raw samples
+  (`BCLIBC_interpolate3pt`/`tiny_bclibc_interpolate3pt`, finite-difference PCHIP slopes). The
+  old scheme's slopes were estimated from neighboring raw-sample spacing — accurate when RK4's
+  fixed step keeps samples dense and uniform, but measurably wrong once an adaptive integrator's
+  accepted steps are sparse and irregular (a multi-yard event-crossing miss was observed and is
+  what motivated this fix).
+- **Scheduled samples and physical events are no longer merged into one row when their
+  timestamps happen to land close together.** `BCLIBC_TrajectoryDataFilter::add_row` and
+  `merge_sorted_record`'s implicit time-tolerance merge is gone for the interval-based path —
+  a RANGE-step row and a ZERO/MACH/APEX event are always independent records now, even at an
+  identical timestamp. Merging depended on raw-sample spacing that adaptive stepping no longer
+  guarantees, and previously produced a real bug: making event-time reconstruction more accurate
+  could push a previously-"accidentally" coincident event/row pair just far enough apart that
+  they stopped merging, silently changing output row counts. Downstream consumers that want the
+  old "closest sample annotated with nearby event flags" view should compute that projection
+  themselves from the exact records (see `py_ballisticcalc`'s `HitResult.trajectory` for a
+  reference implementation).
+- `tiny_bclibc`: `tiny_bclibc_integrate()`/`tiny_bclibc_integrate_stream()` now run the
+  Cash-Karp core instead of fixed-step RK4. `tiny_bclibc_integrate_raw()`, `integrate_at()`,
+  `find_apex()`, and `find_zero_angle()` are unchanged (still RK4-based internally).
+- `tiny_bclibc`: the MACH-crossing and ZERO-crossing detection conditions in the interval-based
+  filter now use strict `>`/`<` on both sides of the threshold, matching
+  `py_ballisticcalc`'s `TrajectoryDataFilter.record_step` reference. The previous non-strict
+  `>=`/`<=` treated a state exactly on the threshold (e.g. a muzzle velocity exactly at Mach 1)
+  as already past it, which under interval-based (start-inclusive) detection could register a
+  false crossing essentially at t=0 instead of at the real, later crossing.
+
+### Fixed
+- Cash-Karp: the drag coefficient **and** the atmosphere sample are now recomputed fresh at
+  each of the 6 stages, from that stage's own intermediate velocity/altitude — unlike
+  `BCLIBC_integrateRK4`, which freezes both once per step. An earlier variant that reused RK4's
+  once-per-step freeze (extended to 6 stages) produced real, tolerance-independent accuracy
+  failures: the embedded error estimator can't see model error from a stale drag/atmosphere
+  sample, only discretization error of the frozen sub-problem, so tightening tolerance never
+  helped.
+- Cash-Karp: `time` now accumulates the step size actually integrated (captured before growing
+  `dt` for the next attempt), not the already-grown value — the previous code produced a real
+  ~4.3% flight-time error.
+- `hermite_at_x()` (`src/traj_filter.cpp`, and its `tiny_bclibc` port in `engine.h`) now assigns
+  the exact query target to the result's downrange position instead of re-deriving it from the
+  bisection-converged Hermite sample. Invisible at double precision (residual is far below any
+  existing tolerance), but at `tiny_bclibc`'s single-precision (`float`) build, one `float`
+  ULP at typical trajectory ranges (~0.004 ft at 36000 ft) exceeded the bisection residual,
+  measurably missing an exact RANGE-step target.
+- `get_step_stats()`-equivalent (`BCLIBC_cashKarpGetStats`): documented as reading thread-local
+  counters shared across every instance integrating on the same thread — callers needing a
+  specific instance's own stats must snapshot immediately after that instance's own `integrate()`
+  call returns (see `py_ballisticcalc.exts`' `CythonizedCashKarpIntegrationEngine` for the
+  pattern), not read it lazily afterward.
+- `std::clamp` (C++17) replaced with manual `std::min`/`std::max` clamping in `cash_karp.cpp`,
+  matching `rk45.cpp`'s style — this project targets `-std=c++11`.
+
 ## [1.1.8] - 2026-09-26
 
 ### Added
