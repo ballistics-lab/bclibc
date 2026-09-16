@@ -70,6 +70,9 @@ namespace bclibc
          */
         void handle(const BCLIBC_BaseTrajData &data) override;
 
+        void handle_step(const BCLIBC_BaseTrajData &start,
+                         const BCLIBC_BaseTrajData &end) override;
+
         /**
          * @brief Records a new trajectory point, interpolates missing points based on time or range,
          *        and applies feature-specific filters (apex, Mach, zero crossings).
@@ -276,6 +279,9 @@ namespace bclibc
             BCLIBC_TerminationReason *termination_reason_ptr);
 
         void handle(const BCLIBC_BaseTrajData &data) override;
+
+        void handle_step(const BCLIBC_BaseTrajData &start,
+                         const BCLIBC_BaseTrajData &end) override;
 
         /**
          * @brief Returns whether target point was found and interpolated.

@@ -128,6 +128,12 @@ namespace bclibc
 
         double time = 0.0;
 
+        double density_ratio, mach_fps;
+        eng.shot.atmo.update_density_factor_and_mach_for_altitude(
+            eng.shot.alt0 + range_vector.y, density_ratio, mach_fps);
+        BCLIBC_BaseTrajData step_start(time, range_vector, velocity_vector, mach_fps);
+        handler.handle(step_start);
+
         while (reason == BCLIBC_TerminationReason::NO_TERMINATE)
         {
             eng.integration_step_count++;
@@ -138,11 +144,6 @@ namespace bclibc
             double density_ratio, mach_fps;
             eng.shot.atmo.update_density_factor_and_mach_for_altitude(
                 eng.shot.alt0 + range_vector.y, density_ratio, mach_fps);
-            // BCLIBC_BaseTrajData::mach carries the local speed of sound in fps,
-            // despite its historical name.  BCLIBC_TrajectoryData divides the
-            // projectile velocity by this value when it exposes the Mach ratio.
-            // Keep this consistent with BCLIBC_integrateRK4.
-            handler.handle(BCLIBC_BaseTrajData(time, range_vector, velocity_vector, mach_fps));
 
             BCLIBC_V3dT gravity_plus_coriolis = gravity_vector;
             if (!eng.shot.coriolis.flat_fire_only)
@@ -211,13 +212,12 @@ namespace bclibc
             vr = vr_next;
             range_vector = pos_next;
             velocity_vector = vr + wind_vector;
+            eng.shot.atmo.update_density_factor_and_mach_for_altitude(
+                eng.shot.alt0 + range_vector.y, density_ratio, mach_fps);
+            BCLIBC_BaseTrajData step_end(time, range_vector, velocity_vector, mach_fps);
+            handler.handle_step(step_start, step_end);
+            step_start = step_end;
         }
-
-        // Final point.
-        double density_ratio, mach_fps;
-        eng.shot.atmo.update_density_factor_and_mach_for_altitude(
-            eng.shot.alt0 + range_vector.y, density_ratio, mach_fps);
-        handler.handle(BCLIBC_BaseTrajData(time, range_vector, velocity_vector, mach_fps));
     }
 
 }; // namespace bclibc
