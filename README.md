@@ -1,6 +1,10 @@
 # bclibc — Ballistic Solver Engine
 
-High-performance ballistic trajectory solver with RK4, Euler, Velocity Verlet, and Cash-Karp adaptive RK45 integration, Ridder's method for zero-finding, PCHIP drag curves, Coriolis, and spin drift.
+High-performance ballistic trajectory solver with RK4, Euler, Velocity Verlet, and adaptive Cash-Karp / Dormand-Prince RK45 integration, Ridder's method for zero-finding, PCHIP drag curves, Coriolis, and spin drift.
+
+`BCLIBC_integrateDormandPrince` provides Dormand--Prince 5(4) with SciPy
+RK45-style component scaling and adaptive controller behavior. Cash--Karp
+keeps its compatibility controller; both use the compile-time embedded-RK core.
 
 [![Release][release badge]][release]
 [![Codecov][codecov badge]][codecov]

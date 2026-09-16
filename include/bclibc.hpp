@@ -13,6 +13,8 @@
 #include "bclibc/rk4.hpp"
 #include "bclibc/euler.hpp"
 #include "bclibc/velocity_verlet.hpp"
+#include "bclibc/embedded_rk45.hpp"
 #include "bclibc/cash_karp.hpp"
+#include "bclibc/dormand_prince.hpp"
 
 #endif // BCLIBC_HPP

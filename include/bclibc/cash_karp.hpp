@@ -5,6 +5,7 @@
 #include "bclibc/base_types.hpp"
 #include "bclibc/engine.hpp"
 #include "bclibc/traj_data.hpp"
+#include "bclibc/embedded_rk45.hpp"
 
 namespace bclibc
 {
