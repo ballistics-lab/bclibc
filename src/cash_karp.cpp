@@ -138,10 +138,11 @@ namespace bclibc
             double density_ratio, mach_fps;
             eng.shot.atmo.update_density_factor_and_mach_for_altitude(
                 eng.shot.alt0 + range_vector.y, density_ratio, mach_fps);
-            const double inv_mach = (mach_fps != 0.0) ? (1.0 / mach_fps) : 1.0;
-            const double cur_mach = vr.mag() * inv_mach;
-
-            handler.handle(BCLIBC_BaseTrajData(time, range_vector, velocity_vector, cur_mach));
+            // BCLIBC_BaseTrajData::mach carries the local speed of sound in fps,
+            // despite its historical name.  BCLIBC_TrajectoryData divides the
+            // projectile velocity by this value when it exposes the Mach ratio.
+            // Keep this consistent with BCLIBC_integrateRK4.
+            handler.handle(BCLIBC_BaseTrajData(time, range_vector, velocity_vector, mach_fps));
 
             BCLIBC_V3dT gravity_plus_coriolis = gravity_vector;
             if (!eng.shot.coriolis.flat_fire_only)
@@ -216,8 +217,7 @@ namespace bclibc
         double density_ratio, mach_fps;
         eng.shot.atmo.update_density_factor_and_mach_for_altitude(
             eng.shot.alt0 + range_vector.y, density_ratio, mach_fps);
-        const double inv_mach = (mach_fps != 0.0) ? (1.0 / mach_fps) : 1.0;
-        handler.handle(BCLIBC_BaseTrajData(time, range_vector, velocity_vector, vr.mag() * inv_mach));
+        handler.handle(BCLIBC_BaseTrajData(time, range_vector, velocity_vector, mach_fps));
     }
 
 }; // namespace bclibc
