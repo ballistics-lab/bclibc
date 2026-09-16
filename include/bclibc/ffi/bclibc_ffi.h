@@ -108,6 +108,11 @@ extern "C"
         BCLIBCFFI_INTEGRATION_RK4 = 0,
         BCLIBCFFI_INTEGRATION_EULER = 1,
         BCLIBCFFI_INTEGRATION_VELOCITY_VERLET = 2,
+        /** EXPERIMENTAL -- see bclibc/cash_karp.hpp's doc comment before
+         * relying on this for anything accuracy-sensitive: known event-
+         * interpolation regressions under this method's sparse/irregular
+         * step spacing (see project issue tracker). */
+        BCLIBCFFI_INTEGRATION_CASH_KARP = 3,
     } BCLIBCFFI_IntegrationMethod;
 
     // ============================================================================
