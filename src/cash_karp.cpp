@@ -1,5 +1,6 @@
 #include <cmath>
 #include <algorithm>
+#include <stdexcept>
 #include "bclibc/cash_karp.hpp"
 #include "bclibc/base_types.hpp"
 #include "bclibc/log.hpp"
@@ -34,13 +35,14 @@ namespace bclibc
         constexpr double kSafety = 0.9;
         constexpr double kAtolVelocity = 1e-3; // fps floor
         constexpr double kAtolPosition = 1e-4; // ft floor
-        constexpr double kRelTolerance = 1e-6;
+        constexpr double kDefaultRelTolerance = 1e-6;
         constexpr int kMaxRetryPerStep = 24;
         constexpr double kMinDtDivisor = 64.0;
         constexpr double kMaxDtMultiplier = 64.0;
 
         thread_local int g_ck_accepted = 0;
         thread_local int g_ck_rejected = 0;
+        thread_local double g_ck_rel_tolerance = kDefaultRelTolerance;
 
         struct Deriv
         {
@@ -87,6 +89,13 @@ namespace bclibc
     {
         out_accepted = g_ck_accepted;
         out_rejected = g_ck_rejected;
+    }
+
+    void BCLIBC_cashKarpSetRelativeTolerance(double tolerance)
+    {
+        if (!std::isfinite(tolerance) || tolerance <= 0.0)
+            throw std::invalid_argument("Cash-Karp relative tolerance must be finite and positive");
+        g_ck_rel_tolerance = tolerance;
     }
 
     void BCLIBC_integrateCashKarp(
@@ -185,8 +194,8 @@ namespace bclibc
                 const BCLIBC_V3dT err_v = (k1.dvr * D1 + k3.dvr * D3 + k4.dvr * D4 + k5.dvr * D5 + k6.dvr * D6) * dt;
                 const BCLIBC_V3dT err_p = (k1.dp * D1 + k3.dp * D3 + k4.dp * D4 + k5.dp * D5 + k6.dp * D6) * dt;
 
-                const double scale_v = kAtolVelocity + kRelTolerance * vr_next.mag();
-                const double scale_p = kAtolPosition + kRelTolerance * pos_next.mag();
+                const double scale_v = kAtolVelocity + g_ck_rel_tolerance * vr_next.mag();
+                const double scale_p = kAtolPosition + g_ck_rel_tolerance * pos_next.mag();
                 const double err_norm = std::max(err_v.mag() / scale_v, err_p.mag() / scale_p);
 
                 if (err_norm <= 1.0 || dt <= min_dt * 1.0001)

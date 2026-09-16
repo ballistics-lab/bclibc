@@ -68,6 +68,16 @@ namespace bclibc
      */
     void BCLIBC_cashKarpGetStats(int &out_accepted, int &out_rejected);
 
+    /**
+     * @brief Set the relative local-error tolerance for Cash-Karp on this thread.
+     *
+     * The default is 1e-6. The setting is thread-local so independent engine
+     * instances can integrate concurrently with different tolerances.
+     *
+     * @throws std::invalid_argument if @p tolerance is not finite and positive.
+     */
+    void BCLIBC_cashKarpSetRelativeTolerance(double tolerance);
+
 }; // namespace bclibc
 
 #endif // BCLIBC_CASH_KARP_HPP
