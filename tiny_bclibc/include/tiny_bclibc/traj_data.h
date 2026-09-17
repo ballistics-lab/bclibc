@@ -113,8 +113,7 @@ extern "C"
     /**
      * Result of a lower-arc zero solve.
      *
-     * `point` is the terminal RANGE point evaluated by the successful solver
-     * iteration; it is not produced by a separate final integration.
+     * `point` is the terminal RANGE point at the solved zero distance.
      */
     typedef struct TINY_BCLIBC_ZeroPointResult
     {

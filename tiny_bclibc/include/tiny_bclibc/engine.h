@@ -259,8 +259,16 @@ static inline void tiny_bclibc__set_error(const char *msg)
         real_t lo = a->time, hi = b->time;
         real_t flo = value(a, aux) - target;
         real_t fhi = value(b, aux) - target;
-        if (flo == REAL_C(0.0)) { *out = *a; return 1; }
-        if (fhi == REAL_C(0.0)) { *out = *b; return 1; }
+        if (flo == REAL_C(0.0))
+        {
+            *out = *a;
+            return 1;
+        }
+        if (fhi == REAL_C(0.0))
+        {
+            *out = *b;
+            return 1;
+        }
         if ((flo < REAL_C(0.0)) == (fhi < REAL_C(0.0)))
             return 0;
 
@@ -334,7 +342,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
     {
         real_t density_ratio, mach_fps;
         TINY_BCLIBC_Atmosphere_update_density_mach(&props->atmo,
-                                                    props->alt0 + pos.y, &density_ratio, &mach_fps);
+                                                   props->alt0 + pos.y, &density_ratio, &mach_fps);
         real_t inv_mach = (mach_fps != REAL_C(0.0)) ? (REAL_C(1.0) / mach_fps) : REAL_C(1.0);
         real_t speed = TINY_BCLIBC_V3dT_mag(vr);
         real_t mach = speed * inv_mach;
@@ -411,11 +419,15 @@ static inline void tiny_bclibc__set_error(const char *msg)
         {
             real_t density_ratio, mach_fps;
             TINY_BCLIBC_Atmosphere_update_density_mach(&props->atmo,
-                                                        props->alt0 + pos.y, &density_ratio, &mach_fps);
+                                                       props->alt0 + pos.y, &density_ratio, &mach_fps);
             real_t inv_mach = (mach_fps != REAL_C(0.0)) ? (REAL_C(1.0) / mach_fps) : REAL_C(1.0);
             step_start.time = time;
-            step_start.px = pos.x; step_start.py = pos.y; step_start.pz = pos.z;
-            step_start.vx = vel.x; step_start.vy = vel.y; step_start.vz = vel.z;
+            step_start.px = pos.x;
+            step_start.py = pos.y;
+            step_start.pz = pos.z;
+            step_start.vx = vel.x;
+            step_start.vy = vel.y;
+            step_start.vz = vel.z;
             step_start.mach = TINY_BCLIBC_V3dT_mag(vr) * inv_mach;
             if (on_first(&step_start, ctx) != 0)
             {
@@ -492,7 +504,8 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 tiny_bclibc__CkDeriv k6 = tiny_bclibc__ck_deriv(props, wind, gpc, vr6, p6);
 
                 /* 5th-order solution */
-                vr_next = vr; pos_next = pos;
+                vr_next = vr;
+                pos_next = pos;
                 TINY_BCLIBC_V3dT_fma(&vr_next, k1.dvr, dt * (REAL_C(37.0) / REAL_C(378.0)));
                 TINY_BCLIBC_V3dT_fma(&vr_next, k3.dvr, dt * (REAL_C(250.0) / REAL_C(621.0)));
                 TINY_BCLIBC_V3dT_fma(&vr_next, k4.dvr, dt * (REAL_C(125.0) / REAL_C(594.0)));
@@ -571,11 +584,15 @@ static inline void tiny_bclibc__set_error(const char *msg)
             {
                 real_t density_ratio, mach_fps;
                 TINY_BCLIBC_Atmosphere_update_density_mach(&props->atmo,
-                                                            props->alt0 + pos.y, &density_ratio, &mach_fps);
+                                                           props->alt0 + pos.y, &density_ratio, &mach_fps);
                 real_t inv_mach = (mach_fps != REAL_C(0.0)) ? (REAL_C(1.0) / mach_fps) : REAL_C(1.0);
                 step_end.time = time;
-                step_end.px = pos.x; step_end.py = pos.y; step_end.pz = pos.z;
-                step_end.vx = vel.x; step_end.vy = vel.y; step_end.vz = vel.z;
+                step_end.px = pos.x;
+                step_end.py = pos.y;
+                step_end.pz = pos.z;
+                step_end.vx = vel.x;
+                step_end.vy = vel.y;
+                step_end.vz = vel.z;
                 step_end.mach = TINY_BCLIBC_V3dT_mag(vr) * inv_mach;
             }
 
@@ -1676,6 +1693,49 @@ static inline void tiny_bclibc__set_error(const char *msg)
         /* Fallback: GSS + Ridder's (guaranteed bracket method) */
         tiny_bclibc__set_error("tiny_bclibc_find_zero_angle: Newton failed, using Ridder's fallback");
         return tiny_bclibc__find_zero_angle_ridders(props, distance_ft, out_angle_rad);
+    }
+
+    /* ── find_zero_point ─────────────────────────────────────────────── */
+    /**
+     * Find the lower-arc zero and its trajectory point at ``distance_ft``.
+     *
+     * The input properties are not modified.  The returned point is sampled
+     * at the target's horizontal range, like the probes used by the zero
+     * solver, so ``point.slant_distance_ft`` is the requested slant distance
+     * within the zero-solver tolerance.
+     */
+    TINY_BCLIBC_FUNC int32_t tiny_bclibc_find_zero_point(
+        const TINY_BCLIBC_ShotProps *props,
+        real_t distance_ft,
+        TINY_BCLIBC_ZeroPointResult *out)
+    {
+        if (!props || !out)
+        {
+            tiny_bclibc__set_error("tiny_bclibc_find_zero_point: NULL argument");
+            return TINY_BCLIBC_ERR_INVALID_ARG;
+        }
+
+        real_t angle_rad;
+        int32_t rc = tiny_bclibc_find_zero_angle(props, distance_ft, &angle_rad);
+        if (rc != TINY_BCLIBC_OK)
+            return rc;
+
+        TINY_BCLIBC_ShotProps solved_props = *props;
+        solved_props.barrel_elevation = angle_rad;
+        {
+            real_t target_x_ft = distance_ft * TINY_BCLIBC_COS(props->look_angle);
+            TINY_BCLIBC_BaseTrajData raw;
+            rc = tiny_bclibc_integrate_at(&solved_props, TINY_BCLIBC_KEY_POS_X,
+                                          target_x_ft, &raw, &out->point);
+        }
+        if (rc != TINY_BCLIBC_OK)
+        {
+            tiny_bclibc__set_error("tiny_bclibc_find_zero_point: target intercept not found");
+            return rc;
+        }
+        out->point.flag = TINY_BCLIBC_TRAJ_FLAG_RANGE;
+        out->angle_rad = angle_rad;
+        return TINY_BCLIBC_OK;
     }
 
     /* ── find_max_range ───────────────────────────────────────────────── */
