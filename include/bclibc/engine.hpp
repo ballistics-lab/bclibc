@@ -62,6 +62,14 @@ namespace bclibc
         double angle_at_max_rad;
     };
 
+    /** Result of a zero solve that also retained its terminal trajectory point. */
+    struct BCLIBC_ZeroPointResult
+    {
+        double angle_rad = 0.0;
+        BCLIBC_TrajectoryData point;
+        bool has_point = false;
+    };
+
     class BCLIBC_BaseEngine;
 
     using BCLIBC_IntegrateFunc = void(
@@ -181,7 +189,8 @@ namespace bclibc
         double error_at_distance(
             double angle_rad,
             double target_x_ft,
-            double target_y_ft);
+            double target_y_ft,
+            BCLIBC_BaseTrajData *hit_out = nullptr);
 
         /**
          * @brief Initializes the zero-calculation routine for aiming.
@@ -241,7 +250,25 @@ namespace bclibc
          *
          * @throws BCLIBC_ZeroFindingError if zero-finding fails to converge.
          */
+        double zero_angle_newton(
+            double distance,
+            double APEX_IS_MAX_RANGE_RADIANS,
+            double ALLOWED_ZERO_ERROR_FEET,
+            BCLIBC_ZeroPointResult *result_out = nullptr);
+
+        /**
+         * @brief Backward-compatible wrapper for :meth:`zero_angle_newton`.
+         */
         double zero_angle(
+            double distance,
+            double APEX_IS_MAX_RANGE_RADIANS,
+            double ALLOWED_ZERO_ERROR_FEET);
+
+        /**
+         * @brief Solve the lower zero with Newton and Ridder fallback, retaining
+         * the terminal trajectory point evaluated by the winning solver.
+         */
+        BCLIBC_ZeroPointResult zero_point_with_fallback(
             double distance,
             double APEX_IS_MAX_RANGE_RADIANS,
             double ALLOWED_ZERO_ERROR_FEET);
@@ -268,7 +295,27 @@ namespace bclibc
          * @throws BCLIBC_OutOfRangeError if slant_range_ft > max_range_ft.
          * @throws BCLIBC_ZeroFindingError if zero-finding fails.
          */
+        double find_zero_angle_ridder(
+            double distance,
+            int lofted,
+            double APEX_IS_MAX_RANGE_RADIANS,
+            double ALLOWED_ZERO_ERROR_FEET,
+            BCLIBC_ZeroPointResult *result_out = nullptr);
+
+        /**
+         * @brief Backward-compatible wrapper for :meth:`find_zero_angle_ridder`.
+         */
         double find_zero_angle(
+            double distance,
+            int lofted,
+            double APEX_IS_MAX_RANGE_RADIANS,
+            double ALLOWED_ZERO_ERROR_FEET);
+
+        /**
+         * @brief Solve a lower or lofted zero with Ridder's method, retaining
+         * the terminal trajectory point evaluated by the solver.
+         */
+        BCLIBC_ZeroPointResult find_zero_point(
             double distance,
             int lofted,
             double APEX_IS_MAX_RANGE_RADIANS,

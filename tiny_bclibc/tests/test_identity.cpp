@@ -22,15 +22,16 @@
 #include "bclibc.hpp"
 
 // ── tbclibc C headers ────────────────────────────────────────────────────
-extern "C" {
-#define TINY_BCLIBC_BUILD_SHARED  // use extern declarations, impl via static inline
+extern "C"
+{
+#define TINY_BCLIBC_BUILD_SHARED // use extern declarations, impl via static inline
 #include "tiny_bclibc/engine.h"
 }
 // tbclibc is header-only in this test: compile via static-inline mode.
 // Re-include without TINY_BCLIBC_BUILD_SHARED so all TINY_BCLIBC_FUNC resolve to
 // static inline definitions in this TU.
 #undef TINY_BCLIBC_BUILD_SHARED
-#undef TINY_BCLIBC_ENGINE_H        // force re-include
+#undef TINY_BCLIBC_ENGINE_H // force re-include
 // Actually: just use the header-only (no-TINY_BCLIBC_BUILD_SHARED) path:
 // The include already happened above with BUILD_SHARED, which only changed
 // the function visibility.  For a header-only test build we rely on the
@@ -44,270 +45,275 @@ extern "C" {
 // bclibc engine helpers
 // ═══════════════════════════════════════════════════════════════════════════
 
-namespace {
-
-// Flat arrays for G7 table (bclibc takes const double*)
-static double g_g7_mach[kG7TableSize];
-static double g_g7_cd[kG7TableSize];
-static bool   g_g7_init = false;
-
-void init_g7_arrays()
+namespace
 {
-    if (g_g7_init) return;
-    for (int i = 0; i < kG7TableSize; ++i) {
-        g_g7_mach[i] = kG7Table[i].mach;
-        g_g7_cd[i]   = kG7Table[i].cd;
+
+    // Flat arrays for G7 table (bclibc takes const double*)
+    static double g_g7_mach[kG7TableSize];
+    static double g_g7_cd[kG7TableSize];
+    static bool g_g7_init = false;
+
+    void init_g7_arrays()
+    {
+        if (g_g7_init)
+            return;
+        for (int i = 0; i < kG7TableSize; ++i)
+        {
+            g_g7_mach[i] = kG7Table[i].mach;
+            g_g7_cd[i] = kG7Table[i].cd;
+        }
+        g_g7_init = true;
     }
-    g_g7_init = true;
-}
 
-// Build a bclibc BCLIBC_ShotProps from G7_BASIC fixture (no wind).
-bclibc::BCLIBC_ShotProps make_bclibc_shot_props(double barrel_elevation_rad = G7_BASIC::BARREL_EL_RAD)
-{
-    init_g7_arrays();
+    // Build a bclibc BCLIBC_ShotProps from G7_BASIC fixture (no wind).
+    bclibc::BCLIBC_ShotProps make_bclibc_shot_props(double barrel_elevation_rad = G7_BASIC::BARREL_EL_RAD)
+    {
+        init_g7_arrays();
 
-    bclibc::BCLIBC_Shot shot;
-    shot.bc                  = G7_BASIC::BC;
-    shot.weight_grain        = G7_BASIC::WEIGHT_GR;
-    shot.diameter_inch       = G7_BASIC::DIAMETER_IN;
-    shot.length_inch         = G7_BASIC::LENGTH_IN;
-    shot.muzzle_velocity_fps = G7_BASIC::MV_FPS;
-    shot.stability_coefficient = 0.0;
-    shot.sight_height_ft     = G7_BASIC::SIGHT_HT_FT;
-    shot.twist_inch          = G7_BASIC::TWIST_IN;
-    shot.temp_c              = G7_BASIC::TEMP_C;
-    shot.pressure_hpa        = G7_BASIC::PRESSURE_HPA;
-    shot.altitude_ft         = G7_BASIC::ALT_FT;
-    shot.humidity            = G7_BASIC::HUMIDITY;
-    shot.mach_data           = g_g7_mach;
-    shot.cd_data             = g_g7_cd;
-    shot.drag_table_size     = kG7TableSize;
-    shot.winds               = nullptr;
-    shot.wind_count          = 0;
-    shot.look_angle_rad      = G7_BASIC::LOOK_ANGLE_RAD;
-    shot.barrel_elevation_rad = barrel_elevation_rad;
-    shot.barrel_azimuth_rad  = G7_BASIC::BARREL_AZ_RAD;
-    shot.cant_angle_rad      = G7_BASIC::CANT_ANGLE_RAD;
-    shot.latitude_deg        = G7_BASIC::LAT_DEG;
-    shot.azimuth_deg         = G7_BASIC::AZ_DEG;
-    shot.calc_step           = kCalcStep;
+        bclibc::BCLIBC_Shot shot;
+        shot.bc = G7_BASIC::BC;
+        shot.weight_grain = G7_BASIC::WEIGHT_GR;
+        shot.diameter_inch = G7_BASIC::DIAMETER_IN;
+        shot.length_inch = G7_BASIC::LENGTH_IN;
+        shot.muzzle_velocity_fps = G7_BASIC::MV_FPS;
+        shot.stability_coefficient = 0.0;
+        shot.sight_height_ft = G7_BASIC::SIGHT_HT_FT;
+        shot.twist_inch = G7_BASIC::TWIST_IN;
+        shot.temp_c = G7_BASIC::TEMP_C;
+        shot.pressure_hpa = G7_BASIC::PRESSURE_HPA;
+        shot.altitude_ft = G7_BASIC::ALT_FT;
+        shot.humidity = G7_BASIC::HUMIDITY;
+        shot.mach_data = g_g7_mach;
+        shot.cd_data = g_g7_cd;
+        shot.drag_table_size = kG7TableSize;
+        shot.winds = nullptr;
+        shot.wind_count = 0;
+        shot.look_angle_rad = G7_BASIC::LOOK_ANGLE_RAD;
+        shot.barrel_elevation_rad = barrel_elevation_rad;
+        shot.barrel_azimuth_rad = G7_BASIC::BARREL_AZ_RAD;
+        shot.cant_angle_rad = G7_BASIC::CANT_ANGLE_RAD;
+        shot.latitude_deg = G7_BASIC::LAT_DEG;
+        shot.azimuth_deg = G7_BASIC::AZ_DEG;
+        shot.calc_step = kCalcStep;
 
-    return shot.to_shot_props();
-}
-
-// Build a bclibc BCLIBC_ShotProps with wind (G7_WIND fixture).
-bclibc::BCLIBC_ShotProps make_bclibc_shot_props_wind(double barrel_elevation_rad = G7_BASIC::BARREL_EL_RAD)
-{
-    init_g7_arrays();
-
-    static bclibc::BCLIBC_Wind wind(
-        G7_WIND::WIND_VEL_FPS,
-        G7_WIND::WIND_DIR_RAD,
-        G7_WIND::WIND_UNTIL_FT,
-        G7_WIND::WIND_MAX_FT);
-
-    bclibc::BCLIBC_Shot shot;
-    shot.bc                  = G7_BASIC::BC;
-    shot.weight_grain        = G7_BASIC::WEIGHT_GR;
-    shot.diameter_inch       = G7_BASIC::DIAMETER_IN;
-    shot.length_inch         = G7_BASIC::LENGTH_IN;
-    shot.muzzle_velocity_fps = G7_BASIC::MV_FPS;
-    shot.stability_coefficient = 0.0;
-    shot.sight_height_ft     = G7_BASIC::SIGHT_HT_FT;
-    shot.twist_inch          = G7_BASIC::TWIST_IN;
-    shot.temp_c              = G7_BASIC::TEMP_C;
-    shot.pressure_hpa        = G7_BASIC::PRESSURE_HPA;
-    shot.altitude_ft         = G7_BASIC::ALT_FT;
-    shot.humidity            = G7_BASIC::HUMIDITY;
-    shot.mach_data           = g_g7_mach;
-    shot.cd_data             = g_g7_cd;
-    shot.drag_table_size     = kG7TableSize;
-    shot.winds               = &wind;
-    shot.wind_count          = 1;
-    shot.look_angle_rad      = G7_BASIC::LOOK_ANGLE_RAD;
-    shot.barrel_elevation_rad = barrel_elevation_rad;
-    shot.barrel_azimuth_rad  = G7_BASIC::BARREL_AZ_RAD;
-    shot.cant_angle_rad      = G7_BASIC::CANT_ANGLE_RAD;
-    shot.latitude_deg        = G7_BASIC::LAT_DEG;
-    shot.azimuth_deg         = G7_BASIC::AZ_DEG;
-    shot.calc_step           = kCalcStep;
-
-    return shot.to_shot_props();
-}
-
-// Initialize engine from ShotProps (in-place; BCLIBC_BaseEngine is non-moveable).
-void init_bclibc_engine(bclibc::BCLIBC_BaseEngine &eng, bclibc::BCLIBC_ShotProps props)
-{
-    eng.shot = std::move(props);
-    eng.integrate_func = bclibc::BCLIBC_integrateRK4;
-    eng.config = bclibc::BCLIBC_Config(
-        kDefaultConfig.cStepMultiplier,
-        kDefaultConfig.cZeroFindingAccuracy,
-        kDefaultConfig.cMinimumVelocity,
-        kDefaultConfig.cMaximumDrop,
-        kDefaultConfig.cMaxIterations,
-        kDefaultConfig.cGravityConstant,
-        kDefaultConfig.cMinimumAltitude);
-    eng.gravity_vector = bclibc::BCLIBC_V3dT(0.0, eng.config.cGravityConstant, 0.0);
-}
-
-// Run bclibc integrate_filtered with RANGE flag only.
-std::vector<bclibc::BCLIBC_TrajectoryData>
-run_bclibc_integrate(bclibc::BCLIBC_BaseEngine &eng, double range_ft, double step_ft)
-{
-    std::vector<bclibc::BCLIBC_TrajectoryData> records;
-    bclibc::BCLIBC_TerminationReason reason = bclibc::BCLIBC_TerminationReason::NO_TERMINATE;
-    eng.integrate_filtered(range_ft, step_ft, 0.0,
-                           bclibc::BCLIBC_TRAJ_FLAG_RANGE,
-                           records, reason, nullptr);
-    return records;
-}
-
-// Run C++ Cash-Karp with the same filtered-output request as tiny_bclibc.
-std::vector<bclibc::BCLIBC_TrajectoryData>
-run_bclibc_cashkarp_integrate(bclibc::BCLIBC_BaseEngine &eng, double range_ft, double step_ft)
-{
-    eng.integrate_func = bclibc::BCLIBC_integrateCashKarp;
-    return run_bclibc_integrate(eng, range_ft, step_ft);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// tbclibc helpers
-// ═══════════════════════════════════════════════════════════════════════════
-
-// Flat arrays for G7 table (tbclibc takes const double*)
-static double g_tb_mach[kG7TableSize];
-static double g_tb_cd[kG7TableSize];
-
-void init_tb_g7_arrays()
-{
-    for (int i = 0; i < kG7TableSize; ++i) {
-        g_tb_mach[i] = kG7Table[i].mach;
-        g_tb_cd[i]   = kG7Table[i].cd;
+        return shot.to_shot_props();
     }
-}
 
-// Build tbclibc ShotProps from G7_BASIC (no wind).
-// curve_buf must be caller-allocated with >= kG7TableSize elements.
-int make_tiny_bclibc_shot_props(TINY_BCLIBC_ShotProps *out, TINY_BCLIBC_CurvePoint *curve_buf,
-                             double barrel_elevation_rad = G7_BASIC::BARREL_EL_RAD)
-{
-    init_tb_g7_arrays();
+    // Build a bclibc BCLIBC_ShotProps with wind (G7_WIND fixture).
+    bclibc::BCLIBC_ShotProps make_bclibc_shot_props_wind(double barrel_elevation_rad = G7_BASIC::BARREL_EL_RAD)
+    {
+        init_g7_arrays();
 
-    TINY_BCLIBC_Config cfg = TINY_BCLIBC_Config_default();
-    cfg.cZeroFindingAccuracy = static_cast<double>(kDefaultConfig.cZeroFindingAccuracy);
-    cfg.cMinimumVelocity     = static_cast<double>(kDefaultConfig.cMinimumVelocity);
-    cfg.cMaximumDrop         = static_cast<double>(kDefaultConfig.cMaximumDrop);
-    cfg.cMaxIterations       = kDefaultConfig.cMaxIterations;
-    cfg.cGravityConstant     = static_cast<double>(kDefaultConfig.cGravityConstant);
-    cfg.cMinimumAltitude     = static_cast<double>(kDefaultConfig.cMinimumAltitude);
+        static bclibc::BCLIBC_Wind wind(
+            G7_WIND::WIND_VEL_FPS,
+            G7_WIND::WIND_DIR_RAD,
+            G7_WIND::WIND_UNTIL_FT,
+            G7_WIND::WIND_MAX_FT);
 
-    TINY_BCLIBC_Shot shot;
-    std::memset(&shot, 0, sizeof(shot));
-    shot.bc                  = G7_BASIC::BC;
-    shot.weight_grain        = G7_BASIC::WEIGHT_GR;
-    shot.diameter_inch       = G7_BASIC::DIAMETER_IN;
-    shot.length_inch         = G7_BASIC::LENGTH_IN;
-    shot.muzzle_velocity_fps = G7_BASIC::MV_FPS;
-    shot.sight_height_ft     = G7_BASIC::SIGHT_HT_FT;
-    shot.twist_inch          = G7_BASIC::TWIST_IN;
-    shot.temp_c              = G7_BASIC::TEMP_C;
-    shot.pressure_hpa        = G7_BASIC::PRESSURE_HPA;
-    shot.altitude_ft         = G7_BASIC::ALT_FT;
-    shot.humidity            = G7_BASIC::HUMIDITY;
-    shot.mach_data           = g_tb_mach;
-    shot.cd_data             = g_tb_cd;
-    shot.drag_table_size     = kG7TableSize;
-    shot.winds               = nullptr;
-    shot.wind_count          = 0;
-    shot.look_angle_rad      = G7_BASIC::LOOK_ANGLE_RAD;
-    shot.barrel_elevation_rad = barrel_elevation_rad;
-    shot.barrel_azimuth_rad  = G7_BASIC::BARREL_AZ_RAD;
-    shot.cant_angle_rad      = G7_BASIC::CANT_ANGLE_RAD;
-    shot.latitude_deg        = G7_BASIC::LAT_DEG;
-    shot.azimuth_deg         = G7_BASIC::AZ_DEG;
-    shot.config              = cfg;
+        bclibc::BCLIBC_Shot shot;
+        shot.bc = G7_BASIC::BC;
+        shot.weight_grain = G7_BASIC::WEIGHT_GR;
+        shot.diameter_inch = G7_BASIC::DIAMETER_IN;
+        shot.length_inch = G7_BASIC::LENGTH_IN;
+        shot.muzzle_velocity_fps = G7_BASIC::MV_FPS;
+        shot.stability_coefficient = 0.0;
+        shot.sight_height_ft = G7_BASIC::SIGHT_HT_FT;
+        shot.twist_inch = G7_BASIC::TWIST_IN;
+        shot.temp_c = G7_BASIC::TEMP_C;
+        shot.pressure_hpa = G7_BASIC::PRESSURE_HPA;
+        shot.altitude_ft = G7_BASIC::ALT_FT;
+        shot.humidity = G7_BASIC::HUMIDITY;
+        shot.mach_data = g_g7_mach;
+        shot.cd_data = g_g7_cd;
+        shot.drag_table_size = kG7TableSize;
+        shot.winds = &wind;
+        shot.wind_count = 1;
+        shot.look_angle_rad = G7_BASIC::LOOK_ANGLE_RAD;
+        shot.barrel_elevation_rad = barrel_elevation_rad;
+        shot.barrel_azimuth_rad = G7_BASIC::BARREL_AZ_RAD;
+        shot.cant_angle_rad = G7_BASIC::CANT_ANGLE_RAD;
+        shot.latitude_deg = G7_BASIC::LAT_DEG;
+        shot.azimuth_deg = G7_BASIC::AZ_DEG;
+        shot.calc_step = kCalcStep;
 
-    int rc = tiny_bclibc_build_shot_props(&shot, curve_buf, out);
-    if (rc == TINY_BCLIBC_OK)
-        out->calc_step = kCalcStep; // override: match bclibc RK4 step exactly
-    return rc;
-}
-
-// Build tbclibc ShotProps from G7_WIND (one crosswind).
-int make_tiny_bclibc_shot_props_wind(TINY_BCLIBC_ShotProps *out, TINY_BCLIBC_CurvePoint *curve_buf,
-                                  TINY_BCLIBC_Wind *wind_buf,
-                                  double barrel_elevation_rad = G7_BASIC::BARREL_EL_RAD)
-{
-    init_tb_g7_arrays();
-
-    TINY_BCLIBC_Config cfg = TINY_BCLIBC_Config_default();
-    cfg.cZeroFindingAccuracy = static_cast<double>(kDefaultConfig.cZeroFindingAccuracy);
-    cfg.cMinimumVelocity     = static_cast<double>(kDefaultConfig.cMinimumVelocity);
-    cfg.cMaximumDrop         = static_cast<double>(kDefaultConfig.cMaximumDrop);
-    cfg.cMaxIterations       = kDefaultConfig.cMaxIterations;
-    cfg.cGravityConstant     = static_cast<double>(kDefaultConfig.cGravityConstant);
-    cfg.cMinimumAltitude     = static_cast<double>(kDefaultConfig.cMinimumAltitude);
-
-    wind_buf->velocity_fps       = G7_WIND::WIND_VEL_FPS;
-    wind_buf->direction_from_rad = G7_WIND::WIND_DIR_RAD;
-    wind_buf->until_distance_ft  = G7_WIND::WIND_UNTIL_FT;
-    wind_buf->max_distance_ft    = G7_WIND::WIND_MAX_FT;
-
-    TINY_BCLIBC_Shot shot;
-    std::memset(&shot, 0, sizeof(shot));
-    shot.bc                  = G7_BASIC::BC;
-    shot.weight_grain        = G7_BASIC::WEIGHT_GR;
-    shot.diameter_inch       = G7_BASIC::DIAMETER_IN;
-    shot.length_inch         = G7_BASIC::LENGTH_IN;
-    shot.muzzle_velocity_fps = G7_BASIC::MV_FPS;
-    shot.sight_height_ft     = G7_BASIC::SIGHT_HT_FT;
-    shot.twist_inch          = G7_BASIC::TWIST_IN;
-    shot.temp_c              = G7_BASIC::TEMP_C;
-    shot.pressure_hpa        = G7_BASIC::PRESSURE_HPA;
-    shot.altitude_ft         = G7_BASIC::ALT_FT;
-    shot.humidity            = G7_BASIC::HUMIDITY;
-    shot.mach_data           = g_tb_mach;
-    shot.cd_data             = g_tb_cd;
-    shot.drag_table_size     = kG7TableSize;
-    shot.winds               = wind_buf;
-    shot.wind_count          = 1;
-    shot.look_angle_rad      = G7_BASIC::LOOK_ANGLE_RAD;
-    shot.barrel_elevation_rad = barrel_elevation_rad;
-    shot.barrel_azimuth_rad  = G7_BASIC::BARREL_AZ_RAD;
-    shot.cant_angle_rad      = G7_BASIC::CANT_ANGLE_RAD;
-    shot.latitude_deg        = G7_BASIC::LAT_DEG;
-    shot.azimuth_deg         = G7_BASIC::AZ_DEG;
-    shot.config              = cfg;
-
-    int rc = tiny_bclibc_build_shot_props(&shot, curve_buf, out);
-    if (rc == TINY_BCLIBC_OK)
-        out->calc_step = kCalcStep;
-    return rc;
-}
-
-// Run tiny_bclibc_integrate (two-pass: count then fill).
-std::vector<TINY_BCLIBC_TrajectoryData>
-run_tiny_bclibc_integrate(const TINY_BCLIBC_ShotProps *props, double range_ft, double step_ft)
-{
-    TINY_BCLIBC_TrajectoryRequest req;
-    req.range_limit_ft = static_cast<double>(range_ft);
-    req.range_step_ft  = static_cast<double>(step_ft);
-    req.time_step      = 0.0;
-    req.filter_flags   = TINY_BCLIBC_TRAJ_FLAG_RANGE;
-
-    int32_t written = 0, total = 0, reason = 0;
-    // Pass 1: count
-    tiny_bclibc_integrate(props, &req, nullptr, 0, &written, &total, &reason);
-
-    std::vector<TINY_BCLIBC_TrajectoryData> buf(static_cast<size_t>(total));
-    if (total > 0) {
-        // Pass 2: fill
-        tiny_bclibc_integrate(props, &req, buf.data(), total, &written, &total, &reason);
-        buf.resize(static_cast<size_t>(written));
+        return shot.to_shot_props();
     }
-    return buf;
-}
+
+    // Initialize engine from ShotProps (in-place; BCLIBC_BaseEngine is non-moveable).
+    void init_bclibc_engine(bclibc::BCLIBC_BaseEngine &eng, bclibc::BCLIBC_ShotProps props)
+    {
+        eng.shot = std::move(props);
+        eng.integrate_func = bclibc::BCLIBC_integrateRK4;
+        eng.config = bclibc::BCLIBC_Config(
+            kDefaultConfig.cStepMultiplier,
+            kDefaultConfig.cZeroFindingAccuracy,
+            kDefaultConfig.cMinimumVelocity,
+            kDefaultConfig.cMaximumDrop,
+            kDefaultConfig.cMaxIterations,
+            kDefaultConfig.cGravityConstant,
+            kDefaultConfig.cMinimumAltitude);
+        eng.gravity_vector = bclibc::BCLIBC_V3dT(0.0, eng.config.cGravityConstant, 0.0);
+    }
+
+    // Run bclibc integrate_filtered with RANGE flag only.
+    std::vector<bclibc::BCLIBC_TrajectoryData>
+    run_bclibc_integrate(bclibc::BCLIBC_BaseEngine &eng, double range_ft, double step_ft)
+    {
+        std::vector<bclibc::BCLIBC_TrajectoryData> records;
+        bclibc::BCLIBC_TerminationReason reason = bclibc::BCLIBC_TerminationReason::NO_TERMINATE;
+        eng.integrate_filtered(range_ft, step_ft, 0.0,
+                               bclibc::BCLIBC_TRAJ_FLAG_RANGE,
+                               records, reason, nullptr);
+        return records;
+    }
+
+    // Run C++ Cash-Karp with the same filtered-output request as tiny_bclibc.
+    std::vector<bclibc::BCLIBC_TrajectoryData>
+    run_bclibc_cashkarp_integrate(bclibc::BCLIBC_BaseEngine &eng, double range_ft, double step_ft)
+    {
+        eng.integrate_func = bclibc::BCLIBC_integrateCashKarp;
+        return run_bclibc_integrate(eng, range_ft, step_ft);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // tbclibc helpers
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // Flat arrays for G7 table (tbclibc takes const double*)
+    static double g_tb_mach[kG7TableSize];
+    static double g_tb_cd[kG7TableSize];
+
+    void init_tb_g7_arrays()
+    {
+        for (int i = 0; i < kG7TableSize; ++i)
+        {
+            g_tb_mach[i] = kG7Table[i].mach;
+            g_tb_cd[i] = kG7Table[i].cd;
+        }
+    }
+
+    // Build tbclibc ShotProps from G7_BASIC (no wind).
+    // curve_buf must be caller-allocated with >= kG7TableSize elements.
+    int make_tiny_bclibc_shot_props(TINY_BCLIBC_ShotProps *out, TINY_BCLIBC_CurvePoint *curve_buf,
+                                    double barrel_elevation_rad = G7_BASIC::BARREL_EL_RAD)
+    {
+        init_tb_g7_arrays();
+
+        TINY_BCLIBC_Config cfg = TINY_BCLIBC_Config_default();
+        cfg.cZeroFindingAccuracy = static_cast<double>(kDefaultConfig.cZeroFindingAccuracy);
+        cfg.cMinimumVelocity = static_cast<double>(kDefaultConfig.cMinimumVelocity);
+        cfg.cMaximumDrop = static_cast<double>(kDefaultConfig.cMaximumDrop);
+        cfg.cMaxIterations = kDefaultConfig.cMaxIterations;
+        cfg.cGravityConstant = static_cast<double>(kDefaultConfig.cGravityConstant);
+        cfg.cMinimumAltitude = static_cast<double>(kDefaultConfig.cMinimumAltitude);
+
+        TINY_BCLIBC_Shot shot;
+        std::memset(&shot, 0, sizeof(shot));
+        shot.bc = G7_BASIC::BC;
+        shot.weight_grain = G7_BASIC::WEIGHT_GR;
+        shot.diameter_inch = G7_BASIC::DIAMETER_IN;
+        shot.length_inch = G7_BASIC::LENGTH_IN;
+        shot.muzzle_velocity_fps = G7_BASIC::MV_FPS;
+        shot.sight_height_ft = G7_BASIC::SIGHT_HT_FT;
+        shot.twist_inch = G7_BASIC::TWIST_IN;
+        shot.temp_c = G7_BASIC::TEMP_C;
+        shot.pressure_hpa = G7_BASIC::PRESSURE_HPA;
+        shot.altitude_ft = G7_BASIC::ALT_FT;
+        shot.humidity = G7_BASIC::HUMIDITY;
+        shot.mach_data = g_tb_mach;
+        shot.cd_data = g_tb_cd;
+        shot.drag_table_size = kG7TableSize;
+        shot.winds = nullptr;
+        shot.wind_count = 0;
+        shot.look_angle_rad = G7_BASIC::LOOK_ANGLE_RAD;
+        shot.barrel_elevation_rad = barrel_elevation_rad;
+        shot.barrel_azimuth_rad = G7_BASIC::BARREL_AZ_RAD;
+        shot.cant_angle_rad = G7_BASIC::CANT_ANGLE_RAD;
+        shot.latitude_deg = G7_BASIC::LAT_DEG;
+        shot.azimuth_deg = G7_BASIC::AZ_DEG;
+        shot.config = cfg;
+
+        int rc = tiny_bclibc_build_shot_props(&shot, curve_buf, out);
+        if (rc == TINY_BCLIBC_OK)
+            out->calc_step = kCalcStep; // override: match bclibc RK4 step exactly
+        return rc;
+    }
+
+    // Build tbclibc ShotProps from G7_WIND (one crosswind).
+    int make_tiny_bclibc_shot_props_wind(TINY_BCLIBC_ShotProps *out, TINY_BCLIBC_CurvePoint *curve_buf,
+                                         TINY_BCLIBC_Wind *wind_buf,
+                                         double barrel_elevation_rad = G7_BASIC::BARREL_EL_RAD)
+    {
+        init_tb_g7_arrays();
+
+        TINY_BCLIBC_Config cfg = TINY_BCLIBC_Config_default();
+        cfg.cZeroFindingAccuracy = static_cast<double>(kDefaultConfig.cZeroFindingAccuracy);
+        cfg.cMinimumVelocity = static_cast<double>(kDefaultConfig.cMinimumVelocity);
+        cfg.cMaximumDrop = static_cast<double>(kDefaultConfig.cMaximumDrop);
+        cfg.cMaxIterations = kDefaultConfig.cMaxIterations;
+        cfg.cGravityConstant = static_cast<double>(kDefaultConfig.cGravityConstant);
+        cfg.cMinimumAltitude = static_cast<double>(kDefaultConfig.cMinimumAltitude);
+
+        wind_buf->velocity_fps = G7_WIND::WIND_VEL_FPS;
+        wind_buf->direction_from_rad = G7_WIND::WIND_DIR_RAD;
+        wind_buf->until_distance_ft = G7_WIND::WIND_UNTIL_FT;
+        wind_buf->max_distance_ft = G7_WIND::WIND_MAX_FT;
+
+        TINY_BCLIBC_Shot shot;
+        std::memset(&shot, 0, sizeof(shot));
+        shot.bc = G7_BASIC::BC;
+        shot.weight_grain = G7_BASIC::WEIGHT_GR;
+        shot.diameter_inch = G7_BASIC::DIAMETER_IN;
+        shot.length_inch = G7_BASIC::LENGTH_IN;
+        shot.muzzle_velocity_fps = G7_BASIC::MV_FPS;
+        shot.sight_height_ft = G7_BASIC::SIGHT_HT_FT;
+        shot.twist_inch = G7_BASIC::TWIST_IN;
+        shot.temp_c = G7_BASIC::TEMP_C;
+        shot.pressure_hpa = G7_BASIC::PRESSURE_HPA;
+        shot.altitude_ft = G7_BASIC::ALT_FT;
+        shot.humidity = G7_BASIC::HUMIDITY;
+        shot.mach_data = g_tb_mach;
+        shot.cd_data = g_tb_cd;
+        shot.drag_table_size = kG7TableSize;
+        shot.winds = wind_buf;
+        shot.wind_count = 1;
+        shot.look_angle_rad = G7_BASIC::LOOK_ANGLE_RAD;
+        shot.barrel_elevation_rad = barrel_elevation_rad;
+        shot.barrel_azimuth_rad = G7_BASIC::BARREL_AZ_RAD;
+        shot.cant_angle_rad = G7_BASIC::CANT_ANGLE_RAD;
+        shot.latitude_deg = G7_BASIC::LAT_DEG;
+        shot.azimuth_deg = G7_BASIC::AZ_DEG;
+        shot.config = cfg;
+
+        int rc = tiny_bclibc_build_shot_props(&shot, curve_buf, out);
+        if (rc == TINY_BCLIBC_OK)
+            out->calc_step = kCalcStep;
+        return rc;
+    }
+
+    // Run tiny_bclibc_integrate (two-pass: count then fill).
+    std::vector<TINY_BCLIBC_TrajectoryData>
+    run_tiny_bclibc_integrate(const TINY_BCLIBC_ShotProps *props, double range_ft, double step_ft)
+    {
+        TINY_BCLIBC_TrajectoryRequest req;
+        req.range_limit_ft = static_cast<double>(range_ft);
+        req.range_step_ft = static_cast<double>(step_ft);
+        req.time_step = 0.0;
+        req.filter_flags = TINY_BCLIBC_TRAJ_FLAG_RANGE;
+
+        int32_t written = 0, total = 0, reason = 0;
+        // Pass 1: count
+        tiny_bclibc_integrate(props, &req, nullptr, 0, &written, &total, &reason);
+
+        std::vector<TINY_BCLIBC_TrajectoryData> buf(static_cast<size_t>(total));
+        if (total > 0)
+        {
+            // Pass 2: fill
+            tiny_bclibc_integrate(props, &req, buf.data(), total, &written, &total, &reason);
+            buf.resize(static_cast<size_t>(written));
+        }
+        return buf;
+    }
 
 } // anonymous namespace
 
@@ -336,8 +342,9 @@ static bool test_g7_basic_integrate()
 
     // Build tbclibc props
     TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
-    TINY_BCLIBC_ShotProps  tb_props;
-    if (make_tiny_bclibc_shot_props(&tb_props, tb_curve) != TINY_BCLIBC_OK) {
+    TINY_BCLIBC_ShotProps tb_props;
+    if (make_tiny_bclibc_shot_props(&tb_props, tb_curve) != TINY_BCLIBC_OK)
+    {
         std::printf("FAIL: tiny_bclibc_build_shot_props failed: %s\n", tiny_bclibc_last_error());
         return false;
     }
@@ -358,9 +365,10 @@ static bool test_g7_wind_integrate()
 
     // Build tbclibc props with wind
     TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
-    TINY_BCLIBC_ShotProps  tb_props;
-    TINY_BCLIBC_Wind       tb_wind;
-    if (make_tiny_bclibc_shot_props_wind(&tb_props, tb_curve, &tb_wind) != TINY_BCLIBC_OK) {
+    TINY_BCLIBC_ShotProps tb_props;
+    TINY_BCLIBC_Wind tb_wind;
+    if (make_tiny_bclibc_shot_props_wind(&tb_props, tb_curve, &tb_wind) != TINY_BCLIBC_OK)
+    {
         std::printf("FAIL: tiny_bclibc_build_shot_props (wind) failed: %s\n", tiny_bclibc_last_error());
         return false;
     }
@@ -381,8 +389,9 @@ static bool test_g7_basic_cashkarp_parity()
     init_bclibc_engine(bc_eng, make_bclibc_shot_props());
 
     TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
-    TINY_BCLIBC_ShotProps  tb_props;
-    if (make_tiny_bclibc_shot_props(&tb_props, tb_curve) != TINY_BCLIBC_OK) {
+    TINY_BCLIBC_ShotProps tb_props;
+    if (make_tiny_bclibc_shot_props(&tb_props, tb_curve) != TINY_BCLIBC_OK)
+    {
         std::printf("FAIL: tiny_bclibc_build_shot_props failed: %s\n", tiny_bclibc_last_error());
         return false;
     }
@@ -400,7 +409,7 @@ static bool test_g7_basic_zero_angle()
     // Target: zero at 1000ft (≈333yd)
     constexpr double ZERO_DIST_FT = 1000.0;
     constexpr double APEX_MAX_RAD = 1.5707963267948966 * 0.99; // 99% of π/2
-    constexpr double ALLOWED_ERR  = 0.001; // ft
+    constexpr double ALLOWED_ERR = 0.001;                      // ft
 
     // bclibc zero_angle
     bclibc::BCLIBC_BaseEngine bc_eng;
@@ -409,14 +418,16 @@ static bool test_g7_basic_zero_angle()
 
     // tbclibc zero_angle
     TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
-    TINY_BCLIBC_ShotProps  tb_props;
-    if (make_tiny_bclibc_shot_props(&tb_props, tb_curve) != TINY_BCLIBC_OK) {
+    TINY_BCLIBC_ShotProps tb_props;
+    if (make_tiny_bclibc_shot_props(&tb_props, tb_curve) != TINY_BCLIBC_OK)
+    {
         std::printf("FAIL: tbclibc build failed\n");
         return false;
     }
     double tb_angle = 0.0;
     int rc = tiny_bclibc_find_zero_angle(&tb_props, ZERO_DIST_FT, &tb_angle);
-    if (rc != TINY_BCLIBC_OK) {
+    if (rc != TINY_BCLIBC_OK)
+    {
         std::printf("FAIL: tiny_bclibc_find_zero_angle rc=%d: %s\n", rc, tiny_bclibc_last_error());
         return false;
     }
@@ -427,6 +438,38 @@ static bool test_g7_basic_zero_angle()
     return identity::compare_scalar("zero_angle (rad)", bc_angle, tb_angle, 1e-6);
 }
 
+static bool test_g7_basic_zero_point()
+{
+    constexpr double ZERO_DIST_FT = 1000.0;
+    constexpr double APEX_MAX_RAD = 1.5707963267948966 * 0.99;
+    constexpr double ALLOWED_ERR = 0.001;
+
+    bclibc::BCLIBC_BaseEngine bc_eng;
+    init_bclibc_engine(bc_eng, make_bclibc_shot_props());
+    auto bc_result = bc_eng.zero_point_with_fallback(ZERO_DIST_FT, APEX_MAX_RAD, ALLOWED_ERR);
+
+    TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
+    TINY_BCLIBC_ShotProps tb_props;
+    if (make_tiny_bclibc_shot_props(&tb_props, tb_curve) != TINY_BCLIBC_OK)
+        return false;
+    TINY_BCLIBC_ZeroPointResult tb_result;
+    int rc = tiny_bclibc_find_zero_point(&tb_props, ZERO_DIST_FT, &tb_result);
+    if (rc != TINY_BCLIBC_OK)
+    {
+        std::printf("FAIL: tiny_bclibc_find_zero_point rc=%d: %s\n", rc, tiny_bclibc_last_error());
+        return false;
+    }
+
+    std::printf("\n=== G7_BASIC / zero_point / target=1000ft ===\n");
+    return identity::compare_scalar("zero_point angle (rad)", bc_result.angle_rad,
+                                    tb_result.angle_rad, 1e-6) &&
+           identity::compare_scalar("zero_point distance (ft)", bc_result.point.distance_ft,
+                                    tb_result.point.distance_ft, 1e-6) &&
+           identity::compare_scalar("zero_point slant height (ft)", bc_result.point.slant_height_ft,
+                                    tb_result.point.slant_height_ft, 1e-6) &&
+           bc_result.point.flag == tb_result.point.flag;
+}
+
 static bool test_g7_basic_find_apex()
 {
     // bclibc find_apex (via integrate_at VEL_Y=0)
@@ -434,21 +477,23 @@ static bool test_g7_basic_find_apex()
     bclibc::BCLIBC_BaseEngine bc_eng;
     init_bclibc_engine(bc_eng, bc_props);
 
-    bclibc::BCLIBC_BaseTrajData  bc_raw;
+    bclibc::BCLIBC_BaseTrajData bc_raw;
     bclibc::BCLIBC_TrajectoryData bc_apex;
     bc_eng.find_apex(bc_raw);
     bc_apex = bclibc::BCLIBC_TrajectoryData(bc_eng.shot, bc_raw, bclibc::BCLIBC_TRAJ_FLAG_APEX);
 
     // tbclibc find_apex
     TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
-    TINY_BCLIBC_ShotProps  tb_props;
-    if (make_tiny_bclibc_shot_props(&tb_props, tb_curve, 0.05) != TINY_BCLIBC_OK) {
+    TINY_BCLIBC_ShotProps tb_props;
+    if (make_tiny_bclibc_shot_props(&tb_props, tb_curve, 0.05) != TINY_BCLIBC_OK)
+    {
         std::printf("FAIL: tbclibc build failed\n");
         return false;
     }
     TINY_BCLIBC_TrajectoryData tb_apex;
     int rc = tiny_bclibc_find_apex(&tb_props, &tb_apex);
-    if (rc != TINY_BCLIBC_OK) {
+    if (rc != TINY_BCLIBC_OK)
+    {
         std::printf("FAIL: tiny_bclibc_find_apex rc=%d: %s\n", rc, tiny_bclibc_last_error());
         return false;
     }
@@ -471,6 +516,7 @@ int main()
     all_pass &= test_g7_wind_integrate();
     all_pass &= test_g7_basic_cashkarp_parity();
     all_pass &= test_g7_basic_zero_angle();
+    all_pass &= test_g7_basic_zero_point();
     all_pass &= test_g7_basic_find_apex();
 
     std::printf("\n%s\n", all_pass ? "ALL TESTS PASSED" : "SOME TESTS FAILED");

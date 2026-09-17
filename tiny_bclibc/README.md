@@ -200,6 +200,9 @@ for (int i = 0; i < written; i++)
 `shot.barrel_elevation_rad` (or `props.barrel_elevation`) before calling `integrate`.
 Without this step the shot flies with 0° elevation.
 
+When the terminal trajectory point is also useful, `tiny_bclibc_find_zero_point`
+returns both the lower-arc angle and the point at the requested zero distance.
+
 ```c
 // Step 1 — find zero angle at 100 m (328.084 ft)
 real_t zero_angle_rad = 0.0;
@@ -296,6 +299,12 @@ int32_t tiny_bclibc_find_zero_angle(
     const TINY_BCLIBC_ShotProps *props,
     real_t                       distance_ft,
     real_t                      *out_angle_rad);
+
+// Lower-arc zero angle together with the target-range trajectory point
+int32_t tiny_bclibc_find_zero_point(
+    const TINY_BCLIBC_ShotProps *props,
+    real_t                       distance_ft,
+    TINY_BCLIBC_ZeroPointResult *out);
 
 // Highest point of trajectory
 int32_t tiny_bclibc_find_apex(
