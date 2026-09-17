@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+## [2.0.0-beta.4] - 2026-09-17
+
+### Added
+
+- `tiny_bclibc`: `tiny_bclibc_find_zero_point()` returns the lower-arc zero angle together with
+  the full `TINY_BCLIBC_TrajectoryData` RANGE point at the requested distance, without mutating
+  the caller's `TINY_BCLIBC_ShotProps`.
+
 ## [2.0.0-beta.3] - 2026-09-17
 
 - `tiny_bclibc`: Cash-Karp adaptive error control now matches the C++ engine's default
