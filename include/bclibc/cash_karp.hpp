@@ -5,6 +5,7 @@
 #include "bclibc/base_types.hpp"
 #include "bclibc/engine.hpp"
 #include "bclibc/traj_data.hpp"
+#include "bclibc/embedded_rk45.hpp"
 
 namespace bclibc
 {
@@ -17,6 +18,9 @@ namespace bclibc
      * smooth flight (up to 64x the configured base step) and shrinks it near the
      * transonic drag transition or whenever the local error estimate exceeds
      * tolerance, retrying the same attempted step rather than accepting it.
+     * Error control follows scipy.integrate.solve_ivp's Runge-Kutta convention: a scalar
+     * absolute tolerance and relative tolerance independently scale every position/velocity
+     * component as `atol + rtol * max(abs(y), abs(y_new))`; the six scaled errors use an RMS norm.
      *
      * IMPORTANT, KNOWN LIMITATION (see project issue tracker before relying on
      * this for anything beyond experimentation): the drag coefficient AND
@@ -103,6 +107,18 @@ namespace bclibc
      * @throws std::invalid_argument if @p tolerance is not finite and positive.
      */
     void BCLIBC_cashKarpSetRelativeTolerance(double tolerance);
+
+    /**
+     * @brief Set the scalar absolute local-error tolerance for Cash-Karp.
+     *
+     * This follows scipy.integrate.solve_ivp semantics: every component of
+     * the six-value state vector (three position and three velocity values)
+     * is independently scaled by `atol + rtol * max(abs(y), abs(y_new))`.
+     * The default is 1e-6.
+     *
+     * @throws std::invalid_argument if @p tolerance is not finite or is negative.
+     */
+    void BCLIBC_cashKarpSetAbsoluteTolerance(double tolerance);
 
 }; // namespace bclibc
 

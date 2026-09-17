@@ -144,6 +144,57 @@ namespace bclibc
             }
             return hermite_at_time(start, end, 0.5 * (lo + hi), out);
         }
+
+        // Return every crossing of the scalar position Hermite polynomial.
+        // Bisection of endpoint signs alone misses an up/down pair contained
+        // in one adaptive accepted interval.  Splitting at the quadratic
+        // derivative roots makes each subinterval monotonic, so each crossing
+        // is bracketed without imposing a solver-step-size policy here.
+        std::vector<double> hermite_scalar_roots(double y0, double y1,
+                                                  double dy0, double dy1,
+                                                  double dt)
+        {
+            const double c = dt * dy0;
+            const double b = -3.0 * y0 + 3.0 * y1 - 2.0 * c - dt * dy1;
+            const double a = 2.0 * y0 - 2.0 * y1 + c + dt * dy1;
+            const auto f = [a, b, c, y0](double u) { return ((a * u + b) * u + c) * u + y0; };
+            std::vector<double> points{0.0, 1.0};
+            const double qa = 3.0 * a, qb = 2.0 * b, qc = c;
+            if (std::abs(qa) > 1e-15)
+            {
+                const double disc = qb * qb - 4.0 * qa * qc;
+                if (disc >= 0.0)
+                {
+                    const double root = std::sqrt(disc);
+                    const double u1 = (-qb - root) / (2.0 * qa);
+                    const double u2 = (-qb + root) / (2.0 * qa);
+                    if (u1 > 0.0 && u1 < 1.0) points.push_back(u1);
+                    if (u2 > 0.0 && u2 < 1.0) points.push_back(u2);
+                }
+            }
+            else if (std::abs(qb) > 1e-15)
+            {
+                const double u = -qc / qb;
+                if (u > 0.0 && u < 1.0) points.push_back(u);
+            }
+            std::sort(points.begin(), points.end());
+            std::vector<double> roots;
+            for (size_t i = 1; i < points.size(); ++i)
+            {
+                double lo = points[i - 1], hi = points[i], flo = f(lo), fhi = f(hi);
+                if (flo == 0.0 && lo > 1e-12 && lo < 1.0 - 1e-12) roots.push_back(lo);
+                if ((flo < 0.0) == (fhi < 0.0)) continue;
+                for (int n = 0; n < 48; ++n)
+                {
+                    const double mid = 0.5 * (lo + hi), fm = f(mid);
+                    if ((flo < 0.0) != (fm < 0.0)) hi = mid;
+                    else { lo = mid; flo = fm; }
+                }
+                const double root = 0.5 * (lo + hi);
+                if (root > 1e-12 && root < 1.0 - 1e-12) roots.push_back(root);
+            }
+            return roots;
+        }
     } // namespace
 
     // ============================================================================
@@ -337,24 +388,19 @@ namespace bclibc
         const std::function<double(const BCLIBC_BaseTrajData &)> slant_height =
             [this](const BCLIBC_BaseTrajData &data)
             { return data.py - data.px * this->look_angle_tangent; };
-        const double start_slant = slant_height(start);
-        const double end_slant = slant_height(end);
-        if ((this->filter & BCLIBC_TRAJ_FLAG_ZERO_UP) && start_slant < 0.0 && end_slant > 0.0)
+        const double dt = end.time - start.time;
+        const double slope0 = start.vy - start.vx * this->look_angle_tangent;
+        const double slope1 = end.vy - end.vx * this->look_angle_tangent;
+        for (const double u : hermite_scalar_roots(slant_height(start), slant_height(end), slope0, slope1, dt))
         {
             BCLIBC_BaseTrajData sample;
-            if (hermite_at_value(start, end, slant_height, 0.0, sample))
+            if (!hermite_at_time(start, end, start.time + u * dt, sample)) continue;
+            const double slope = sample.vy - sample.vx * this->look_angle_tangent;
+            const BCLIBC_TrajFlag flag = slope > 0.0 ? BCLIBC_TRAJ_FLAG_ZERO_UP : BCLIBC_TRAJ_FLAG_ZERO_DOWN;
+            if (this->filter & flag)
             {
-                this->add_row(rows, sample, BCLIBC_TRAJ_FLAG_ZERO_UP);
-                this->filter = (BCLIBC_TrajFlag)(this->filter & ~BCLIBC_TRAJ_FLAG_ZERO_UP);
-            }
-        }
-        else if ((this->filter & BCLIBC_TRAJ_FLAG_ZERO_DOWN) && start_slant > 0.0 && end_slant < 0.0)
-        {
-            BCLIBC_BaseTrajData sample;
-            if (hermite_at_value(start, end, slant_height, 0.0, sample))
-            {
-                this->add_row(rows, sample, BCLIBC_TRAJ_FLAG_ZERO_DOWN);
-                this->filter = (BCLIBC_TrajFlag)(this->filter & ~BCLIBC_TRAJ_FLAG_ZERO_DOWN);
+                this->add_row(rows, sample, flag);
+                this->filter = (BCLIBC_TrajFlag)(this->filter & ~flag);
             }
         }
 

@@ -113,6 +113,7 @@ extern "C"
          * interpolation regressions under this method's sparse/irregular
          * step spacing (see project issue tracker). */
         BCLIBCFFI_INTEGRATION_CASH_KARP = 3,
+        BCLIBCFFI_INTEGRATION_DORMAND_PRINCE = 4,
     } BCLIBCFFI_IntegrationMethod;
 
     // ============================================================================
@@ -228,7 +229,7 @@ extern "C"
         double temp_c;
         double pressure_hpa; /**< 0 = vacuum */
         double altitude_ft;
-        double humidity;     /**< 0.0 – 1.0 */
+        double humidity; /**< 0.0 – 1.0 */
 
         /** Parallel Mach / CD arrays – must remain valid for the duration of the call. */
         const double *mach_data;

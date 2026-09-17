@@ -62,6 +62,7 @@ mkdir -p "${OUT_DIR}"
 CORE_SOURCES=(
     "${BCLIBC_SRC_DIR}/base_types.cpp"
     "${BCLIBC_SRC_DIR}/cash_karp.cpp"
+    "${BCLIBC_SRC_DIR}/dormand_prince.cpp"
     "${BCLIBC_SRC_DIR}/engine.cpp"
     "${BCLIBC_SRC_DIR}/euler.cpp"
     "${BCLIBC_SRC_DIR}/interp.cpp"

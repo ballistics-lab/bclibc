@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-beta.2] - 2026-09-17
+
+### Added
+
+- Public Dormand--Prince 5(4) integration (`BCLIBC_integrateDormandPrince`)
+  and `BCLIBCFFI_INTEGRATION_DORMAND_PRINCE`.
+- Compile-time embedded RK tableau/controller core (`integrate_embedded_rk45<Tableau, Controller>`,
+  `bclibc/embedded_rk45.hpp`). Cash--Karp and Dormand--Prince are now both thin `.cpp` files that
+  instantiate this core with their own tableau/controller instead of duplicating the adaptive
+  step-control loop; `State<Tableau, Controller>` gives each method's tolerance/step-count
+  thread-locals independent storage (previously, before this was templated, they would have been
+  shared namespace-scope statics -- fine for Cash-Karp alone, but wrong once a second method
+  shares the core). Cash--Karp's tableau, controller factors, and lack of wind-boundary step
+  limiting are preserved exactly, byte-for-byte behavior compatible with the pre-refactor
+  standalone implementation.
+- Dormand--Prince additionally clamps its step at a wind-zone boundary
+  (`ScipyRKController::limit_step_at_wind_boundary`): wind is sampled once per step and held
+  constant across all of that step's stage evaluations, so a large adaptive step that both starts
+  before and would end past the next wind segment's boundary would otherwise integrate its tail
+  through the wrong wind vector. FSAL cache invalidation (already centralized in the core) only
+  fixes the *next* step's stale derivative, not this step's own wind model, so this needed its own
+  fix. Cash-Karp does not get this fix, matching its "preserve historical behavior" mandate above.
+
+### Changed
+- Cash-Karp error control now matches `scipy.integrate.solve_ivp`'s Runge-Kutta convention:
+  `BCLIBC_cashKarpSetAbsoluteTolerance()` sets one thread-local scalar `atol` (default `1e-6`)
+  for all six position/velocity components, replacing unequal hidden position/velocity floors.
+  Each component is scaled by `atol + rtol * max(abs(y), abs(y_new))`, and the adaptive
+  acceptance norm is the RMS across those six scaled errors.
+
 ## [2.0.0-beta.1] - 2026-09-16
 
 ### Added
@@ -416,7 +446,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.8...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.2...HEAD
+[2.0.0-beta.2]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.1...v2.0.0-beta.2
+[2.0.0-beta.1]: https://github.com/ballistics-lab/bclibc/compare/v1.1.8...v2.0.0-beta.1
 [1.1.8]: https://github.com/ballistics-lab/bclibc/compare/v1.1.7...v1.1.8
 [1.1.7]: https://github.com/ballistics-lab/bclibc/compare/v1.1.6...v1.1.7
 [1.1.6]: https://github.com/ballistics-lab/bclibc/compare/v1.1.5...v1.1.6

@@ -25,6 +25,7 @@
 #include "bclibc/euler.hpp"
 #include "bclibc/velocity_verlet.hpp"
 #include "bclibc/cash_karp.hpp"
+#include "bclibc/dormand_prince.hpp"
 #include "bclibc/version.h" // This is the generated file
 
 using namespace bclibc;
@@ -104,6 +105,8 @@ static double calcStep(BCLIBCFFI_IntegrationMethod m, double multiplier)
         // (or shrink down to 1/64x) via its own adaptive error control -- same
         // base as RK4's fixed step, not a separate tuning.
         return 0.0025 * multiplier;
+    case BCLIBCFFI_INTEGRATION_DORMAND_PRINCE:
+        return 0.0025 * multiplier;
     case BCLIBCFFI_INTEGRATION_EULER:
     default:
         return 0.5 * multiplier;
@@ -120,6 +123,8 @@ static BCLIBC_IntegrateCallable selectIntegrateFunc(BCLIBCFFI_IntegrationMethod 
         return BCLIBC_IntegrateCallable(BCLIBC_integrateVELOCITY_VERLET);
     case BCLIBCFFI_INTEGRATION_CASH_KARP:
         return BCLIBC_IntegrateCallable(BCLIBC_integrateCashKarp);
+    case BCLIBCFFI_INTEGRATION_DORMAND_PRINCE:
+        return BCLIBC_IntegrateCallable(BCLIBC_integrateDormandPrince);
     case BCLIBCFFI_INTEGRATION_EULER:
     default:
         return BCLIBC_IntegrateCallable(BCLIBC_integrateEULER);
