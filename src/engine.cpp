@@ -258,7 +258,8 @@ namespace bclibc
     double BCLIBC_BaseEngine::error_at_distance(
         double angle_rad,
         double target_x_ft,
-        double target_y_ft)
+        double target_y_ft,
+        BCLIBC_BaseTrajData *hit_out)
     {
         // Block access to engine if it is needed for integration
         std::lock_guard<std::recursive_mutex> lock(this->engine_mutex);
@@ -282,6 +283,11 @@ namespace bclibc
         }
 
         const BCLIBC_BaseTrajData &hit = handler.get_result();
+
+        if (hit_out != nullptr)
+        {
+            *hit_out = hit;
+        }
 
         if (hit.time == 0.0)
         {
@@ -377,14 +383,44 @@ namespace bclibc
 
         try
         {
-            return this->zero_angle(distance, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
+            return this->zero_angle_newton(distance, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
         }
         catch (const BCLIBC_ZeroFindingError &error)
         {
             BCLIBC_WARN("Primary zero-finding failed, switching to fallback.");
 
             // Fallback to guaranteed method
-            return this->find_zero_angle(distance, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET, 0);
+            return this->find_zero_angle_ridder(distance, 0, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
+        }
+    };
+
+    BCLIBC_ZeroPointResult BCLIBC_BaseEngine::zero_point_with_fallback(
+        double distance,
+        double APEX_IS_MAX_RANGE_RADIANS,
+        double ALLOWED_ZERO_ERROR_FEET)
+    {
+        std::lock_guard<std::recursive_mutex> lock(this->engine_mutex);
+
+        BCLIBC_ZeroPointResult result;
+        try
+        {
+            this->zero_angle_newton(
+                distance,
+                APEX_IS_MAX_RANGE_RADIANS,
+                ALLOWED_ZERO_ERROR_FEET,
+                &result);
+            return result;
+        }
+        catch (const BCLIBC_ZeroFindingError &error)
+        {
+            BCLIBC_WARN("Newton zero-point solve failed, switching to Ridder's fallback.");
+            this->find_zero_angle_ridder(
+                distance,
+                0,
+                APEX_IS_MAX_RANGE_RADIANS,
+                ALLOWED_ZERO_ERROR_FEET,
+                &result);
+            return result;
         }
     };
 
@@ -402,13 +438,19 @@ namespace bclibc
      * Memory: 192 bytes per iteration vs ~N*64 bytes
      * Speed: 50-90% faster with early termination
      */
-    double BCLIBC_BaseEngine::zero_angle(
+    double BCLIBC_BaseEngine::zero_angle_newton(
         double distance,
         double APEX_IS_MAX_RANGE_RADIANS,
-        double ALLOWED_ZERO_ERROR_FEET)
+        double ALLOWED_ZERO_ERROR_FEET,
+        BCLIBC_ZeroPointResult *result_out)
     {
         // Block access to engine if it is needed for integration
         std::lock_guard<std::recursive_mutex> lock(this->engine_mutex);
+
+        if (result_out != nullptr)
+        {
+            result_out->has_point = false;
+        }
 
         BCLIBC_ZeroInitialData init_data;
 
@@ -425,6 +467,10 @@ namespace bclibc
 
         if (init_data.status == BCLIBC_ZeroInitialStatus::DONE)
         {
+            if (result_out != nullptr)
+            {
+                result_out->angle_rad = look_angle_rad;
+            }
             return look_angle_rad; // immediately return when already done
         }
 
@@ -587,6 +633,13 @@ namespace bclibc
                 this->shot.barrel_elevation);
         }
 
+        if (result_out != nullptr)
+        {
+            result_out->angle_rad = this->shot.barrel_elevation;
+            result_out->point = BCLIBC_TrajectoryData(this->shot, hit, BCLIBC_TRAJ_FLAG_RANGE);
+            result_out->has_point = true;
+        }
+
         // success
         return this->shot.barrel_elevation;
     };
@@ -728,14 +781,31 @@ namespace bclibc
      * @throws BCLIBC_OutOfRangeError if slant_range_ft > max_range_ft.
      * @throws BCLIBC_ZeroFindingError if zero-finding fails.
      */
-    double BCLIBC_BaseEngine::find_zero_angle(
+    double BCLIBC_BaseEngine::find_zero_angle_ridder(
         double distance,
         int lofted,
         double APEX_IS_MAX_RANGE_RADIANS,
-        double ALLOWED_ZERO_ERROR_FEET)
+        double ALLOWED_ZERO_ERROR_FEET,
+        BCLIBC_ZeroPointResult *result_out)
     {
         // Block access to engine if it is needed for integration
         std::lock_guard<std::recursive_mutex> lock(this->engine_mutex);
+
+        if (result_out != nullptr)
+        {
+            result_out->has_point = false;
+        }
+
+        auto return_with_point = [this, result_out](double angle_rad, const BCLIBC_BaseTrajData &hit)
+        {
+            if (result_out != nullptr)
+            {
+                result_out->angle_rad = angle_rad;
+                result_out->point = BCLIBC_TrajectoryData(this->shot, hit, BCLIBC_TRAJ_FLAG_RANGE);
+                result_out->has_point = true;
+            }
+            return angle_rad;
+        };
 
         BCLIBC_ZeroInitialData init_data;
 
@@ -753,6 +823,10 @@ namespace bclibc
 
         if (init_data.status == BCLIBC_ZeroInitialStatus::DONE)
         {
+            if (result_out != nullptr)
+            {
+                result_out->angle_rad = look_angle_rad;
+            }
             return look_angle_rad;
         }
 
@@ -776,6 +850,10 @@ namespace bclibc
         }
         if (std::fabs(slant_range_ft - max_range_ft) < ALLOWED_ZERO_ERROR_FEET)
         {
+            if (result_out != nullptr)
+            {
+                result_out->angle_rad = angle_at_max_rad;
+            }
             return angle_at_max_rad;
         }
 
@@ -808,12 +886,18 @@ namespace bclibc
 
         // Prepare variables for Ridder's method
         double mid_angle, f_mid, s, next_angle, f_next;
+        BCLIBC_BaseTrajData low_hit, high_hit, mid_hit, next_hit;
+        BCLIBC_BaseTrajData *last_hit = nullptr;
+        double last_angle = 0.0;
         int converged = 0;
 
         f_low = this->error_at_distance(
             low_angle,
             target_x_ft,
-            target_y_ft);
+            target_y_ft,
+            &low_hit);
+        last_hit = &low_hit;
+        last_angle = low_angle;
 
         // If low is exactly look angle and failed to evaluate, nudge slightly upward to bracket
         if (f_low > 1e8 && std::fabs(low_angle - look_angle_rad) < 1e-9)
@@ -822,13 +906,19 @@ namespace bclibc
             f_low = this->error_at_distance(
                 low_angle,
                 target_x_ft,
-                target_y_ft);
+                target_y_ft,
+                &low_hit);
+            last_hit = &low_hit;
+            last_angle = low_angle;
         }
 
         f_high = this->error_at_distance(
             high_angle,
             target_x_ft,
-            target_y_ft);
+            target_y_ft,
+            &high_hit);
+        last_hit = &high_hit;
+        last_angle = high_angle;
 
         if (f_low * f_high >= 0)
         {
@@ -863,14 +953,17 @@ namespace bclibc
             f_mid = this->error_at_distance(
                 mid_angle,
                 target_x_ft,
-                target_y_ft);
+                target_y_ft,
+                &mid_hit);
+            last_hit = &mid_hit;
+            last_angle = mid_angle;
 
             // Check if we found exact solution at midpoint
             if (std::fabs(f_mid) < this->config.cZeroFindingAccuracy)
             {
                 BCLIBC_DEBUG("Ridder: found exact solution at mid_angle=%.6f", mid_angle);
                 converged = 1;
-                return mid_angle;
+                return return_with_point(mid_angle, mid_hit);
             }
 
             // s is the updated point using the root of the linear function
@@ -903,20 +996,23 @@ namespace bclibc
             f_next = this->error_at_distance(
                 next_angle,
                 target_x_ft,
-                target_y_ft);
+                target_y_ft,
+                &next_hit);
+            last_hit = &next_hit;
+            last_angle = next_angle;
 
             // Check if we found exact solution at next_angle
             if (std::fabs(f_next) < this->config.cZeroFindingAccuracy)
             {
                 BCLIBC_DEBUG("Ridder: found exact solution at next_angle=%.6f", next_angle);
                 converged = 1;
-                return next_angle;
+                return return_with_point(next_angle, next_hit);
             }
 
             if (std::fabs(next_angle - mid_angle) < kRiddersAngleTol)
             {
                 converged = 1;
-                return next_angle;
+                return return_with_point(next_angle, next_hit);
             }
 
             // Update the bracket
@@ -924,18 +1020,22 @@ namespace bclibc
             {
                 low_angle = mid_angle;
                 f_low = f_mid;
+                low_hit = mid_hit;
                 high_angle = next_angle;
                 f_high = f_next;
+                high_hit = next_hit;
             }
             else if (f_low * f_next < 0)
             {
                 high_angle = next_angle;
                 f_high = f_next;
+                high_hit = next_hit;
             }
             else if (f_high * f_next < 0)
             {
                 low_angle = next_angle;
                 f_low = f_next;
+                low_hit = next_hit;
             }
             else
             {
@@ -947,6 +1047,10 @@ namespace bclibc
             if (std::fabs(high_angle - low_angle) < kRiddersAngleTol)
             {
                 converged = 1;
+                if (result_out != nullptr)
+                {
+                    return return_with_point(next_angle, next_hit);
+                }
                 return (low_angle + high_angle) / 2.0;
             }
         }
@@ -961,6 +1065,10 @@ namespace bclibc
             {
                 double result = (low_angle + high_angle) / 2.0;
                 BCLIBC_DEBUG("Ridder: accepting solution from small bracket: %.6f", result);
+                if (result_out != nullptr && last_hit != nullptr)
+                {
+                    return return_with_point(last_angle, *last_hit);
+                }
                 return result;
             }
 
@@ -969,13 +1077,13 @@ namespace bclibc
             {
                 double result = low_angle;
                 BCLIBC_DEBUG("Ridder: accepting low_angle due to small f_low: %.6f", result);
-                return result;
+                return return_with_point(result, low_hit);
             }
             if (std::fabs(f_high) < 10.0 * this->config.cZeroFindingAccuracy)
             {
                 double result = high_angle;
                 BCLIBC_DEBUG("Ridder: accepting high_angle due to small f_high: %.6f", result);
-                return result;
+                return return_with_point(result, high_hit);
             }
 
             // All fallback strategies failed
@@ -988,7 +1096,51 @@ namespace bclibc
 
         // converged == true but loop exited without an explicit return
         // (e.g. via h < 1e-5 in a previous iteration); return best estimate.
+        if (result_out != nullptr && last_hit != nullptr)
+        {
+            return return_with_point(last_angle, *last_hit);
+        }
         return (low_angle + high_angle) / 2.0;
+    };
+
+    double BCLIBC_BaseEngine::zero_angle(
+        double distance,
+        double APEX_IS_MAX_RANGE_RADIANS,
+        double ALLOWED_ZERO_ERROR_FEET)
+    {
+        return this->zero_angle_newton(
+            distance,
+            APEX_IS_MAX_RANGE_RADIANS,
+            ALLOWED_ZERO_ERROR_FEET);
+    };
+
+    BCLIBC_ZeroPointResult BCLIBC_BaseEngine::find_zero_point(
+        double distance,
+        int lofted,
+        double APEX_IS_MAX_RANGE_RADIANS,
+        double ALLOWED_ZERO_ERROR_FEET)
+    {
+        BCLIBC_ZeroPointResult result;
+        this->find_zero_angle_ridder(
+            distance,
+            lofted,
+            APEX_IS_MAX_RANGE_RADIANS,
+            ALLOWED_ZERO_ERROR_FEET,
+            &result);
+        return result;
+    };
+
+    double BCLIBC_BaseEngine::find_zero_angle(
+        double distance,
+        int lofted,
+        double APEX_IS_MAX_RANGE_RADIANS,
+        double ALLOWED_ZERO_ERROR_FEET)
+    {
+        return this->find_zero_angle_ridder(
+            distance,
+            lofted,
+            APEX_IS_MAX_RANGE_RADIANS,
+            ALLOWED_ZERO_ERROR_FEET);
     };
 
     /**
