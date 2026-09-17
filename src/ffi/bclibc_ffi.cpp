@@ -283,6 +283,12 @@ static void toC(const BCLIBC_BaseTrajData &s, BCLIBCFFI_BaseTrajData &d)
     d.mach = s.mach;
 }
 
+static void toC(const BCLIBC_ZeroPointResult &s, BCLIBCFFI_ZeroPointResult &d)
+{
+    d.angle_rad = s.angle_rad;
+    toC(s.point, d.point);
+}
+
 // ============================================================================
 // Exception wrapper (replaces BCLIBCFFI_CATCH macro)
 // ============================================================================
@@ -399,6 +405,21 @@ extern "C"
             initEngine(eng, props);
             *out_angle_rad = eng.zero_angle_with_fallback(
                 distance_ft, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
+            return BCLIBCFFI_OK; }, err);
+    }
+
+    BCLIBC_API int32_t BCLIBCFFI_find_zero_point(
+        const BCLIBCFFI_ShotProps *props,
+        double distance_ft,
+        BCLIBCFFI_ZeroPointResult *out,
+        BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        {
+            BCLIBC_BaseEngine eng;
+            initEngine(eng, props);
+            toC(eng.zero_point_with_fallback(
+                distance_ft, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET), *out);
             return BCLIBCFFI_OK; }, err);
     }
 
@@ -548,6 +569,21 @@ extern "C"
             initEngineFromShot(eng, shot);
             *out_angle_rad = eng.zero_angle_with_fallback(
                 distance_ft, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
+            return BCLIBCFFI_OK; }, err);
+    }
+
+    BCLIBC_API int32_t BCLIBCFFI_find_zero_point_shot(
+        const BCLIBCFFI_Shot *shot,
+        double distance_ft,
+        BCLIBCFFI_ZeroPointResult *out,
+        BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        {
+            BCLIBC_BaseEngine eng;
+            initEngineFromShot(eng, shot);
+            toC(eng.zero_point_with_fallback(
+                distance_ft, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET), *out);
             return BCLIBCFFI_OK; }, err);
     }
 
