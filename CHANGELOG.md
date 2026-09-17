@@ -463,7 +463,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.3...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.4...HEAD
+[2.0.0-beta.4]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.3...v2.0.0-beta.4
 [2.0.0-beta.3]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.2...v2.0.0-beta.3
 [2.0.0-beta.2]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.1...v2.0.0-beta.2
 [2.0.0-beta.1]: https://github.com/ballistics-lab/bclibc/compare/v1.1.8...v2.0.0-beta.1
