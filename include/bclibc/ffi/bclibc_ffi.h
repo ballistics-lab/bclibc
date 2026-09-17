@@ -304,6 +304,19 @@ extern "C"
         double angle_at_max_rad;
     } BCLIBCFFI_MaxRangeResult;
 
+    /**
+     * @brief Result of a lower-arc zero solve.
+     *
+     * `point` is the terminal RANGE point evaluated by the successful
+     * zero-finding iteration. It is not obtained by a separate final
+     * trajectory integration.
+     */
+    typedef struct BCLIBCFFI_ZeroPointResult
+    {
+        double angle_rad;               /**< Solved barrel elevation (radians). */
+        BCLIBCFFI_TrajectoryData point; /**< Terminal RANGE point of the solve. */
+    } BCLIBCFFI_ZeroPointResult;
+
     typedef struct BCLIBCFFI_Interception
     {
         BCLIBCFFI_BaseTrajData raw_data;
@@ -344,6 +357,25 @@ extern "C"
         const BCLIBCFFI_ShotProps *props,
         double distance_ft,
         double *out_angle_rad,
+        BCLIBCFFI_Error *err);
+
+    /**
+     * @brief Find the lower zero and its terminal trajectory point.
+     *
+     * Uses the Newton solver with Ridder's fallback. The returned point is
+     * captured from the successful solve, so no final trajectory integration
+     * is performed.
+     *
+     * @param props        Pre-computed shot properties.
+     * @param distance_ft  Slant distance to the target (ft).
+     * @param out          Output zero angle and terminal RANGE point.
+     * @param err          Error details when the return value is not OK.
+     * @return BCLIBCFFI_OK on success; an error status otherwise.
+     */
+    BCLIBC_API int32_t BCLIBCFFI_find_zero_point(
+        const BCLIBCFFI_ShotProps *props,
+        double distance_ft,
+        BCLIBCFFI_ZeroPointResult *out,
         BCLIBCFFI_Error *err);
 
     /**
@@ -400,6 +432,25 @@ extern "C"
         const BCLIBCFFI_Shot *shot,
         double distance_ft,
         double *out_angle_rad,
+        BCLIBCFFI_Error *err);
+
+    /**
+     * @brief Find the lower zero for a user-facing shot and its terminal point.
+     *
+     * Converts `shot` to engine properties, then uses the Newton solver with
+     * Ridder's fallback. The returned point is captured from the successful
+     * solve, so no final trajectory integration is performed.
+     *
+     * @param shot         User-facing shot descriptor.
+     * @param distance_ft  Slant distance to the target (ft).
+     * @param out          Output zero angle and terminal RANGE point.
+     * @param err          Error details when the return value is not OK.
+     * @return BCLIBCFFI_OK on success; an error status otherwise.
+     */
+    BCLIBC_API int32_t BCLIBCFFI_find_zero_point_shot(
+        const BCLIBCFFI_Shot *shot,
+        double distance_ft,
+        BCLIBCFFI_ZeroPointResult *out,
         BCLIBCFFI_Error *err);
 
     BCLIBC_API int32_t BCLIBCFFI_integrate_shot(
