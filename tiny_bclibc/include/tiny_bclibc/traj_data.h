@@ -110,6 +110,18 @@ extern "C"
         int32_t flag;
     } TINY_BCLIBC_TrajectoryData;
 
+    /**
+     * Result of a lower-arc zero solve.
+     *
+     * `point` is the terminal RANGE point evaluated by the successful solver
+     * iteration; it is not produced by a separate final integration.
+     */
+    typedef struct TINY_BCLIBC_ZeroPointResult
+    {
+        real_t angle_rad;
+        TINY_BCLIBC_TrajectoryData point;
+    } TINY_BCLIBC_ZeroPointResult;
+
     /* ── Integration request ────────────────────────────────────────── */
     typedef struct TINY_BCLIBC_TrajectoryRequest
     {
