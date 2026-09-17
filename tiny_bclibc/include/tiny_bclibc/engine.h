@@ -523,11 +523,25 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 TINY_BCLIBC_V3dT_fma(&err_p, k6.dp, D6);
                 TINY_BCLIBC_V3dT_scale_assign(&err_p, dt);
 
-                real_t scale_v = REAL_C(1e-3) + REAL_C(1e-6) * TINY_BCLIBC_V3dT_mag(vr_next);
-                real_t scale_p = REAL_C(1e-4) + REAL_C(1e-6) * TINY_BCLIBC_V3dT_mag(pos_next);
-                real_t err_norm_v = TINY_BCLIBC_V3dT_mag(err_v) / scale_v;
-                real_t err_norm_p = TINY_BCLIBC_V3dT_mag(err_p) / scale_p;
-                real_t err_norm = (err_norm_v > err_norm_p) ? err_norm_v : err_norm_p;
+                /* Match the C++ Cash-Karp controller's solve_ivp-style error
+                 * control: scale every state component independently, then
+                 * accept/reject from the RMS of all six scaled errors.  The
+                 * old vector-magnitude/max scheme had unequal hidden floors
+                 * for velocity and position, so a large component could mask
+                 * an out-of-tolerance small one. */
+                const real_t atol = REAL_C(1e-6);
+                const real_t rtol = REAL_C(1e-6);
+                const real_t svx = atol + rtol * ((TINY_BCLIBC_FABS(vr.x) > TINY_BCLIBC_FABS(vr_next.x)) ? TINY_BCLIBC_FABS(vr.x) : TINY_BCLIBC_FABS(vr_next.x));
+                const real_t svy = atol + rtol * ((TINY_BCLIBC_FABS(vr.y) > TINY_BCLIBC_FABS(vr_next.y)) ? TINY_BCLIBC_FABS(vr.y) : TINY_BCLIBC_FABS(vr_next.y));
+                const real_t svz = atol + rtol * ((TINY_BCLIBC_FABS(vr.z) > TINY_BCLIBC_FABS(vr_next.z)) ? TINY_BCLIBC_FABS(vr.z) : TINY_BCLIBC_FABS(vr_next.z));
+                const real_t spx = atol + rtol * ((TINY_BCLIBC_FABS(pos.x) > TINY_BCLIBC_FABS(pos_next.x)) ? TINY_BCLIBC_FABS(pos.x) : TINY_BCLIBC_FABS(pos_next.x));
+                const real_t spy = atol + rtol * ((TINY_BCLIBC_FABS(pos.y) > TINY_BCLIBC_FABS(pos_next.y)) ? TINY_BCLIBC_FABS(pos.y) : TINY_BCLIBC_FABS(pos_next.y));
+                const real_t spz = atol + rtol * ((TINY_BCLIBC_FABS(pos.z) > TINY_BCLIBC_FABS(pos_next.z)) ? TINY_BCLIBC_FABS(pos.z) : TINY_BCLIBC_FABS(pos_next.z));
+                const real_t evx = err_v.x / svx, evy = err_v.y / svy, evz = err_v.z / svz;
+                const real_t epx = err_p.x / spx, epy = err_p.y / spy, epz = err_p.z / spz;
+                real_t err_norm = TINY_BCLIBC_SQRT(
+                    (evx * evx + evy * evy + evz * evz + epx * epx + epy * epy + epz * epz) /
+                    REAL_C(6.0));
 
                 if (err_norm <= REAL_C(1.0) || dt <= min_dt * REAL_C(1.0001))
                 {

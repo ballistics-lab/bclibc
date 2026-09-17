@@ -11,6 +11,10 @@ RK4 (used internally for zero-angle and apex finding), PCHIP drag curves, Coriol
 CIPM-2007 atmosphere, and Ridder's method for zero-finding. Designed for embedded targets
 (MicroPython natmod, bare-metal MCUs) as well as desktop use.
 
+Cash-Karp uses the same default local-error policy as the C++ engine: `atol = rtol = 1e-6`,
+each position and relative-velocity component is scaled by
+`atol + rtol * max(abs(y), abs(y_new))`, and the six scaled errors are combined with an RMS norm.
+
 ## Usage modes
 
 | Mode | How | When |

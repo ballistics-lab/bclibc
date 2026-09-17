@@ -163,6 +163,14 @@ run_bclibc_integrate(bclibc::BCLIBC_BaseEngine &eng, double range_ft, double ste
     return records;
 }
 
+// Run C++ Cash-Karp with the same filtered-output request as tiny_bclibc.
+std::vector<bclibc::BCLIBC_TrajectoryData>
+run_bclibc_cashkarp_integrate(bclibc::BCLIBC_BaseEngine &eng, double range_ft, double step_ft)
+{
+    eng.integrate_func = bclibc::BCLIBC_integrateCashKarp;
+    return run_bclibc_integrate(eng, range_ft, step_ft);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // tbclibc helpers
 // ═══════════════════════════════════════════════════════════════════════════
@@ -364,6 +372,29 @@ static bool test_g7_wind_integrate()
                                           kCashKarpAbsFloor, kCashKarpRelTol);
 }
 
+// Cash-Karp's accept/reject decisions must use the same per-component RMS
+// controller in the C and C++ engines. This end-to-end case exercises that
+// common policy through their public filtered-trajectory APIs.
+static bool test_g7_basic_cashkarp_parity()
+{
+    bclibc::BCLIBC_BaseEngine bc_eng;
+    init_bclibc_engine(bc_eng, make_bclibc_shot_props());
+
+    TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
+    TINY_BCLIBC_ShotProps  tb_props;
+    if (make_tiny_bclibc_shot_props(&tb_props, tb_curve) != TINY_BCLIBC_OK) {
+        std::printf("FAIL: tiny_bclibc_build_shot_props failed: %s\n", tiny_bclibc_last_error());
+        return false;
+    }
+
+    auto bc_traj = run_bclibc_cashkarp_integrate(bc_eng, 3000.0, 100.0);
+    auto tb_traj = run_tiny_bclibc_integrate(&tb_props, 3000.0, 100.0);
+
+    return identity::compare_trajectories(bc_traj, tb_traj,
+                                          "G7_BASIC / Cash-Karp parity / 3000ft@100ft",
+                                          kCashKarpAbsFloor, kCashKarpRelTol);
+}
+
 static bool test_g7_basic_zero_angle()
 {
     // Target: zero at 1000ft (≈333yd)
@@ -438,6 +469,7 @@ int main()
     bool all_pass = true;
     all_pass &= test_g7_basic_integrate();
     all_pass &= test_g7_wind_integrate();
+    all_pass &= test_g7_basic_cashkarp_parity();
     all_pass &= test_g7_basic_zero_angle();
     all_pass &= test_g7_basic_find_apex();
 

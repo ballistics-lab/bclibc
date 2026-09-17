@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+## [2.0.0-beta.3] - 2026-09-17
+
+- `tiny_bclibc`: Cash-Karp adaptive error control now matches the C++ engine's default
+  solve_ivp-style policy: one `1e-6` absolute and relative tolerance for all six position and
+  relative-velocity components, each independently scaled before calculating the RMS acceptance
+  norm. This replaces the unequal position/velocity floors and max-of-vector-norms criterion.
+
 ## [2.0.0-beta.2] - 2026-09-17
 
 ### Added
@@ -446,7 +455,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.2...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.3...HEAD
+[2.0.0-beta.3]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.2...v2.0.0-beta.3
 [2.0.0-beta.2]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.1...v2.0.0-beta.2
 [2.0.0-beta.1]: https://github.com/ballistics-lab/bclibc/compare/v1.1.8...v2.0.0-beta.1
 [1.1.8]: https://github.com/ballistics-lab/bclibc/compare/v1.1.7...v1.1.8
