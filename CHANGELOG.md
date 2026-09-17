@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-beta.2] - 2026-09-17
+
 ### Added
 
 - Public Dormand--Prince 5(4) integration (`BCLIBC_integrateDormandPrince`)
@@ -444,7 +446,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v1.1.8...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.2...HEAD
+[2.0.0-beta.2]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.1...v2.0.0-beta.2
+[2.0.0-beta.1]: https://github.com/ballistics-lab/bclibc/compare/v1.1.8...v2.0.0-beta.1
 [1.1.8]: https://github.com/ballistics-lab/bclibc/compare/v1.1.7...v1.1.8
 [1.1.7]: https://github.com/ballistics-lab/bclibc/compare/v1.1.6...v1.1.7
 [1.1.6]: https://github.com/ballistics-lab/bclibc/compare/v1.1.5...v1.1.6
