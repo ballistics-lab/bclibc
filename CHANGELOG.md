@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-beta.6] - 2026-09-17
+
+### Fixed
+
+- WASM builds now regenerate `build/generated/bclibc/version.h` on every invocation, preventing
+  a header left by an earlier native build from embedding a stale `BCLIBC_VERSION` in the shipped
+  `.wasm` artifact. The Emscripten export list now also includes `BCLIBCFFI_find_zero_point` and
+  `BCLIBCFFI_find_zero_point_shot`, making the zero-point FFI API available to WASM consumers.
+
 ## [2.0.0-beta.5] - 2026-09-17
 
 ### Fixed
