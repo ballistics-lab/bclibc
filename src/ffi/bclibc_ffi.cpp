@@ -678,6 +678,7 @@ extern "C"
     //   [ sizeof(MaxRangeResult),    2 field offsets ]
     //   [ sizeof(BaseTrajData),      8 field offsets ]
     //   [ sizeof(Interception),      2 field offsets ]
+    //   [ sizeof(ZeroPointResult),   2 field offsets ]
     //   [ sizeof(Error),             6 field offsets ]
     // ============================================================================
 
@@ -767,6 +768,10 @@ extern "C"
             (int32_t)sizeof(BCLIBCFFI_Interception),
             (int32_t)offsetof(BCLIBCFFI_Interception, raw_data),
             (int32_t)offsetof(BCLIBCFFI_Interception, full_data),
+            // ZeroPointResult
+            (int32_t)sizeof(BCLIBCFFI_ZeroPointResult),
+            (int32_t)offsetof(BCLIBCFFI_ZeroPointResult, angle_rad),
+            (int32_t)offsetof(BCLIBCFFI_ZeroPointResult, point),
             // Error
             (int32_t)sizeof(BCLIBCFFI_Error),
             (int32_t)offsetof(BCLIBCFFI_Error, code),
