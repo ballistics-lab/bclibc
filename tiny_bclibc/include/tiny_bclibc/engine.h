@@ -939,7 +939,13 @@ static inline void tiny_bclibc__set_error(const char *msg)
     {
         int32_t key;
         real_t target;
-        tiny_bclibc__AtValueAux aux;
+        /* 3-point sliding window for PCHIP interpolation, mirroring bclibc's
+         * BCLIBC_SinglePointHandler and the pre-Cash-Karp RK4 at_on_step path.
+         * A 2-point Hermite using endpoint tangents measurably shifts the
+         * interpolated crossing (esp. near apex where vy is flat) relative to
+         * bclibc's own 3-point scheme, by up to ~1.7e-2 ft at 3500 ft range. */
+        TINY_BCLIBC_BaseTrajData win[3];
+        int32_t n;
         int32_t found;
         TINY_BCLIBC_BaseTrajData result;
     } tiny_bclibc__AtCtx;
@@ -947,6 +953,11 @@ static inline void tiny_bclibc__set_error(const char *msg)
     static inline int32_t tiny_bclibc__at_ck_on_first(const TINY_BCLIBC_BaseTrajData *pt, void *ctx_)
     {
         tiny_bclibc__AtCtx *c = (tiny_bclibc__AtCtx *)ctx_;
+        /* Seed the 3-point window with the initial sample. */
+        c->win[0] = *pt;
+        c->n = 1;
+
+        /* Only an exact hit at the very first sample can short-circuit here. */
         real_t v = TINY_BCLIBC_BaseTrajData_get(pt, c->key);
         if (v == c->target)
         {
@@ -966,23 +977,49 @@ static inline void tiny_bclibc__set_error(const char *msg)
         if (c->found)
             return 1;
 
-        real_t v1 = TINY_BCLIBC_BaseTrajData_get(start, c->key);
-        real_t v2 = TINY_BCLIBC_BaseTrajData_get(end, c->key);
+        /* Mirror BCLIBC_SinglePointHandler::handle_step in bclibc:
+         * - For POS_X, use the exact 2-point Hermite reconstruction
+         *   (tiny_bclibc__hermite_at_x), NOT 3-point PCHIP.  This is the path
+         *   bclibc itself takes for POS_X queries, and it is what zero-finding
+         *   depends on: error_at_distance() issues a POS_X query per Newton
+         *   iteration, and any deviation from hermite_at_x shifts the root.
+         * - For every other key (VEL_Y, MACH, ...), accumulate a 3-point window
+         *   and use 3-point PCHIP (TINY_BCLIBC_BaseTrajData_interpolate), the
+         *   same path bclibc's handle() takes. */
+        if (c->key == TINY_BCLIBC_KEY_POS_X)
+        {
+            if (!tiny_bclibc__hermite_at_x(start, end, c->target, &c->result))
+                return 0;
+            c->found = 1;
+            return 1;
+        }
+
+        /* Non-POS_X: 3-point sliding window + PCHIP. */
+        if (c->n < 3)
+        {
+            c->win[c->n++] = *end;
+        }
+        else
+        {
+            c->win[0] = c->win[1];
+            c->win[1] = c->win[2];
+            c->win[2] = *end;
+        }
+
+        if (c->n < 3)
+            return 0;
+
+        real_t v1 = TINY_BCLIBC_BaseTrajData_get(&c->win[1], c->key);
+        real_t v2 = TINY_BCLIBC_BaseTrajData_get(&c->win[2], c->key);
         int32_t crossed = ((v1 <= c->target && c->target <= v2) ||
                            (v2 <= c->target && c->target <= v1));
         if (!crossed)
             return 0;
 
-        TINY_BCLIBC_BaseTrajData r;
-        if (tiny_bclibc__hermite_at_value(start, end,
-                                          tiny_bclibc__value_by_key, &c->aux,
-                                          c->target, &r))
-        {
-            c->result = r;
-            c->found = 1;
-            return 1;
-        }
-        return 0;
+        TINY_BCLIBC_BaseTrajData_interpolate(c->key, c->target,
+                                             &c->win[0], &c->win[1], &c->win[2], &c->result);
+        c->found = 1;
+        return 1;
     }
 
     TINY_BCLIBC_FUNC int32_t tiny_bclibc_integrate_at(
@@ -1001,7 +1038,6 @@ static inline void tiny_bclibc__set_error(const char *msg)
         memset(&ctx, 0, sizeof(ctx));
         ctx.key = key;
         ctx.target = target_value;
-        ctx.aux.key = key;
 
         TINY_BCLIBC_TrajectoryRequest req;
         req.range_limit_ft = TINY_BCLIBC_MAX_INTEGRATION_RANGE;
@@ -1144,20 +1180,26 @@ static inline void tiny_bclibc__set_error(const char *msg)
             return TINY_BCLIBC_ERR_INVALID_ARG;
 
         TINY_BCLIBC_ShotProps p = *props;
+        /* Match BCLIBC_BaseEngine::find_zero_angle_ridder in engine.cpp: zero
+         * out minimum velocity. ... */
+        p.cfg.cMinimumVelocity = REAL_C(0.0);
 
         real_t la = p.look_angle;
         real_t ca = TINY_BCLIBC_COS(la), sa = TINY_BCLIBC_SIN(la);
         real_t tx = distance_ft * ca;
         real_t ty = distance_ft * sa;
         real_t sh = -p.cant_cosine * p.sight_height;
-        const real_t ZERO_ERR_FT = REAL_C(0.5); // ← ось це треба на 1e-2
+        /* Mirror BCLIBC_BaseEngine::init_zero_calculation:
+         * - ZERO_ERR_FT is ALLOWED_ZERO_ERROR_FEET (1e-2 ft), not 0.5 ft.
+         * - "very close shot" cutoff is 2 * max(|sh|, cStepMultiplier). */
+        const real_t ZERO_ERR_FT = REAL_C(1e-2);
 
         if (TINY_BCLIBC_FABS(distance_ft) < ZERO_ERR_FT)
         {
             *out_angle_rad = la;
             return TINY_BCLIBC_OK;
         }
-        if (TINY_BCLIBC_FABS(distance_ft) < REAL_C(2.0) * TINY_BCLIBC_FABS(sh)) // ← тут немає fmax
+        if (TINY_BCLIBC_FABS(distance_ft) < REAL_C(2.0) * tiny_bclibc__fmax(TINY_BCLIBC_FABS(sh), p.cfg.cStepMultiplier))
         {
             *out_angle_rad = TINY_BCLIBC_ATAN2(ty + sh, tx);
             return TINY_BCLIBC_OK;
@@ -1350,7 +1392,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
     const real_t cZeroFindingAccuracy = REAL_C(5e-6);
 #endif
         const real_t ALLOWED_ZERO_ERROR_FT = REAL_C(1e-2);
-        const int32_t cMaxIterations = 20;
+        const int32_t cMaxIterations = 40;
 
         int32_t iterations = 0;
         real_t range_error_ft = REAL_C(9e9);

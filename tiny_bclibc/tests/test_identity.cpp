@@ -143,7 +143,7 @@ namespace
     void init_bclibc_engine(bclibc::BCLIBC_BaseEngine &eng, bclibc::BCLIBC_ShotProps props)
     {
         eng.shot = std::move(props);
-        eng.integrate_func = bclibc::BCLIBC_integrateRK4;
+        eng.integrate_func = bclibc::BCLIBC_integrateCashKarp;
         eng.config = bclibc::BCLIBC_Config(
             kDefaultConfig.cStepMultiplier,
             kDefaultConfig.cZeroFindingAccuracy,
