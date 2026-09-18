@@ -28,7 +28,7 @@ one engine, bound natively into [py-ballisticcalc][py-ballisticcalc] (Python/Cyt
 `bclibc` has no test suite or coverage tooling of its own. Its C++ engine is exercised and
 correctness-tested through the Cython wrapper in [`py_ballisticcalc.exts`][py_ballisticcalc.exts],
 part of the [py-ballisticcalc][py-ballisticcalc] Python library — its pytest suite
-(`cythonized_euler_engine` / `cythonized_rk4_engine`) drives every `bclibc` code path
+(`euler` / `rk4` / `rk45`) drives every `bclibc` and `tiny_bclibc` code path
 end-to-end via the Cython bindings. The badge above reflects that project's overall
 coverage; line-level coverage of the compiled `.pyx`/C++ layer itself is not tracked separately.
 
@@ -325,6 +325,9 @@ chmod +x pre-commit-check.sh
 │   ├── bclibc.hpp
 │   └── bclibc/
 │       ├── base_types.hpp
+│       ├── cash_karp.hpp
+│       ├── dormand_prince.hpp
+│       ├── embedded_rk45.hpp
 │       ├── engine.hpp
 │       ├── euler.hpp
 │       ├── exceptions.hpp
@@ -341,6 +344,8 @@ chmod +x pre-commit-check.sh
 │
 ├── src/
 │   ├── base_types.cpp
+│   ├── cash_karp.cpp
+│   ├── dormand_prince.cpp
 │   ├── engine.cpp
 │   ├── euler.cpp
 │   ├── interp.cpp
