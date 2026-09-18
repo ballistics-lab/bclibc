@@ -79,6 +79,11 @@ static inline void tiny_bclibc__set_error(const char *msg)
         return weight_grain * weight_grain * velocity_fps * velocity_fps * velocity_fps * REAL_C(1.5e-12);
     }
 
+    static inline real_t tiny_bclibc__fmax(real_t a, real_t b)
+    {
+        return (a > b) ? a : b;
+    }
+
     /* ════════════════════════════════════════════════════════════════════
      *  Internal derivative helpers
      * ════════════════════════════════════════════════════════════════════ */
@@ -1145,14 +1150,14 @@ static inline void tiny_bclibc__set_error(const char *msg)
         real_t tx = distance_ft * ca;
         real_t ty = distance_ft * sa;
         real_t sh = -p.cant_cosine * p.sight_height;
-        const real_t ZERO_ERR_FT = REAL_C(0.5);
+        const real_t ZERO_ERR_FT = REAL_C(0.5); // ← ось це треба на 1e-2
 
         if (TINY_BCLIBC_FABS(distance_ft) < ZERO_ERR_FT)
         {
             *out_angle_rad = la;
             return TINY_BCLIBC_OK;
         }
-        if (TINY_BCLIBC_FABS(distance_ft) < REAL_C(2.0) * TINY_BCLIBC_FABS(sh))
+        if (TINY_BCLIBC_FABS(distance_ft) < REAL_C(2.0) * TINY_BCLIBC_FABS(sh)) // ← тут немає fmax
         {
             *out_angle_rad = TINY_BCLIBC_ATAN2(ty + sh, tx);
             return TINY_BCLIBC_OK;
@@ -1451,14 +1456,14 @@ static inline void tiny_bclibc__set_error(const char *msg)
         real_t tx = distance_ft * ca;
         real_t ty = distance_ft * sa;
         real_t sh = -props->cant_cosine * props->sight_height;
-        const real_t ZERO_ERR_FT = REAL_C(0.5);
+        const real_t ZERO_ERR_FT = REAL_C(1e-2); // ← вже 1e-2, залишити
 
         if (TINY_BCLIBC_FABS(distance_ft) < ZERO_ERR_FT)
         {
             *out_angle_rad = la;
             return TINY_BCLIBC_OK;
         }
-        if (TINY_BCLIBC_FABS(distance_ft) < REAL_C(2.0) * TINY_BCLIBC_FABS(sh))
+        if (TINY_BCLIBC_FABS(distance_ft) < REAL_C(2.0) * tiny_bclibc__fmax(TINY_BCLIBC_FABS(sh), props->cfg.cStepMultiplier)) // ← додано fmax
         {
             *out_angle_rad = TINY_BCLIBC_ATAN2(ty + sh, tx);
             return TINY_BCLIBC_OK;
