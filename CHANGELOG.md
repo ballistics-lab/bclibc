@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-beta.7] - 2026-09-18
+
+### Changed
+- `tiny_bclibc` full migration to Cash-Karp done
+
+### Fix
+- Got `bclibc` and `tiny_bclibc` identity test pass
+
 ## [2.0.0-beta.6] - 2026-09-17
 
 ### Fixed
@@ -475,7 +483,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.5...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.7...HEAD
+[2.0.0-beta.7]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.6...v2.0.0-beta.7
+[2.0.0-beta.6]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.5...v2.0.0-beta.6
 [2.0.0-beta.5]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.4...v2.0.0-beta.5
 [2.0.0-beta.4]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.3...v2.0.0-beta.4
 [2.0.0-beta.3]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.2...v2.0.0-beta.3
