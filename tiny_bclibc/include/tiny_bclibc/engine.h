@@ -1498,14 +1498,14 @@ static inline void tiny_bclibc__set_error(const char *msg)
         real_t tx = distance_ft * ca;
         real_t ty = distance_ft * sa;
         real_t sh = -props->cant_cosine * props->sight_height;
-        const real_t ZERO_ERR_FT = REAL_C(1e-2); // ← вже 1e-2, залишити
+        const real_t ZERO_ERR_FT = REAL_C(1e-2);
 
         if (TINY_BCLIBC_FABS(distance_ft) < ZERO_ERR_FT)
         {
             *out_angle_rad = la;
             return TINY_BCLIBC_OK;
         }
-        if (TINY_BCLIBC_FABS(distance_ft) < REAL_C(2.0) * tiny_bclibc__fmax(TINY_BCLIBC_FABS(sh), props->cfg.cStepMultiplier)) // ← додано fmax
+        if (TINY_BCLIBC_FABS(distance_ft) < REAL_C(2.0) * tiny_bclibc__fmax(TINY_BCLIBC_FABS(sh), props->cfg.cStepMultiplier))
         {
             *out_angle_rad = TINY_BCLIBC_ATAN2(ty + sh, tx);
             return TINY_BCLIBC_OK;
