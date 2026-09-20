@@ -114,6 +114,10 @@ extern "C"
          * step spacing (see project issue tracker). */
         BCLIBCFFI_INTEGRATION_CASH_KARP = 3,
         BCLIBCFFI_INTEGRATION_DORMAND_PRINCE = 4,
+        /** Adaptive Tsitouras 5(4) ("Tsit5") -- same FSAL shape and step-size
+         * controller as BCLIBCFFI_INTEGRATION_DORMAND_PRINCE, see
+         * bclibc/tsitouras.hpp's doc comment. */
+        BCLIBCFFI_INTEGRATION_TSITOURAS = 5,
     } BCLIBCFFI_IntegrationMethod;
 
     // ============================================================================

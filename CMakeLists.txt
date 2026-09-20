@@ -82,6 +82,7 @@ set(BCLIBC_SOURCES
     "${BCLIBC_SRC_DIR}/rk4.cpp"
     "${BCLIBC_SRC_DIR}/traj_data.cpp"
     "${BCLIBC_SRC_DIR}/traj_filter.cpp"
+    "${BCLIBC_SRC_DIR}/tsitouras.cpp"
     "${BCLIBC_SRC_DIR}/velocity_verlet.cpp"
 )
 
@@ -270,6 +271,7 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
       "${BCLIBC_INCLUDE_DIR}/bclibc/scope_guard.hpp"
       "${BCLIBC_INCLUDE_DIR}/bclibc/traj_data.hpp"
       "${BCLIBC_INCLUDE_DIR}/bclibc/traj_filter.hpp"
+      "${BCLIBC_INCLUDE_DIR}/bclibc/tsitouras.hpp"
       "${BCLIBC_INCLUDE_DIR}/bclibc/v3d.hpp"
       DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/bclibc
   )
