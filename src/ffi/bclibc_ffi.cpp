@@ -111,8 +111,12 @@ static double calcStep(BCLIBCFFI_IntegrationMethod m, double multiplier)
     case BCLIBCFFI_INTEGRATION_TSITOURAS:
         return 0.0025 * multiplier;
     case BCLIBCFFI_INTEGRATION_EULER:
-    default:
         return 0.5 * multiplier;
+    default:
+        // Unrecognized/out-of-range method value: fall back to RK4, not
+        // Euler -- RK4 (enum value 0) is the library's documented default
+        // and the one a zero-initialized/default-constructed caller gets.
+        return 0.0025 * multiplier;
     }
 }
 
@@ -131,8 +135,10 @@ static BCLIBC_IntegrateCallable selectIntegrateFunc(BCLIBCFFI_IntegrationMethod 
     case BCLIBCFFI_INTEGRATION_TSITOURAS:
         return BCLIBC_IntegrateCallable(BCLIBC_integrateTsitouras);
     case BCLIBCFFI_INTEGRATION_EULER:
-    default:
         return BCLIBC_IntegrateCallable(BCLIBC_integrateEULER);
+    default:
+        // See calcStep's identical default: RK4, not Euler.
+        return BCLIBC_IntegrateCallable(BCLIBC_integrateRK4);
     }
 }
 
