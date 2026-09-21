@@ -192,7 +192,35 @@ static inline void tiny_bclibc__set_error(const char *msg)
         out->vx = tiny_bclibc_hermite_derivative(t, a->time, b->time, a->px, b->px, a->vx, b->vx);
         out->vy = tiny_bclibc_hermite_derivative(t, a->time, b->time, a->py, b->py, a->vy, b->vy);
         out->vz = tiny_bclibc_hermite_derivative(t, a->time, b->time, a->pz, b->pz, a->vz, b->vz);
-        out->mach = a->mach + u * (b->mach - a->mach);
+        /* `.mach` is a *derived* field (speed / local speed of sound), not part of
+         * the ODE's state -- unlike px/py/pz/vx/vy/vz, which the cubic Hermite
+         * polynomial above reconstructs exactly (using both endpoints' known
+         * derivatives), there's no direct Hermite basis for it. A plain linear
+         * interpolation of the ratio itself (`a->mach + u*(b->mach-a->mach)`, the
+         * previous approach here) ignores that the ratio's *curvature* over the
+         * interval comes almost entirely from velocity's curvature -- and
+         * velocity is exactly reconstructable (out->vx/vy/vz above). So: back out
+         * each endpoint's speed of sound (fps) from its already-known ratio and
+         * speed, linearly interpolate *that* (it varies smoothly and near-linearly
+         * with altitude, unlike the ratio near a drag curve's transonic bump), and
+         * divide the accurately-reconstructed velocity magnitude by it. Matches
+         * bclibc's C++ traj_filter.cpp exactly (interpolates raw speed of sound,
+         * derives velocity from the position Hermite polynomial's derivative).
+         * Previously this repo's linear-ratio-interpolation cost real accuracy at
+         * the MACH crossing specifically (the one place this interval-interior
+         * value matters most, and where the ratio's curvature is largest, right
+         * at the drag curve's transonic bump) -- confirmed empirically against
+         * the C++ engine: up to ~0.6 yd out of ~963 yd on a real shot, not a
+         * rounding-noise level difference. See CHANGELOG. */
+        {
+            real_t speed_a = TINY_BCLIBC_SQRT(a->vx * a->vx + a->vy * a->vy + a->vz * a->vz);
+            real_t speed_b = TINY_BCLIBC_SQRT(b->vx * b->vx + b->vy * b->vy + b->vz * b->vz);
+            real_t sound_a = (a->mach != REAL_C(0.0)) ? speed_a / a->mach : REAL_C(0.0);
+            real_t sound_b = (b->mach != REAL_C(0.0)) ? speed_b / b->mach : REAL_C(0.0);
+            real_t sound_t = sound_a + u * (sound_b - sound_a);
+            real_t speed_t = TINY_BCLIBC_SQRT(out->vx * out->vx + out->vy * out->vy + out->vz * out->vz);
+            out->mach = (sound_t != REAL_C(0.0)) ? speed_t / sound_t : REAL_C(0.0);
+        }
         return 1;
     }
 

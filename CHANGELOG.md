@@ -55,31 +55,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   together first. Rewrote all 6 stage computations (and the final FSAL `vr_next`/`pos_next`) to
   match the C++ core's accumulate-then-scale-then-add order. Confirmed via the identity test:
   per-field diffs on a simple no-wind shot dropped from ~1e-9 to ~1e-16-1e-13 (several fields
-  now bit-identical) -- see "Known issues" below for what this did and did not fix.
+  now bit-identical). This alone didn't close py-ballisticcalc's
+  `tests/test_hitresult.py::test_flags` divergence (see the next entry for why and how that
+  got fixed too).
+
+- `tiny_bclibc__hermite_at_time` reconstructed its interval-interior `.mach` (speed / local
+  speed of sound) by linearly interpolating the *ratio* itself between the two accepted-step
+  endpoints. Unlike position/velocity, `.mach` isn't part of the ODE's state, so there's no
+  Hermite basis for it directly -- but the ratio's curvature over an interval comes almost
+  entirely from velocity's curvature, and velocity *is* exactly reconstructable (it's what the
+  Hermite derivative above already computes). Linearly interpolating the pre-divided ratio
+  threw that away, costing real accuracy specifically at MACH crossings -- and specifically in
+  the transonic region, where the drag curve's "bump" makes velocity's curvature largest.
+  Confirmed via a step-by-step trajectory diff against the C++ engine on
+  py-ballisticcalc's `tests/test_hitresult.py::test_flags` (a shot with wind and calculated
+  powder sensitivity): every regularly-sampled point on both sides of the MACH crossing agreed
+  to ~1e-14 (the accumulation-order fix above worked), but the crossing itself landed 0.67 yd
+  off out of 963 yd (0.07%) -- isolated entirely to that one interpolated point, not a
+  drifting/diverging step sequence as this entry previously (incorrectly) surmised. Fixed by
+  matching bclibc's own C++ `traj_filter.cpp`: back out each endpoint's speed of sound (fps)
+  from its already-known ratio and speed, linearly interpolate *that* (it varies smoothly with
+  altitude, unlike the ratio near the transonic bump), and divide the accurately-reconstructed
+  velocity magnitude by it. `test_flags` now passes bit-for-bit-adjacent under
+  `TinyBclibcDoubleIntegrationEngine` (previously the suite's one known tiny_bclibc-only
+  failure); no regressions across either precision's full suite.
 
 ### Known issues
-- `tiny_bclibc`'s Tsitouras port and bclibc's own C++ `BCLIBC_integrateTsitouras` are still not
-  fully bit-identical for every shot, even after the accumulation-order fix above. That fix
-  closes the gap for a simple, well-conditioned shot (identity test diffs now at the
-  double-precision noise floor), but py-ballisticcalc's `tests/test_hitresult.py::test_flags`
-  (a shot with wind and calculated powder sensitivity, ~100 adaptive steps) barely moved:
-  963.6681688419956 yd before the fix, 963.668168842302 yd after -- a ~1e-9 yd shift, still
-  ~0.67 yd off out of 963 yd (0.07%, outside that test's ±0.5 yd tolerance). The root cause
-  here isn't accumulated rounding at all: somewhere across the shot's step sequence, one step's
-  accept/reject decision (`error_norm <= 1.0`) lands on opposite sides of that threshold
-  between the two engines, and once a single step's outcome diverges, every subsequent step
-  size and position follows a different (still individually correct) path -- discrete
-  branching sensitivity that no amount of matching the *continuous* arithmetic order can close,
-  short of making every intermediate operation (drag/atmosphere/PCHIP curve evaluation, libm
-  transcendental calls, ...) bit-identical between the hand-written C port and the generic C++
-  template core. Not a missed event, not a coefficient error (verified byte-identical against
-  `tsitouras.cpp`) -- just two valid numerical paths through the same adaptive method,
-  occasionally landing on opposite sides of a discrete decision. Single precision shows a few
-  additional tolerance misses of the same kind (now including `test_wind_lag_rule` and
-  `test_multiple_wind`, newly crossing their tight default `pytest.approx` self-consistency
-  tolerance as a side effect of the accumulation-order fix above), on top of its own
-  pre-existing documented precision-floor failures (see `TinyBclibcSingleIntegrationEngine`'s
-  docstring in py-ballisticcalc's `examples/tiny_bclibc/__init__.py`).
+- Single precision still shows two additional tolerance misses since the Tsitouras switch
+  (`test_computer.py::test_wind_lag_rule`/`test_multiple_wind`), a side effect of the
+  accumulation-order fix above shifting float32 rounding at already-marginal self-consistency
+  tolerances -- same class as the rest of `TinyBclibcSingleIntegrationEngine`'s pre-existing
+  documented precision-floor failures (see its docstring in py-ballisticcalc's
+  `examples/tiny_bclibc/__init__.py`), not a logic bug.
 
 ## [2.0.0-beta.7] - 2026-09-18
 
