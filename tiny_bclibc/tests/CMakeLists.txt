@@ -14,6 +14,7 @@ add_library(bclibc_identity_lib STATIC
     "${BCLIBC_ROOT}/src/interp.cpp"
     "${BCLIBC_ROOT}/src/rk4.cpp"
     "${BCLIBC_ROOT}/src/cash_karp.cpp"
+    "${BCLIBC_ROOT}/src/tsitouras.cpp"
     "${BCLIBC_ROOT}/src/engine.cpp"
     "${BCLIBC_ROOT}/src/traj_filter.cpp"
 )

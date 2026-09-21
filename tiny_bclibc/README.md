@@ -6,12 +6,13 @@
 
 Pure C99 ballistics engine — header-only by default, or compiled as a shared/static library.
 
-Implements Cash-Karp adaptive RK45 integration (`tiny_bclibc_integrate`/`_stream`/`_raw`), fixed-step
+Implements Tsitouras 5(4) adaptive RK45 integration (`tiny_bclibc_integrate`/`_stream`/`_raw`;
+formerly Cash-Karp, see [Adaptive integration](#adaptive-integration-tsitouras) below), fixed-step
 RK4 (used internally for zero-angle and apex finding), PCHIP drag curves, Coriolis, spin drift,
 CIPM-2007 atmosphere, and Ridder's method for zero-finding. Designed for embedded targets
 (MicroPython natmod, bare-metal MCUs) as well as desktop use.
 
-Cash-Karp uses the same default local-error policy as the C++ engine: `atol = rtol = 1e-6`,
+Tsitouras uses the same default local-error policy as the C++ engine: `atol = rtol = 1e-6`,
 each position and relative-velocity component is scaled by
 `atol + rtol * max(abs(y), abs(y_new))`, and the six scaled errors are combined with an RMS norm.
 
@@ -118,39 +119,56 @@ spread) and float32 is sufficient for all supported embedded targets.
 
 Measured via
 [py-ballisticcalc's `examples/tiny_bclibc`](https://github.com/o-murphy/py-ballisticcalc/tree/master/examples/tiny_bclibc)
-(`scripts/benchmark.py`, `Trajectory`/`Zero` cases, 500 repeats + 50 warmup), driving
-`tiny_bclibc_integrate_stream` — now backed by the Cash-Karp adaptive core, not fixed-step RK4
-(see [Adaptive integration](#adaptive-integration-cash-karp) below) — from Python via `ctypes`
-and comparing against `py_ballisticcalc.exts`' `cythonized_rk4_engine` (a genuine C-extension
-binding to bclibc's C++ engine, still fixed-step RK4 — no FFI marshalling per call).
+(`scripts/benchmark.py`, `Trajectory`/`Zero` cases, 2000 repeats + 100 warmup), driving
+`tiny_bclibc_integrate_stream` — now backed by the Tsitouras 5(4) adaptive core, not fixed-step
+RK4 (see [Adaptive integration](#adaptive-integration-tsitouras) below) — from Python via
+`ctypes` and comparing against `py_ballisticcalc.exts`' `cythonized_rk4_engine` (a genuine
+C-extension binding to bclibc's C++ engine, still fixed-step RK4 — no FFI marshalling per call).
 
 | Case | Engine | Mean | Min | Max |
 |---|---|---|---|---|
-| Trajectory | `cythonized_rk4_engine` | 0.59 ms | 0.58 ms | 0.65 ms |
-| Trajectory | `tiny_bclibc` (single precision, ctypes) | 0.34 ms | 0.33 ms | 0.44 ms |
-| Trajectory | `tiny_bclibc` (double precision, ctypes) | 0.35 ms | 0.34 ms | 0.47 ms |
-| Zero | `cythonized_rk4_engine` | 1.71 ms | 1.70 ms | 1.91 ms |
-| Zero | `tiny_bclibc` (single precision, ctypes) | 0.96 ms | 0.94 ms | 1.10 ms |
-| Zero | `tiny_bclibc` (double precision, ctypes) | 0.60 ms | 0.59 ms | 0.75 ms |
+| Trajectory | `cythonized_rk4_engine` | 0.88 ms | 0.82 ms | 1.46 ms |
+| Trajectory | `tiny_bclibc` (single precision, ctypes) | 0.45 ms | 0.41 ms | 0.72 ms |
+| Trajectory | `tiny_bclibc` (double precision, ctypes) | 0.46 ms | 0.41 ms | 0.73 ms |
+| Zero | `cythonized_rk4_engine` | 2.15 ms | 2.05 ms | 4.17 ms |
+| Zero | `tiny_bclibc` (single precision, ctypes) | 0.34 ms | 0.31 ms | 0.57 ms |
+| Zero | `tiny_bclibc` (double precision, ctypes) | 0.45 ms | 0.37 ms | 0.68 ms |
 
 **Conclusion:** streaming filtered output rows (one Python callback per emitted row, not per
 accepted step) puts a `ctypes` driver within noise of a real C-extension binding, or faster —
 the earlier, since-abandoned approach of streaming every *raw* step to Python
 (`tiny_bclibc_integrate_raw`, still available as a small primitive for other uses) was
 ~20–34x slower on the same benchmark, confirming the per-step Python↔C transition — not the
-physics itself — was the actual bottleneck. Switching `tiny_bclibc_integrate_stream` from
-fixed-step RK4 to adaptive Cash-Karp (needing far fewer accepted steps for comparable accuracy)
-made both precisions faster than the fixed-step Cython RK4 reference on this benchmark shot.
+physics itself — was the actual bottleneck; this holds regardless of which adaptive core drives
+the streaming. Measured directly against the *previous* Cash-Karp-backed build on this same
+host (same shot, same repeat/warmup counts, both processes launched independently to rule out
+cross-run interference): Tsitouras came out within ±2% of Cash-Karp on every case above — a wash,
+not a regression or a win. Accepted+rejected step counts across a small sweep of shot profiles
+(the C++ engines' `get_step_stats()`, `rtol=atol=1e-6`) confirm why: for smooth, well-conditioned
+ballistic trajectories at this tolerance, Cash-Karp, Dormand-Prince, and Tsitouras all converge to
+essentially the same number of accepted steps (typically within 1-2 of each other) despite
+Tsitouras's smaller leading truncation-error coefficient — that theoretical edge doesn't
+translate into fewer steps for *this* class of problem. Tsitouras was still switched in per the
+FSAL/step-controller structural fit with Dormand-Prince (see below) and because it is a
+well-regarded, actively-used modern default elsewhere (e.g. `Tsit5` in Julia's
+OrdinaryDiffEq.jl/SciML) — not because it measurably speeds up this library's benchmark shot.
 
-## Adaptive integration (Cash-Karp)
+## Adaptive integration (Tsitouras)
 
-See the [top-level README](../README.md#adaptive-integration-cash-karp) for the Cash-Karp
-integrator itself (per-stage drag/atmosphere recompute, step accept/reject control) and the
-event/row interpolation fix it required. `tiny_bclibc_integrate()`/`tiny_bclibc_integrate_stream()`
-run `tiny_bclibc__run_cashkarp` (`engine.h`); `tiny_bclibc_integrate_raw()`, `integrate_at()`,
-`find_apex()`, and `find_zero_angle()` are unchanged (still `tiny_bclibc__run_rk4` internally —
-zero-angle/apex finding does many short, cheap integrations per Newton iteration and wasn't the
-target of this change).
+`tiny_bclibc_integrate()`/`tiny_bclibc_integrate_stream()`/`tiny_bclibc_integrate_raw()`/
+`integrate_at()` run `tiny_bclibc__run_tsitouras` (`engine.h`) — a hand-unrolled, FSAL
+(First-Same-As-Last) 7-stage port of the same Tsitouras 5(4) pair as the C++ engine's
+`BCLIBC_integrateTsitouras` (see [the top-level README](../README.md#adaptive-integration) for
+the tableau itself, per-stage drag/atmosphere recompute, and the event/row interpolation fix
+this class of integrator required). Being FSAL, it caches the first stage's derivative across
+accepted steps (invalidated on a wind-zone change or whenever Coriolis is active) and limits
+`dt` so a step never overshoots the next wind-zone boundary — both needed for the same reason
+they're needed in the C++ core's `ScipyRKController`: a stale cached derivative or a step that
+silently crosses into the wrong wind zone. `find_apex()` and `find_zero_angle()` are unchanged
+(still `tiny_bclibc__run_rk4` internally — zero-angle/apex finding does many short, cheap
+integrations per Newton iteration and wasn't the target of this change). Cash-Karp itself is
+still available in the full C++ engine (`BCLIBC_integrateCashKarp`) for callers who want it;
+`tiny_bclibc`'s lean C API only ever bakes in one adaptive method at a time.
 
 ## Usage
 

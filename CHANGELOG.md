@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- New `BCLIBC_integrateTsitouras` (`bclibc/tsitouras.hpp`): Tsitouras 5(4) ("Tsit5"), a 7-stage
+  FSAL RK45 pair structurally identical to `BCLIBC_integrateDormandPrince` (same
+  `ScipyRKController`, same tolerance API shape), with coefficients verified against
+  `ARKODE_TSITOURAS_7_4_5` in SUNDIALS/ARKODE. Adds `BCLIBCFFI_INTEGRATION_TSITOURAS` to the FFI
+  enum and `build_wasm.sh`'s source list.
+- `tiny_bclibc` migrated from Cash-Karp to Tsitouras as its baked-in adaptive core
+  (`tiny_bclibc__run_tsitouras` in `engine.h`), including the FSAL derivative cache and
+  wind-boundary step limiting the C++ `ScipyRKController` also does. Measured against the
+  previous Cash-Karp build: within noise on wall-clock and accepted-step-count benchmarks for
+  smooth ballistic trajectories — see [tiny_bclibc's README](tiny_bclibc/README.md#adaptive-integration-tsitouras)
+  and the top-level [Adaptive integration](README.md#adaptive-integration) section for the
+  measured numbers and why it was switched anyway.
+
+### Fixed
+- `bclibc_ffi.cpp`'s `calcStep()`/`selectIntegrateFunc()` grouped `BCLIBCFFI_INTEGRATION_EULER`
+  with the switch's `default:` label, so any unrecognized/out-of-range method value silently ran
+  (and step-sized for) Euler instead of RK4, the library's documented default. `default:` now
+  falls back to RK4.
+
 ## [2.0.0-beta.7] - 2026-09-18
 
 ### Changed

@@ -1,10 +1,11 @@
 # bclibc — Ballistic Solver Engine
 
-High-performance ballistic trajectory solver with RK4, Euler, Velocity Verlet, and adaptive Cash-Karp / Dormand-Prince RK45 integration, Ridder's method for zero-finding, PCHIP drag curves, Coriolis, and spin drift.
+High-performance ballistic trajectory solver with RK4, Euler, Velocity Verlet, and adaptive Cash-Karp / Dormand-Prince / Tsitouras RK45 integration, Ridder's method for zero-finding, PCHIP drag curves, Coriolis, and spin drift.
 
-`BCLIBC_integrateDormandPrince` provides Dormand--Prince 5(4) with SciPy
-RK45-style component scaling and adaptive controller behavior. Cash--Karp
-keeps its compatibility controller; both use the compile-time embedded-RK core.
+`BCLIBC_integrateDormandPrince` and `BCLIBC_integrateTsitouras` provide two
+structurally-identical 7-stage FSAL 5(4) pairs with SciPy RK45-style component
+scaling and adaptive controller behavior. Cash--Karp keeps its own
+compatibility controller. All three use the compile-time embedded-RK core.
 
 [![Release][release badge]][release]
 [![Codecov][codecov badge]][codecov]
@@ -54,7 +55,7 @@ coverage; line-level coverage of the compiled `.pyx`/C++ layer itself is not tra
 Header-only by default (`static inline`); can also be compiled as a shared or static library
 from a single TU (`src/tiny_bclibc_impl.c`).
 
-**Features:** Cash-Karp adaptive RK45 (`tiny_bclibc_integrate`/`_stream`/`_raw`), fixed-step RK4
+**Features:** Tsitouras 5(4) adaptive RK45 (`tiny_bclibc_integrate`/`_stream`/`_raw`), fixed-step RK4
 (used internally for zero-angle/apex finding), PCHIP drag, CIPM-2007 atmosphere, Coriolis, spin
 drift, Ridder zero-finding, `float` or `double` precision, bare-metal / RTOS compatible (no TLS,
 no heap required).
@@ -97,22 +98,17 @@ with C bindings.
 
 ---
 
-## Adaptive integration (Cash-Karp)
+## Adaptive integration
 
-`BCLIBC_integrateCashKarp` (`bclibc/cash_karp.hpp`) is an embedded adaptive RK45 integrator
-(Numerical Recipes `rkck`), selectable via `BCLIBC_BaseEngine::integrate_func` like any other
-integrator. It grows its step up to 64x the configured base step during smooth flight and
-shrinks it down to base/64 whenever its embedded 4th/5th-order error estimate exceeds its
-SciPy-compatible tolerances. `BCLIBC_cashKarpSetRelativeTolerance()` and
-`BCLIBC_cashKarpSetAbsoluteTolerance()` each default to `1e-6`; the scalar `atol` and `rtol`
-scale every one of the three position and three velocity components as
-`atol + rtol * max(abs(y), abs(y_new))`, and their errors use an RMS norm. It retries a rejected
-attempt rather than accepting it — typically 2-6x fewer total steps than fixed-step RK4 for the
-same accuracy.
+Three embedded RK45 methods share one compile-time core (`bclibc/embedded_rk45.hpp`,
+`integrate_embedded_rk45<Tableau, Controller>`), each selectable via
+`BCLIBC_BaseEngine::integrate_func` like any other integrator: **Cash-Karp**, **Dormand-Prince**,
+and **Tsitouras**. All three retry a rejected attempt rather than accepting it, and grow/shrink
+`dt` between `base_step/64` and `base_step*64`.
 
-Unlike `BCLIBC_integrateRK4`, which freezes the drag coefficient once per step, Cash-Karp
-recomputes both the drag coefficient *and* the atmosphere sample fresh at each of its 6 stages:
-an earlier variant that reused RK4's once-per-step freeze produced real, tolerance-independent
+Unlike `BCLIBC_integrateRK4`, which freezes the drag coefficient once per step, every adaptive
+method recomputes both the drag coefficient *and* the atmosphere sample fresh at each stage: an
+earlier variant that reused RK4's once-per-step freeze produced real, tolerance-independent
 accuracy failures, because the embedded error estimator is blind to model error from a stale
 drag/atmosphere sample once the step grows tens of times past the fixed-step size.
 
@@ -127,6 +123,53 @@ each interval's *exact* endpoint positions and velocities (not a finite-differen
 solved by bisection where needed. Scheduled samples and physical events are kept as independent
 records rather than merged when their timestamps happen to land close together — merging them
 depended on raw-sample spacing that adaptive stepping no longer guarantees.
+
+### Cash-Karp
+
+`BCLIBC_integrateCashKarp` (`bclibc/cash_karp.hpp`) is Numerical Recipes' `rkck`, a 6-stage,
+non-FSAL pair with its own asymmetric grow/shrink controller (safety `0.9`, growth capped at
+`5x`, shrink exponent `-0.25` vs growth exponent `-0.20`) rather than the SciPy-style one below —
+preserved exactly from the pre-refactor standalone implementation. It never limits its step at a
+wind-zone boundary (historical behavior, kept for output-compatibility).
+`BCLIBC_cashKarpSetRelativeTolerance()` / `BCLIBC_cashKarpSetAbsoluteTolerance()` each default to
+`1e-6`; the scalar `atol` and `rtol` scale every one of the three position and three velocity
+components as `atol + rtol * max(abs(y), abs(y_new))`, and their errors use an RMS norm —
+typically 2-6x fewer total steps than fixed-step RK4 for the same accuracy.
+
+### Dormand-Prince
+
+`BCLIBC_integrateDormandPrince` (`bclibc/dormand_prince.hpp`) is DOPRI5 — the same tableau
+`scipy.integrate`'s `RK45` uses — a 7-stage FSAL (First-Same-As-Last) pair: its 7th stage's A-row
+equals the 5th-order solution weights, so it doubles as the accepted state *and* seeds the next
+step's first stage, both saving a derivative evaluation and improving accuracy at wind-zone
+transitions over a non-FSAL method. Its `ScipyRKController` matches
+`scipy.integrate._ivp.rk.RungeKutta`'s own controller exactly: exponent `-1/5`, safety `0.9`,
+factor clamped to `[0.2, 10]`, growth capped at `1x` for one step immediately following a
+rejection — and it limits `dt` so a step never overshoots the next wind-zone boundary (needed so
+every stage's wind sample stays valid for a step that starts before and would otherwise end past
+a wind-zone change). Same tolerance API shape as Cash-Karp:
+`BCLIBC_dormandPrinceSetRelativeTolerance()` / `BCLIBC_dormandPrinceSetAbsoluteTolerance()`,
+default `1e-6` each.
+
+### Tsitouras
+
+`BCLIBC_integrateTsitouras` (`bclibc/tsitouras.hpp`) is Tsit5 (Tsitouras, 2011 — "Runge-Kutta
+pairs of order 5(4) satisfying only the first column simplifying assumption", *Computers &
+Mathematics with Applications* 62(2), 770-775; coefficients verified against
+`ARKODE_TSITOURAS_7_4_5` in SUNDIALS/ARKODE). It is Dormand-Prince's structural twin — same
+7-stage FSAL shape, same `ScipyRKController` (see above), same `1e-6` default tolerances via
+`BCLIBC_tsitourasSetRelativeTolerance()` / `BCLIBC_tsitourasSetAbsoluteTolerance()` — but with
+smaller leading error-term coefficients at each order, and is `tiny_bclibc`'s current default
+adaptive core (see [tiny_bclibc's README](tiny_bclibc/README.md#adaptive-integration-tsitouras)).
+
+**Measured, not assumed:** across a small sweep of shot profiles at `rtol=atol=1e-6`, Tsitouras'
+accepted+rejected step count comes out within 1-2 steps of Cash-Karp's and Dormand-Prince's on
+smooth, well-conditioned ballistic trajectories — i.e. no consistent step-count or wall-clock win
+over the other two for *this* problem class, despite the smaller leading error term. It was added
+as a well-regarded, actively-used modern default elsewhere (e.g. `Tsit5` in Julia's
+OrdinaryDiffEq.jl/SciML) and a structurally-compatible Dormand-Prince alternative, not because it
+measurably outperforms the existing methods here — don't assume it will win on your own workload
+either without measuring `get_step_stats()` (or your language binding's equivalent) yourself.
 
 See `CHANGELOG.md` for the specific fixes (per-stage recompute, streaming handler contract,
 exact-derivative Hermite reconstruction).

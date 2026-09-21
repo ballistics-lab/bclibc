@@ -564,6 +564,324 @@ static inline void tiny_bclibc__set_error(const char *msg)
     }
 
     /* ════════════════════════════════════════════════════════════════════
+     *  Tsitouras 5(4) ("Tsit5") adaptive RK -- Ch. Tsitouras, "Runge-Kutta
+     *  pairs of order 5(4) satisfying only the first column simplifying
+     *  assumption", Computers & Mathematics with Applications 62(2), 2011.
+     *  Same coefficients as bclibc's BCLIBC_integrateTsitouras (verified
+     *  against ARKODE_TSITOURAS_7_4_5 in SUNDIALS/ARKODE). Reuses Cash-Karp's
+     *  derivative evaluator (tiny_bclibc__ck_deriv) unchanged -- it computes
+     *  the shared physics RHS, nothing Cash-Karp-specific.
+     *
+     *  Unlike tiny_bclibc__run_cashkarp above, this:
+     *   - is FSAL (First Same As Last): stage 7's derivative is evaluated at
+     *     the accepted next state, so it doubles as stage 1 of the *next*
+     *     step -- skipping a derivative evaluation entirely, once per step,
+     *     whenever nothing invalidates the cache (see below). Stage 1 is
+     *     also reused, uncached, across *retried* attempts of the same step
+     *     (it depends only on the step's fixed start state, not on dt).
+     *   - recomputes vr from the persisted ground-frame velocity on every
+     *     wind-zone change (vr = vel - wind), and limits dt so a step never
+     *     overshoots the next wind-zone boundary -- both needed because this
+     *     method's cached first-stage derivative would otherwise go stale
+     *     mid-step; matching bclibc's ScipyRKController exactly (see
+     *     bclibc/tsitouras.hpp and dormand_prince.hpp's doc comments).
+     *   - uses the same SciPy RK45-style step controller as bclibc's
+     *     Tsitouras/Dormand-Prince (safety 0.9, factor clamped to [0.2, 10],
+     *     growth capped at 1x for one step right after a rejection),
+     *     instead of Cash-Karp's own asymmetric grow/shrink exponents.
+     */
+    TINY_BCLIBC_INTERNAL int32_t tiny_bclibc__run_tsitouras(
+        const TINY_BCLIBC_ShotProps *props,
+        const TINY_BCLIBC_TrajectoryRequest *req,
+        tiny_bclibc__OnStep on_first,
+        tiny_bclibc__OnInterval on_interval,
+        void *ctx,
+        int32_t *out_reason)
+    {
+        const real_t base_dt = props->calc_step;
+        if (base_dt <= REAL_C(0.0))
+        {
+            tiny_bclibc__set_error("calc_step must be > 0");
+            *out_reason = TINY_BCLIBC_TERM_NO_TERMINATE;
+            return TINY_BCLIBC_ERR_INVALID_ARG;
+        }
+        const real_t min_dt = base_dt / REAL_C(64.0);
+        const real_t max_dt = base_dt * REAL_C(64.0);
+        real_t dt = base_dt;
+
+        real_t range_limit = req ? req->range_limit_ft : TINY_BCLIBC_MAX_INTEGRATION_RANGE;
+
+        tiny_bclibc__StopCtrl sc;
+        tiny_bclibc__stop_ctrl_init(&sc, props, range_limit,
+                                    props->cfg.cMinimumVelocity,
+                                    props->cfg.cMaximumDrop, props->cfg.cMinimumAltitude, out_reason);
+
+        TINY_BCLIBC_WindSock ws = props->wind_sock;
+        TINY_BCLIBC_V3dT gravity = TINY_BCLIBC_V3dT_make(REAL_C(0.0), props->cfg.cGravityConstant, REAL_C(0.0));
+        TINY_BCLIBC_V3dT wind = ws.last_vector;
+
+        real_t muzzle = props->muzzle_velocity;
+        real_t cos_el = TINY_BCLIBC_COS(props->barrel_elevation);
+        TINY_BCLIBC_V3dT dir = TINY_BCLIBC_V3dT_make(
+            cos_el * TINY_BCLIBC_COS(props->barrel_azimuth),
+            TINY_BCLIBC_SIN(props->barrel_elevation),
+            cos_el * TINY_BCLIBC_SIN(props->barrel_azimuth));
+
+        TINY_BCLIBC_V3dT pos = TINY_BCLIBC_V3dT_make(
+            REAL_C(0.0),
+            -props->cant_cosine * props->sight_height,
+            -props->cant_sine * props->sight_height);
+        TINY_BCLIBC_V3dT vel = TINY_BCLIBC_V3dT_scale(dir, muzzle);
+        TINY_BCLIBC_V3dT vr = TINY_BCLIBC_V3dT_sub(vel, wind);
+
+        real_t time = REAL_C(0.0);
+        *out_reason = TINY_BCLIBC_TERM_NO_TERMINATE;
+
+        tiny_bclibc__CkDeriv cached_first;
+        memset(&cached_first, 0, sizeof(cached_first));
+        int32_t have_first = 0;
+
+        TINY_BCLIBC_BaseTrajData step_start;
+        {
+            real_t density_ratio, mach_fps;
+            TINY_BCLIBC_Atmosphere_update_density_mach(&props->atmo,
+                                                       props->alt0 + pos.y, &density_ratio, &mach_fps);
+            real_t inv_mach = (mach_fps != REAL_C(0.0)) ? (REAL_C(1.0) / mach_fps) : REAL_C(1.0);
+            step_start.time = time;
+            step_start.px = pos.x;
+            step_start.py = pos.y;
+            step_start.pz = pos.z;
+            step_start.vx = vel.x;
+            step_start.vy = vel.y;
+            step_start.vz = vel.z;
+            step_start.mach = TINY_BCLIBC_V3dT_mag(vr) * inv_mach;
+            if (on_first && on_first(&step_start, ctx) != 0)
+            {
+                *out_reason = TINY_BCLIBC_TERM_HANDLER_STOP;
+                return TINY_BCLIBC_OK;
+            }
+        }
+
+        while (*out_reason == TINY_BCLIBC_TERM_NO_TERMINATE)
+        {
+            int32_t wind_changed = 0;
+            if (pos.x >= ws.next_range)
+            {
+                wind = TINY_BCLIBC_WindSock_vector_for_range(&ws, pos.x);
+                vr = TINY_BCLIBC_V3dT_sub(vel, wind);
+                wind_changed = 1;
+            }
+
+            TINY_BCLIBC_V3dT gpc = gravity;
+            if (!props->coriolis.flat_fire_only)
+            {
+                TINY_BCLIBC_V3dT ca;
+                TINY_BCLIBC_Coriolis_acceleration_local(&props->coriolis, vel, &ca);
+                gpc.x += ca.x;
+                gpc.y += ca.y;
+                gpc.z += ca.z;
+            }
+            if (wind_changed || !props->coriolis.flat_fire_only)
+                have_first = 0;
+
+            /* Wind is only re-sampled once, at the *start* of a step, and
+             * held constant across every stage evaluation within it -- shrink
+             * dt so the step lands at (never past) the next wind-zone
+             * boundary, mirroring bclibc's ScipyRKController exactly. */
+            {
+                real_t ground_vx = vr.x + wind.x;
+                if (ground_vx > REAL_C(0.0))
+                {
+                    real_t remaining = ws.next_range - pos.x;
+                    if (remaining > REAL_C(0.0))
+                    {
+                        real_t time_to_boundary = remaining / ground_vx;
+                        if (time_to_boundary < dt)
+                            dt = time_to_boundary;
+                    }
+                }
+            }
+
+            TINY_BCLIBC_V3dT vr_next = vr, pos_next = pos;
+            real_t dt_used = dt;
+            int32_t rejected_attempt = 0;
+            int32_t attempt;
+            for (attempt = 0; attempt < 24; attempt++)
+            {
+                tiny_bclibc__CkDeriv k1 = have_first ? cached_first : tiny_bclibc__ck_deriv(props, wind, gpc, vr, pos);
+                cached_first = k1;
+                have_first = 1;
+
+                TINY_BCLIBC_V3dT vr2 = vr, p2 = pos;
+                TINY_BCLIBC_V3dT_fma(&vr2, k1.dvr, dt * REAL_C(0.161));
+                TINY_BCLIBC_V3dT_fma(&p2, k1.dp, dt * REAL_C(0.161));
+                tiny_bclibc__CkDeriv k2 = tiny_bclibc__ck_deriv(props, wind, gpc, vr2, p2);
+
+                TINY_BCLIBC_V3dT vr3 = vr, p3 = pos;
+                TINY_BCLIBC_V3dT_fma(&vr3, k1.dvr, dt * REAL_C(-0.008480655492356988544426874250230774675121));
+                TINY_BCLIBC_V3dT_fma(&vr3, k2.dvr, dt * REAL_C(0.3354806554923569885444268742502307746751));
+                TINY_BCLIBC_V3dT_fma(&p3, k1.dp, dt * REAL_C(-0.008480655492356988544426874250230774675121));
+                TINY_BCLIBC_V3dT_fma(&p3, k2.dp, dt * REAL_C(0.3354806554923569885444268742502307746751));
+                tiny_bclibc__CkDeriv k3 = tiny_bclibc__ck_deriv(props, wind, gpc, vr3, p3);
+
+                TINY_BCLIBC_V3dT vr4 = vr, p4 = pos;
+                TINY_BCLIBC_V3dT_fma(&vr4, k1.dvr, dt * REAL_C(2.897153057105493432130432594192938764925));
+                TINY_BCLIBC_V3dT_fma(&vr4, k2.dvr, dt * REAL_C(-6.359448489975074843148159912383825625953));
+                TINY_BCLIBC_V3dT_fma(&vr4, k3.dvr, dt * REAL_C(4.362295432869581411017727318190886861028));
+                TINY_BCLIBC_V3dT_fma(&p4, k1.dp, dt * REAL_C(2.897153057105493432130432594192938764925));
+                TINY_BCLIBC_V3dT_fma(&p4, k2.dp, dt * REAL_C(-6.359448489975074843148159912383825625953));
+                TINY_BCLIBC_V3dT_fma(&p4, k3.dp, dt * REAL_C(4.362295432869581411017727318190886861028));
+                tiny_bclibc__CkDeriv k4 = tiny_bclibc__ck_deriv(props, wind, gpc, vr4, p4);
+
+                TINY_BCLIBC_V3dT vr5 = vr, p5 = pos;
+                TINY_BCLIBC_V3dT_fma(&vr5, k1.dvr, dt * REAL_C(5.325864828439256604428877920840511317836));
+                TINY_BCLIBC_V3dT_fma(&vr5, k2.dvr, dt * REAL_C(-11.74888356406282787774717033978577296189));
+                TINY_BCLIBC_V3dT_fma(&vr5, k3.dvr, dt * REAL_C(7.495539342889836208304604784564358155659));
+                TINY_BCLIBC_V3dT_fma(&vr5, k4.dvr, dt * REAL_C(-0.0924950663617552492565020793320719161135));
+                TINY_BCLIBC_V3dT_fma(&p5, k1.dp, dt * REAL_C(5.325864828439256604428877920840511317836));
+                TINY_BCLIBC_V3dT_fma(&p5, k2.dp, dt * REAL_C(-11.74888356406282787774717033978577296189));
+                TINY_BCLIBC_V3dT_fma(&p5, k3.dp, dt * REAL_C(7.495539342889836208304604784564358155659));
+                TINY_BCLIBC_V3dT_fma(&p5, k4.dp, dt * REAL_C(-0.0924950663617552492565020793320719161135));
+                tiny_bclibc__CkDeriv k5 = tiny_bclibc__ck_deriv(props, wind, gpc, vr5, p5);
+
+                TINY_BCLIBC_V3dT vr6 = vr, p6 = pos;
+                TINY_BCLIBC_V3dT_fma(&vr6, k1.dvr, dt * REAL_C(5.861455442946420028659251486982647890394));
+                TINY_BCLIBC_V3dT_fma(&vr6, k2.dvr, dt * REAL_C(-12.92096931784710929170611868178335939542));
+                TINY_BCLIBC_V3dT_fma(&vr6, k3.dvr, dt * REAL_C(8.159367898576158643180400794539253485182));
+                TINY_BCLIBC_V3dT_fma(&vr6, k4.dvr, dt * REAL_C(-0.07158497328140099722453054252582973869127));
+                TINY_BCLIBC_V3dT_fma(&vr6, k5.dvr, dt * REAL_C(-0.02826905039406838290900305721271224146718));
+                TINY_BCLIBC_V3dT_fma(&p6, k1.dp, dt * REAL_C(5.861455442946420028659251486982647890394));
+                TINY_BCLIBC_V3dT_fma(&p6, k2.dp, dt * REAL_C(-12.92096931784710929170611868178335939542));
+                TINY_BCLIBC_V3dT_fma(&p6, k3.dp, dt * REAL_C(8.159367898576158643180400794539253485182));
+                TINY_BCLIBC_V3dT_fma(&p6, k4.dp, dt * REAL_C(-0.07158497328140099722453054252582973869127));
+                TINY_BCLIBC_V3dT_fma(&p6, k5.dp, dt * REAL_C(-0.02826905039406838290900305721271224146718));
+                tiny_bclibc__CkDeriv k6 = tiny_bclibc__ck_deriv(props, wind, gpc, vr6, p6);
+
+                /* Stage 7 -- its A-row equals the 5th-order B weights (the
+                 * FSAL point), so vr7/p7 below ARE vr_next/pos_next: no
+                 * separate weighted-sum pass needed. */
+                TINY_BCLIBC_V3dT vr7 = vr, p7 = pos;
+                TINY_BCLIBC_V3dT_fma(&vr7, k1.dvr, dt * REAL_C(0.09646076681806522951816731316512876333712));
+                TINY_BCLIBC_V3dT_fma(&vr7, k2.dvr, dt * REAL_C(0.01));
+                TINY_BCLIBC_V3dT_fma(&vr7, k3.dvr, dt * REAL_C(0.479889650414499574775249532290596519913));
+                TINY_BCLIBC_V3dT_fma(&vr7, k4.dvr, dt * REAL_C(1.379008574103741893192274821856872770756));
+                TINY_BCLIBC_V3dT_fma(&vr7, k5.dvr, dt * REAL_C(-3.290069515436080679901047585711363850116));
+                TINY_BCLIBC_V3dT_fma(&vr7, k6.dvr, dt * REAL_C(2.324710524099773982415355918398765796109));
+                TINY_BCLIBC_V3dT_fma(&p7, k1.dp, dt * REAL_C(0.09646076681806522951816731316512876333712));
+                TINY_BCLIBC_V3dT_fma(&p7, k2.dp, dt * REAL_C(0.01));
+                TINY_BCLIBC_V3dT_fma(&p7, k3.dp, dt * REAL_C(0.479889650414499574775249532290596519913));
+                TINY_BCLIBC_V3dT_fma(&p7, k4.dp, dt * REAL_C(1.379008574103741893192274821856872770756));
+                TINY_BCLIBC_V3dT_fma(&p7, k5.dp, dt * REAL_C(-3.290069515436080679901047585711363850116));
+                TINY_BCLIBC_V3dT_fma(&p7, k6.dp, dt * REAL_C(2.324710524099773982415355918398765796109));
+                tiny_bclibc__CkDeriv k7 = tiny_bclibc__ck_deriv(props, wind, gpc, vr7, p7);
+
+                vr_next = vr7;
+                pos_next = p7;
+
+                /* Error weights: 5th-order minus embedded 4th-order. */
+                TINY_BCLIBC_V3dT err_v = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT err_p = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                const real_t D1 = REAL_C(0.09646076681806522951816731316512876333712) - REAL_C(0.09468075576583945807478876255758922856118);
+                const real_t D2 = REAL_C(0.01) - REAL_C(0.009183565540343253096776363936645313759814);
+                const real_t D3 = REAL_C(0.479889650414499574775249532290596519913) - REAL_C(0.4877705284247615707855642599631228241517);
+                const real_t D4 = REAL_C(1.379008574103741893192274821856872770756) - REAL_C(1.234297566930478985655109673884237654036);
+                const real_t D5 = REAL_C(-3.290069515436080679901047585711363850116) - REAL_C(-2.707712349983525454881109975059321670690);
+                const real_t D6 = REAL_C(2.324710524099773982415355918398765796109) - REAL_C(1.866628418170587035753719399566211498666);
+                const real_t D7 = REAL_C(0.0) - REAL_C(0.01515151515151515151515151515151515151515);
+                TINY_BCLIBC_V3dT_fma(&err_v, k1.dvr, D1);
+                TINY_BCLIBC_V3dT_fma(&err_v, k2.dvr, D2);
+                TINY_BCLIBC_V3dT_fma(&err_v, k3.dvr, D3);
+                TINY_BCLIBC_V3dT_fma(&err_v, k4.dvr, D4);
+                TINY_BCLIBC_V3dT_fma(&err_v, k5.dvr, D5);
+                TINY_BCLIBC_V3dT_fma(&err_v, k6.dvr, D6);
+                TINY_BCLIBC_V3dT_fma(&err_v, k7.dvr, D7);
+                TINY_BCLIBC_V3dT_scale_assign(&err_v, dt);
+                TINY_BCLIBC_V3dT_fma(&err_p, k1.dp, D1);
+                TINY_BCLIBC_V3dT_fma(&err_p, k2.dp, D2);
+                TINY_BCLIBC_V3dT_fma(&err_p, k3.dp, D3);
+                TINY_BCLIBC_V3dT_fma(&err_p, k4.dp, D4);
+                TINY_BCLIBC_V3dT_fma(&err_p, k5.dp, D5);
+                TINY_BCLIBC_V3dT_fma(&err_p, k6.dp, D6);
+                TINY_BCLIBC_V3dT_fma(&err_p, k7.dp, D7);
+                TINY_BCLIBC_V3dT_scale_assign(&err_p, dt);
+
+                const real_t atol = REAL_C(1e-6);
+                const real_t rtol = REAL_C(1e-6);
+                const real_t svx = atol + rtol * ((TINY_BCLIBC_FABS(vr.x) > TINY_BCLIBC_FABS(vr_next.x)) ? TINY_BCLIBC_FABS(vr.x) : TINY_BCLIBC_FABS(vr_next.x));
+                const real_t svy = atol + rtol * ((TINY_BCLIBC_FABS(vr.y) > TINY_BCLIBC_FABS(vr_next.y)) ? TINY_BCLIBC_FABS(vr.y) : TINY_BCLIBC_FABS(vr_next.y));
+                const real_t svz = atol + rtol * ((TINY_BCLIBC_FABS(vr.z) > TINY_BCLIBC_FABS(vr_next.z)) ? TINY_BCLIBC_FABS(vr.z) : TINY_BCLIBC_FABS(vr_next.z));
+                const real_t spx = atol + rtol * ((TINY_BCLIBC_FABS(pos.x) > TINY_BCLIBC_FABS(pos_next.x)) ? TINY_BCLIBC_FABS(pos.x) : TINY_BCLIBC_FABS(pos_next.x));
+                const real_t spy = atol + rtol * ((TINY_BCLIBC_FABS(pos.y) > TINY_BCLIBC_FABS(pos_next.y)) ? TINY_BCLIBC_FABS(pos.y) : TINY_BCLIBC_FABS(pos_next.y));
+                const real_t spz = atol + rtol * ((TINY_BCLIBC_FABS(pos.z) > TINY_BCLIBC_FABS(pos_next.z)) ? TINY_BCLIBC_FABS(pos.z) : TINY_BCLIBC_FABS(pos_next.z));
+                const real_t evx = err_v.x / svx, evy = err_v.y / svy, evz = err_v.z / svz;
+                const real_t epx = err_p.x / spx, epy = err_p.y / spy, epz = err_p.z / spz;
+                real_t err_norm = TINY_BCLIBC_SQRT(
+                    (evx * evx + evy * evy + evz * evz + epx * epx + epy * epy + epz * epz) /
+                    REAL_C(6.0));
+
+                if (err_norm <= REAL_C(1.0) || dt <= min_dt * REAL_C(1.0001))
+                {
+                    dt_used = dt;
+                    real_t grow;
+                    if (err_norm == REAL_C(0.0))
+                        grow = REAL_C(10.0);
+                    else
+                    {
+                        grow = REAL_C(0.9) * TINY_BCLIBC_POW(err_norm, REAL_C(-0.2));
+                        if (grow > REAL_C(10.0))
+                            grow = REAL_C(10.0);
+                    }
+                    if (rejected_attempt && grow > REAL_C(1.0))
+                        grow = REAL_C(1.0);
+                    dt = dt * grow;
+                    if (dt > max_dt)
+                        dt = max_dt;
+                    cached_first = k7;
+                    have_first = 1;
+                    break;
+                }
+                rejected_attempt = 1;
+                real_t shrink = REAL_C(0.9) * TINY_BCLIBC_POW(err_norm, REAL_C(-0.2));
+                if (shrink < REAL_C(0.2))
+                    shrink = REAL_C(0.2);
+                dt = dt * shrink;
+                if (dt < min_dt)
+                    dt = min_dt;
+            }
+
+            time += dt_used;
+            vr = vr_next;
+            pos = pos_next;
+            vel = TINY_BCLIBC_V3dT_add(vr, wind);
+
+            TINY_BCLIBC_BaseTrajData step_end;
+            {
+                real_t density_ratio, mach_fps;
+                TINY_BCLIBC_Atmosphere_update_density_mach(&props->atmo,
+                                                           props->alt0 + pos.y, &density_ratio, &mach_fps);
+                real_t inv_mach = (mach_fps != REAL_C(0.0)) ? (REAL_C(1.0) / mach_fps) : REAL_C(1.0);
+                step_end.time = time;
+                step_end.px = pos.x;
+                step_end.py = pos.y;
+                step_end.pz = pos.z;
+                step_end.vx = vel.x;
+                step_end.vy = vel.y;
+                step_end.vz = vel.z;
+                step_end.mach = TINY_BCLIBC_V3dT_mag(vr) * inv_mach;
+            }
+
+            if (on_interval(&step_start, &step_end, ctx) != 0)
+            {
+                *out_reason = TINY_BCLIBC_TERM_HANDLER_STOP;
+                break;
+            }
+            step_start = step_end;
+            tiny_bclibc__stop_ctrl_check(&sc, &step_end);
+        }
+        return TINY_BCLIBC_OK;
+    }
+
+    /* ════════════════════════════════════════════════════════════════════
      *  tiny_bclibc_build_shot_props
      * ════════════════════════════════════════════════════════════════════ */
 
@@ -786,7 +1104,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         ctx.capacity = buf_capacity;
 
         int32_t reason = TINY_BCLIBC_TERM_NO_TERMINATE;
-        int32_t rc = tiny_bclibc__run_cashkarp(props, req,
+        int32_t rc = tiny_bclibc__run_tsitouras(props, req,
                                                tiny_bclibc__integrate_on_first,
                                                tiny_bclibc__integrate_on_interval,
                                                &ctx, &reason);
@@ -825,7 +1143,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         ctx.stream_ctx = cb_ctx;
 
         int32_t reason = TINY_BCLIBC_TERM_NO_TERMINATE;
-        int32_t rc = tiny_bclibc__run_cashkarp(props, req,
+        int32_t rc = tiny_bclibc__run_tsitouras(props, req,
                                                tiny_bclibc__integrate_on_first,
                                                tiny_bclibc__integrate_on_interval,
                                                &ctx, &reason);
@@ -912,7 +1230,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         ctx.cb_ctx = cb_ctx;
 
         int32_t reason = TINY_BCLIBC_TERM_NO_TERMINATE;
-        int32_t rc = tiny_bclibc__run_cashkarp(props, &req,
+        int32_t rc = tiny_bclibc__run_tsitouras(props, &req,
                                                tiny_bclibc__raw_ck_on_first,
                                                tiny_bclibc__raw_ck_on_interval,
                                                &ctx, &reason);
@@ -1046,7 +1364,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         req.filter_flags = TINY_BCLIBC_TRAJ_FLAG_NONE;
 
         int32_t reason;
-        tiny_bclibc__run_cashkarp(props, &req,
+        tiny_bclibc__run_tsitouras(props, &req,
                                   tiny_bclibc__at_ck_on_first,
                                   tiny_bclibc__at_ck_on_interval,
                                   &ctx, &reason);
@@ -1163,7 +1481,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         req.filter_flags = TINY_BCLIBC_TRAJ_FLAG_NONE;
 
         int32_t reason;
-        tiny_bclibc__run_cashkarp(props_mut, &req,
+        tiny_bclibc__run_tsitouras(props_mut, &req,
                                   tiny_bclibc__zero_cross_ck_on_first,
                                   tiny_bclibc__zero_cross_ck_on_interval,
                                   &ctx, &reason);
