@@ -1,6 +1,8 @@
 #ifndef BCLIBC_CASH_KARP_HPP
 #define BCLIBC_CASH_KARP_HPP
 
+#include <atomic>
+
 #include "bclibc/v3d.hpp"
 #include "bclibc/base_types.hpp"
 #include "bclibc/engine.hpp"
@@ -87,6 +89,20 @@ namespace bclibc
      * Assigning the free function @ref BCLIBC_integrateCashKarp to
      * `integrate_func` instead runs Cash-Karp at the default 1e-6/1e-6
      * tolerances with no accessible stats -- use it when neither is needed.
+     *
+     * Tolerances and stats are each stored in a `std::atomic`, so a single
+     * instance CAN be shared (via `std::ref`) across threads -- e.g. one
+     * `BCLIBC_CashKarpIntegrator` driving several `BCLIBC_BaseEngine`s
+     * concurrently -- without a data race: `set_relative_tolerance()` /
+     * `set_absolute_tolerance()` from one thread can safely race with
+     * `operator()` (which snapshots both once at the start of its run, so a
+     * whole integration sees one consistent tolerance pair even if it
+     * changes mid-run) and `get_stats()` from others. `get_stats()`'s two
+     * loads are independent, though: a concurrent run can still make
+     * `out_accepted`/`out_rejected` a non-atomic snapshot pair (e.g. the new
+     * accepted count paired with the previous run's rejected count) -- fine
+     * for approximate monitoring, not for anything requiring the two to
+     * agree exactly.
      */
     class BCLIBC_CashKarpIntegrator
     {
@@ -99,6 +115,14 @@ namespace bclibc
         explicit BCLIBC_CashKarpIntegrator(
             double relative_tolerance = embedded_rk45_detail::default_tolerance,
             double absolute_tolerance = embedded_rk45_detail::default_tolerance);
+
+        /** @brief Copies the current tolerances (not the running stats'
+         * transient state) -- each field is copied independently via an
+         * atomic load, so this itself cannot race unsafely with concurrent
+         * use of @p other, though it is not a single atomic snapshot of all
+         * four fields together. */
+        BCLIBC_CashKarpIntegrator(const BCLIBC_CashKarpIntegrator &other) noexcept;
+        BCLIBC_CashKarpIntegrator &operator=(const BCLIBC_CashKarpIntegrator &other) noexcept;
 
         void operator()(
             BCLIBC_BaseEngine &eng,
@@ -163,10 +187,10 @@ namespace bclibc
         void set_absolute_tolerance(double tolerance);
 
     private:
-        int accepted_steps_ = 0;
-        int rejected_steps_ = 0;
-        double relative_tolerance_ = embedded_rk45_detail::default_tolerance;
-        double absolute_tolerance_ = embedded_rk45_detail::default_tolerance;
+        std::atomic<int> accepted_steps_{0};
+        std::atomic<int> rejected_steps_{0};
+        std::atomic<double> relative_tolerance_{embedded_rk45_detail::default_tolerance};
+        std::atomic<double> absolute_tolerance_{embedded_rk45_detail::default_tolerance};
     };
 
 }; // namespace bclibc

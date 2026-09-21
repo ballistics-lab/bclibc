@@ -1,6 +1,8 @@
 #ifndef BCLIBC_TSITOURAS_HPP
 #define BCLIBC_TSITOURAS_HPP
 
+#include <atomic>
+
 #include "bclibc/embedded_rk45.hpp"
 #include "bclibc/engine.hpp"
 #include "bclibc/traj_data.hpp"
@@ -26,10 +28,12 @@ namespace bclibc
      * target that owns its own tolerances and accepted/rejected step counts
      * per instance, instead of that state living in a thread_local shared by
      * every BCLIBC_BaseEngine on the thread that happens to use Tsitouras.
-     * See @ref bclibc::BCLIBC_CashKarpIntegrator for the usage pattern;
-     * assigning the free function @ref BCLIBC_integrateTsitouras to
-     * `integrate_func` instead runs at the default 1e-6/1e-6 tolerances with
-     * no accessible stats.
+     * See @ref bclibc::BCLIBC_CashKarpIntegrator for the usage pattern
+     * (including its thread-safety notes -- tolerances and stats here are
+     * likewise each a `std::atomic`, so one instance can be shared across
+     * threads via `std::ref`); assigning the free function
+     * @ref BCLIBC_integrateTsitouras to `integrate_func` instead runs at
+     * the default 1e-6/1e-6 tolerances with no accessible stats.
      */
     class BCLIBC_TsitourasIntegrator
     {
@@ -42,6 +46,9 @@ namespace bclibc
         explicit BCLIBC_TsitourasIntegrator(
             double relative_tolerance = embedded_rk45_detail::default_tolerance,
             double absolute_tolerance = embedded_rk45_detail::default_tolerance);
+
+        BCLIBC_TsitourasIntegrator(const BCLIBC_TsitourasIntegrator &other) noexcept;
+        BCLIBC_TsitourasIntegrator &operator=(const BCLIBC_TsitourasIntegrator &other) noexcept;
 
         void operator()(
             BCLIBC_BaseEngine &eng,
@@ -61,10 +68,10 @@ namespace bclibc
         void set_absolute_tolerance(double tolerance);
 
     private:
-        int accepted_steps_ = 0;
-        int rejected_steps_ = 0;
-        double relative_tolerance_ = embedded_rk45_detail::default_tolerance;
-        double absolute_tolerance_ = embedded_rk45_detail::default_tolerance;
+        std::atomic<int> accepted_steps_{0};
+        std::atomic<int> rejected_steps_{0};
+        std::atomic<double> relative_tolerance_{embedded_rk45_detail::default_tolerance};
+        std::atomic<double> absolute_tolerance_{embedded_rk45_detail::default_tolerance};
     };
 }
 

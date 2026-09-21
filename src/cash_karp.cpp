@@ -109,35 +109,64 @@ namespace bclibc
         set_absolute_tolerance(absolute_tolerance);
     }
 
+    BCLIBC_CashKarpIntegrator::BCLIBC_CashKarpIntegrator(const BCLIBC_CashKarpIntegrator &other) noexcept
+        : accepted_steps_(other.accepted_steps_.load(std::memory_order_relaxed)),
+          rejected_steps_(other.rejected_steps_.load(std::memory_order_relaxed)),
+          relative_tolerance_(other.relative_tolerance_.load(std::memory_order_relaxed)),
+          absolute_tolerance_(other.absolute_tolerance_.load(std::memory_order_relaxed))
+    {
+    }
+
+    BCLIBC_CashKarpIntegrator &BCLIBC_CashKarpIntegrator::operator=(const BCLIBC_CashKarpIntegrator &other) noexcept
+    {
+        if (this != &other)
+        {
+            accepted_steps_.store(other.accepted_steps_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            rejected_steps_.store(other.rejected_steps_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            relative_tolerance_.store(other.relative_tolerance_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            absolute_tolerance_.store(other.absolute_tolerance_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        }
+        return *this;
+    }
+
     void BCLIBC_CashKarpIntegrator::operator()(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason)
     {
+        // Snapshot both tolerances once so a whole run sees one consistent
+        // pair even if another thread calls set_*_tolerance() mid-run, then
+        // accumulate locally and publish the final counts in one store each
+        // -- run()'s hot loop takes plain int&/double, not atomics.
+        const double relative_tolerance = relative_tolerance_.load(std::memory_order_relaxed);
+        const double absolute_tolerance = absolute_tolerance_.load(std::memory_order_relaxed);
+        int accepted = 0, rejected = 0;
         embedded_rk45_detail::run<CashKarp54Tableau, CashKarpController>(
             eng, handler, reason,
-            accepted_steps_, rejected_steps_,
-            relative_tolerance_, absolute_tolerance_);
+            accepted, rejected,
+            relative_tolerance, absolute_tolerance);
+        accepted_steps_.store(accepted, std::memory_order_relaxed);
+        rejected_steps_.store(rejected, std::memory_order_relaxed);
     }
 
     void BCLIBC_CashKarpIntegrator::get_stats(int &out_accepted, int &out_rejected) const noexcept
     {
-        out_accepted = accepted_steps_;
-        out_rejected = rejected_steps_;
+        out_accepted = accepted_steps_.load(std::memory_order_relaxed);
+        out_rejected = rejected_steps_.load(std::memory_order_relaxed);
     }
 
     void BCLIBC_CashKarpIntegrator::set_relative_tolerance(double tolerance)
     {
         if (!std::isfinite(tolerance) || tolerance <= 0.0)
             throw std::invalid_argument("Cash-Karp relative tolerance must be finite and positive");
-        relative_tolerance_ = tolerance;
+        relative_tolerance_.store(tolerance, std::memory_order_relaxed);
     }
 
     void BCLIBC_CashKarpIntegrator::set_absolute_tolerance(double tolerance)
     {
         if (!std::isfinite(tolerance) || tolerance < 0.0)
             throw std::invalid_argument("Cash-Karp absolute tolerance must be finite and non-negative");
-        absolute_tolerance_ = tolerance;
+        absolute_tolerance_.store(tolerance, std::memory_order_relaxed);
     }
 
 }; // namespace bclibc

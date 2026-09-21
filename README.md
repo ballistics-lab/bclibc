@@ -114,7 +114,11 @@ free function that mutated shared thread-local state, which meant every `BCLIBC_
 thread using the same method shared one tolerance/stats, even engines integrating concurrently
 with intentionally different settings. The plain free functions
 (`BCLIBC_integrateCashKarp` and friends) remain for the common case of just wanting that method
-at its default `1e-6`/`1e-6` tolerances with no need to read back stats.
+at its default `1e-6`/`1e-6` tolerances with no need to read back stats. Each class also takes
+its tolerances directly in its constructor (e.g. `BCLIBC_CashKarpIntegrator(1e-8)`), and stores
+tolerances/stats in `std::atomic`s, so one instance can safely be shared (via `std::ref`) across
+threads — `set_relative_tolerance()`/`set_absolute_tolerance()` from one thread cannot race with
+a concurrent `operator()` or `get_stats()` call from another (verified under ThreadSanitizer).
 
 Unlike `BCLIBC_integrateRK4`, which freezes the drag coefficient once per step, every adaptive
 method recomputes both the drag coefficient *and* the atmosphere sample fresh at each stage: an

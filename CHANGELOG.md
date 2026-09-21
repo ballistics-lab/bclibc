@@ -29,6 +29,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `BCLIBC_IntegrateCallable`-compatible free functions for the common case of
   running at the default 1e-6/1e-6 tolerances with no need to read back stats
   (e.g. `eng.integrate_func = bclibc::BCLIBC_integrateTsitouras;`).
+- Each RK45 integrator class also gained an explicit constructor taking
+  `(relative_tolerance, absolute_tolerance)` (each defaulting to 1e-6, same
+  validation as the setters), so a configured instance can be built in one
+  expression: `BCLIBC_CashKarpIntegrator(1e-8)`.
+- The integrator classes' tolerances and step counts are each stored in a
+  `std::atomic` (relaxed ordering), so a single instance can safely be
+  shared across threads (e.g. via `std::ref`, driving several
+  `BCLIBC_BaseEngine`s concurrently) — `set_relative_tolerance()` /
+  `set_absolute_tolerance()` from one thread cannot race with a concurrent
+  `operator()` or `get_stats()` call from another. `operator()` snapshots
+  both tolerances once at the start of its run, so one integration always
+  sees one consistent tolerance pair even if changed mid-run from another
+  thread. `get_stats()`'s two fields are read independently, so a
+  concurrent run can still return a non-atomic pairing of them (e.g. a
+  fresh `accepted` count against the previous run's `rejected` count) —
+  fine for approximate monitoring, not for anything requiring the two to
+  agree exactly. Verified race-free under ThreadSanitizer with multiple
+  engine threads sharing one integrator instance while a separate thread
+  concurrently mutates tolerance and another polls stats; the same test
+  against the pre-`std::atomic` version reproduces a real data race,
+  confirming the fix (and the test).
 
 ## [2.0.0-beta.8] - 2026-09-21
 
