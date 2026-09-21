@@ -45,22 +45,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `engine.h`, used the same way: split the interval at the cubic's own critical points so each
   sub-interval is monotonic, then bisect each for a sign change.
 
+### Fixed
+- `tiny_bclibc__run_tsitouras` folded `dt` into each stage's coefficient and added the result
+  directly onto the (much larger-magnitude) `vr`/`pos` base, one term at a time -- unlike the
+  C++ generic core (`embedded_rk45.hpp`), which accumulates the unscaled weighted sum of prior
+  derivatives first and applies `dt` in a single multiply-then-add at the end. Both orders are
+  algebraically identical, but repeatedly perturbing a large base with small per-term
+  corrections rounds differently (and less favorably) than summing the small corrections
+  together first. Rewrote all 6 stage computations (and the final FSAL `vr_next`/`pos_next`) to
+  match the C++ core's accumulate-then-scale-then-add order. Confirmed via the identity test:
+  per-field diffs on a simple no-wind shot dropped from ~1e-9 to ~1e-16-1e-13 (several fields
+  now bit-identical) -- see "Known issues" below for what this did and did not fix.
+
 ### Known issues
-- `tiny_bclibc`'s Tsitouras port and bclibc's own C++ `BCLIBC_integrateTsitouras` are not
-  bit-identical: the FSAL shortcut (reusing the already-computed 7th-stage state directly as
-  `vr_next`/`pos_next`) sums per-stage contributions in a different order than the C++ core's
-  generic weighted-sum-then-scale-by-dt loop, both individually correct but rounding
-  differently. For most shots this is negligible (see the identity test's ~1e-11 relative
-  diffs), but adaptive step-acceptance decisions are sensitive to it, and for some shots the
-  step sequence itself ends up measurably different a few hundred yards downrange -- e.g.
-  py-ballisticcalc's `tests/test_hitresult.py::test_flags`, a shot with wind and calculated
-  powder sensitivity, lands its MACH crossing about 0.67 yd off out of 963 yd (0.07%,
-  outside that test's ±0.5 yd tolerance) under `tiny_bclibc`, not under the C++ engine. Not a
-  missed event, not a coefficient error (verified byte-identical against `tsitouras.cpp`) --
-  just two valid numerical paths through the same adaptive method. Single precision shows a
-  few additional tolerance misses of the same kind, on top of its own pre-existing documented
-  precision-floor failures (see `TinyBclibcSingleIntegrationEngine`'s docstring in
-  py-ballisticcalc's `examples/tiny_bclibc/__init__.py`).
+- `tiny_bclibc`'s Tsitouras port and bclibc's own C++ `BCLIBC_integrateTsitouras` are still not
+  fully bit-identical for every shot, even after the accumulation-order fix above. That fix
+  closes the gap for a simple, well-conditioned shot (identity test diffs now at the
+  double-precision noise floor), but py-ballisticcalc's `tests/test_hitresult.py::test_flags`
+  (a shot with wind and calculated powder sensitivity, ~100 adaptive steps) barely moved:
+  963.6681688419956 yd before the fix, 963.668168842302 yd after -- a ~1e-9 yd shift, still
+  ~0.67 yd off out of 963 yd (0.07%, outside that test's ±0.5 yd tolerance). The root cause
+  here isn't accumulated rounding at all: somewhere across the shot's step sequence, one step's
+  accept/reject decision (`error_norm <= 1.0`) lands on opposite sides of that threshold
+  between the two engines, and once a single step's outcome diverges, every subsequent step
+  size and position follows a different (still individually correct) path -- discrete
+  branching sensitivity that no amount of matching the *continuous* arithmetic order can close,
+  short of making every intermediate operation (drag/atmosphere/PCHIP curve evaluation, libm
+  transcendental calls, ...) bit-identical between the hand-written C port and the generic C++
+  template core. Not a missed event, not a coefficient error (verified byte-identical against
+  `tsitouras.cpp`) -- just two valid numerical paths through the same adaptive method,
+  occasionally landing on opposite sides of a discrete decision. Single precision shows a few
+  additional tolerance misses of the same kind (now including `test_wind_lag_rule` and
+  `test_multiple_wind`, newly crossing their tight default `pytest.approx` self-consistency
+  tolerance as a side effect of the accumulation-order fix above), on top of its own
+  pre-existing documented precision-floor failures (see `TinyBclibcSingleIntegrationEngine`'s
+  docstring in py-ballisticcalc's `examples/tiny_bclibc/__init__.py`).
 
 ## [2.0.0-beta.7] - 2026-09-18
 
