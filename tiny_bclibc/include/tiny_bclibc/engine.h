@@ -514,67 +514,110 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 cached_first = k1;
                 have_first = 1;
 
+                /* Each stage below accumulates its *unscaled* weighted sum of
+                 * prior derivatives (dv/dp = Sigma k_j*A(i,j), no dt yet) into
+                 * a zero-based accumulator, then applies dt and adds to
+                 * vr/pos exactly once -- matching the C++ generic core's
+                 * order in embedded_rk45.hpp bit-for-bit (dv accumulate, then
+                 * `vr + dv*dt`), rather than folding dt into each term and
+                 * FMA'ing directly onto the (much larger-magnitude) vr/pos
+                 * base. The two orders are algebraically identical but round
+                 * differently: repeatedly perturbing a large base with small
+                 * per-term corrections accumulates more rounding error than
+                 * summing the small corrections together first and adding to
+                 * the large base once. This was the source of a small
+                 * residual cross-implementation difference against the C++
+                 * Tsitouras engine (see CHANGELOG). */
+                TINY_BCLIBC_V3dT dv2 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT dp2 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT_fma(&dv2, k1.dvr, REAL_C(0.161));
+                TINY_BCLIBC_V3dT_fma(&dp2, k1.dp, REAL_C(0.161));
                 TINY_BCLIBC_V3dT vr2 = vr, p2 = pos;
-                TINY_BCLIBC_V3dT_fma(&vr2, k1.dvr, dt * REAL_C(0.161));
-                TINY_BCLIBC_V3dT_fma(&p2, k1.dp, dt * REAL_C(0.161));
+                TINY_BCLIBC_V3dT_fma(&vr2, dv2, dt);
+                TINY_BCLIBC_V3dT_fma(&p2, dp2, dt);
                 tiny_bclibc__CkDeriv k2 = tiny_bclibc__ck_deriv(props, wind, gpc, vr2, p2);
 
+                TINY_BCLIBC_V3dT dv3 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT dp3 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT_fma(&dv3, k1.dvr, REAL_C(-0.008480655492356988544426874250230774675121));
+                TINY_BCLIBC_V3dT_fma(&dv3, k2.dvr, REAL_C(0.3354806554923569885444268742502307746751));
+                TINY_BCLIBC_V3dT_fma(&dp3, k1.dp, REAL_C(-0.008480655492356988544426874250230774675121));
+                TINY_BCLIBC_V3dT_fma(&dp3, k2.dp, REAL_C(0.3354806554923569885444268742502307746751));
                 TINY_BCLIBC_V3dT vr3 = vr, p3 = pos;
-                TINY_BCLIBC_V3dT_fma(&vr3, k1.dvr, dt * REAL_C(-0.008480655492356988544426874250230774675121));
-                TINY_BCLIBC_V3dT_fma(&vr3, k2.dvr, dt * REAL_C(0.3354806554923569885444268742502307746751));
-                TINY_BCLIBC_V3dT_fma(&p3, k1.dp, dt * REAL_C(-0.008480655492356988544426874250230774675121));
-                TINY_BCLIBC_V3dT_fma(&p3, k2.dp, dt * REAL_C(0.3354806554923569885444268742502307746751));
+                TINY_BCLIBC_V3dT_fma(&vr3, dv3, dt);
+                TINY_BCLIBC_V3dT_fma(&p3, dp3, dt);
                 tiny_bclibc__CkDeriv k3 = tiny_bclibc__ck_deriv(props, wind, gpc, vr3, p3);
 
+                TINY_BCLIBC_V3dT dv4 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT dp4 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT_fma(&dv4, k1.dvr, REAL_C(2.897153057105493432130432594192938764925));
+                TINY_BCLIBC_V3dT_fma(&dv4, k2.dvr, REAL_C(-6.359448489975074843148159912383825625953));
+                TINY_BCLIBC_V3dT_fma(&dv4, k3.dvr, REAL_C(4.362295432869581411017727318190886861028));
+                TINY_BCLIBC_V3dT_fma(&dp4, k1.dp, REAL_C(2.897153057105493432130432594192938764925));
+                TINY_BCLIBC_V3dT_fma(&dp4, k2.dp, REAL_C(-6.359448489975074843148159912383825625953));
+                TINY_BCLIBC_V3dT_fma(&dp4, k3.dp, REAL_C(4.362295432869581411017727318190886861028));
                 TINY_BCLIBC_V3dT vr4 = vr, p4 = pos;
-                TINY_BCLIBC_V3dT_fma(&vr4, k1.dvr, dt * REAL_C(2.897153057105493432130432594192938764925));
-                TINY_BCLIBC_V3dT_fma(&vr4, k2.dvr, dt * REAL_C(-6.359448489975074843148159912383825625953));
-                TINY_BCLIBC_V3dT_fma(&vr4, k3.dvr, dt * REAL_C(4.362295432869581411017727318190886861028));
-                TINY_BCLIBC_V3dT_fma(&p4, k1.dp, dt * REAL_C(2.897153057105493432130432594192938764925));
-                TINY_BCLIBC_V3dT_fma(&p4, k2.dp, dt * REAL_C(-6.359448489975074843148159912383825625953));
-                TINY_BCLIBC_V3dT_fma(&p4, k3.dp, dt * REAL_C(4.362295432869581411017727318190886861028));
+                TINY_BCLIBC_V3dT_fma(&vr4, dv4, dt);
+                TINY_BCLIBC_V3dT_fma(&p4, dp4, dt);
                 tiny_bclibc__CkDeriv k4 = tiny_bclibc__ck_deriv(props, wind, gpc, vr4, p4);
 
+                TINY_BCLIBC_V3dT dv5 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT dp5 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT_fma(&dv5, k1.dvr, REAL_C(5.325864828439256604428877920840511317836));
+                TINY_BCLIBC_V3dT_fma(&dv5, k2.dvr, REAL_C(-11.74888356406282787774717033978577296189));
+                TINY_BCLIBC_V3dT_fma(&dv5, k3.dvr, REAL_C(7.495539342889836208304604784564358155659));
+                TINY_BCLIBC_V3dT_fma(&dv5, k4.dvr, REAL_C(-0.0924950663617552492565020793320719161135));
+                TINY_BCLIBC_V3dT_fma(&dp5, k1.dp, REAL_C(5.325864828439256604428877920840511317836));
+                TINY_BCLIBC_V3dT_fma(&dp5, k2.dp, REAL_C(-11.74888356406282787774717033978577296189));
+                TINY_BCLIBC_V3dT_fma(&dp5, k3.dp, REAL_C(7.495539342889836208304604784564358155659));
+                TINY_BCLIBC_V3dT_fma(&dp5, k4.dp, REAL_C(-0.0924950663617552492565020793320719161135));
                 TINY_BCLIBC_V3dT vr5 = vr, p5 = pos;
-                TINY_BCLIBC_V3dT_fma(&vr5, k1.dvr, dt * REAL_C(5.325864828439256604428877920840511317836));
-                TINY_BCLIBC_V3dT_fma(&vr5, k2.dvr, dt * REAL_C(-11.74888356406282787774717033978577296189));
-                TINY_BCLIBC_V3dT_fma(&vr5, k3.dvr, dt * REAL_C(7.495539342889836208304604784564358155659));
-                TINY_BCLIBC_V3dT_fma(&vr5, k4.dvr, dt * REAL_C(-0.0924950663617552492565020793320719161135));
-                TINY_BCLIBC_V3dT_fma(&p5, k1.dp, dt * REAL_C(5.325864828439256604428877920840511317836));
-                TINY_BCLIBC_V3dT_fma(&p5, k2.dp, dt * REAL_C(-11.74888356406282787774717033978577296189));
-                TINY_BCLIBC_V3dT_fma(&p5, k3.dp, dt * REAL_C(7.495539342889836208304604784564358155659));
-                TINY_BCLIBC_V3dT_fma(&p5, k4.dp, dt * REAL_C(-0.0924950663617552492565020793320719161135));
+                TINY_BCLIBC_V3dT_fma(&vr5, dv5, dt);
+                TINY_BCLIBC_V3dT_fma(&p5, dp5, dt);
                 tiny_bclibc__CkDeriv k5 = tiny_bclibc__ck_deriv(props, wind, gpc, vr5, p5);
 
+                TINY_BCLIBC_V3dT dv6 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT dp6 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT_fma(&dv6, k1.dvr, REAL_C(5.861455442946420028659251486982647890394));
+                TINY_BCLIBC_V3dT_fma(&dv6, k2.dvr, REAL_C(-12.92096931784710929170611868178335939542));
+                TINY_BCLIBC_V3dT_fma(&dv6, k3.dvr, REAL_C(8.159367898576158643180400794539253485182));
+                TINY_BCLIBC_V3dT_fma(&dv6, k4.dvr, REAL_C(-0.07158497328140099722453054252582973869127));
+                TINY_BCLIBC_V3dT_fma(&dv6, k5.dvr, REAL_C(-0.02826905039406838290900305721271224146718));
+                TINY_BCLIBC_V3dT_fma(&dp6, k1.dp, REAL_C(5.861455442946420028659251486982647890394));
+                TINY_BCLIBC_V3dT_fma(&dp6, k2.dp, REAL_C(-12.92096931784710929170611868178335939542));
+                TINY_BCLIBC_V3dT_fma(&dp6, k3.dp, REAL_C(8.159367898576158643180400794539253485182));
+                TINY_BCLIBC_V3dT_fma(&dp6, k4.dp, REAL_C(-0.07158497328140099722453054252582973869127));
+                TINY_BCLIBC_V3dT_fma(&dp6, k5.dp, REAL_C(-0.02826905039406838290900305721271224146718));
                 TINY_BCLIBC_V3dT vr6 = vr, p6 = pos;
-                TINY_BCLIBC_V3dT_fma(&vr6, k1.dvr, dt * REAL_C(5.861455442946420028659251486982647890394));
-                TINY_BCLIBC_V3dT_fma(&vr6, k2.dvr, dt * REAL_C(-12.92096931784710929170611868178335939542));
-                TINY_BCLIBC_V3dT_fma(&vr6, k3.dvr, dt * REAL_C(8.159367898576158643180400794539253485182));
-                TINY_BCLIBC_V3dT_fma(&vr6, k4.dvr, dt * REAL_C(-0.07158497328140099722453054252582973869127));
-                TINY_BCLIBC_V3dT_fma(&vr6, k5.dvr, dt * REAL_C(-0.02826905039406838290900305721271224146718));
-                TINY_BCLIBC_V3dT_fma(&p6, k1.dp, dt * REAL_C(5.861455442946420028659251486982647890394));
-                TINY_BCLIBC_V3dT_fma(&p6, k2.dp, dt * REAL_C(-12.92096931784710929170611868178335939542));
-                TINY_BCLIBC_V3dT_fma(&p6, k3.dp, dt * REAL_C(8.159367898576158643180400794539253485182));
-                TINY_BCLIBC_V3dT_fma(&p6, k4.dp, dt * REAL_C(-0.07158497328140099722453054252582973869127));
-                TINY_BCLIBC_V3dT_fma(&p6, k5.dp, dt * REAL_C(-0.02826905039406838290900305721271224146718));
+                TINY_BCLIBC_V3dT_fma(&vr6, dv6, dt);
+                TINY_BCLIBC_V3dT_fma(&p6, dp6, dt);
                 tiny_bclibc__CkDeriv k6 = tiny_bclibc__ck_deriv(props, wind, gpc, vr6, p6);
 
                 /* Stage 7 -- its A-row equals the 5th-order B weights (the
                  * FSAL point), so vr7/p7 below ARE vr_next/pos_next: no
-                 * separate weighted-sum pass needed. */
+                 * separate weighted-sum pass needed. dv7/dp7 here is exactly
+                 * the same expression the C++ core computes as `sum_v`/
+                 * `sum_p` in its separate final-result pass (same coefficients,
+                 * same accumulation order, stage 7's own B(6)=0 term
+                 * contributing nothing) -- so vr7/p7 equal the C++ core's
+                 * vr_next/pos_next bit-for-bit, not just algebraically. */
+                TINY_BCLIBC_V3dT dv7 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT dp7 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT_fma(&dv7, k1.dvr, REAL_C(0.09646076681806522951816731316512876333712));
+                TINY_BCLIBC_V3dT_fma(&dv7, k2.dvr, REAL_C(0.01));
+                TINY_BCLIBC_V3dT_fma(&dv7, k3.dvr, REAL_C(0.479889650414499574775249532290596519913));
+                TINY_BCLIBC_V3dT_fma(&dv7, k4.dvr, REAL_C(1.379008574103741893192274821856872770756));
+                TINY_BCLIBC_V3dT_fma(&dv7, k5.dvr, REAL_C(-3.290069515436080679901047585711363850116));
+                TINY_BCLIBC_V3dT_fma(&dv7, k6.dvr, REAL_C(2.324710524099773982415355918398765796109));
+                TINY_BCLIBC_V3dT_fma(&dp7, k1.dp, REAL_C(0.09646076681806522951816731316512876333712));
+                TINY_BCLIBC_V3dT_fma(&dp7, k2.dp, REAL_C(0.01));
+                TINY_BCLIBC_V3dT_fma(&dp7, k3.dp, REAL_C(0.479889650414499574775249532290596519913));
+                TINY_BCLIBC_V3dT_fma(&dp7, k4.dp, REAL_C(1.379008574103741893192274821856872770756));
+                TINY_BCLIBC_V3dT_fma(&dp7, k5.dp, REAL_C(-3.290069515436080679901047585711363850116));
+                TINY_BCLIBC_V3dT_fma(&dp7, k6.dp, REAL_C(2.324710524099773982415355918398765796109));
                 TINY_BCLIBC_V3dT vr7 = vr, p7 = pos;
-                TINY_BCLIBC_V3dT_fma(&vr7, k1.dvr, dt * REAL_C(0.09646076681806522951816731316512876333712));
-                TINY_BCLIBC_V3dT_fma(&vr7, k2.dvr, dt * REAL_C(0.01));
-                TINY_BCLIBC_V3dT_fma(&vr7, k3.dvr, dt * REAL_C(0.479889650414499574775249532290596519913));
-                TINY_BCLIBC_V3dT_fma(&vr7, k4.dvr, dt * REAL_C(1.379008574103741893192274821856872770756));
-                TINY_BCLIBC_V3dT_fma(&vr7, k5.dvr, dt * REAL_C(-3.290069515436080679901047585711363850116));
-                TINY_BCLIBC_V3dT_fma(&vr7, k6.dvr, dt * REAL_C(2.324710524099773982415355918398765796109));
-                TINY_BCLIBC_V3dT_fma(&p7, k1.dp, dt * REAL_C(0.09646076681806522951816731316512876333712));
-                TINY_BCLIBC_V3dT_fma(&p7, k2.dp, dt * REAL_C(0.01));
-                TINY_BCLIBC_V3dT_fma(&p7, k3.dp, dt * REAL_C(0.479889650414499574775249532290596519913));
-                TINY_BCLIBC_V3dT_fma(&p7, k4.dp, dt * REAL_C(1.379008574103741893192274821856872770756));
-                TINY_BCLIBC_V3dT_fma(&p7, k5.dp, dt * REAL_C(-3.290069515436080679901047585711363850116));
-                TINY_BCLIBC_V3dT_fma(&p7, k6.dp, dt * REAL_C(2.324710524099773982415355918398765796109));
+                TINY_BCLIBC_V3dT_fma(&vr7, dv7, dt);
+                TINY_BCLIBC_V3dT_fma(&p7, dp7, dt);
                 tiny_bclibc__CkDeriv k7 = tiny_bclibc__ck_deriv(props, wind, gpc, vr7, p7);
 
                 vr_next = vr7;
