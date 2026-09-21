@@ -164,11 +164,14 @@ this class of integrator required). Being FSAL, it caches the first stage's deri
 accepted steps (invalidated on a wind-zone change or whenever Coriolis is active) and limits
 `dt` so a step never overshoots the next wind-zone boundary — both needed for the same reason
 they're needed in the C++ core's `ScipyRKController`: a stale cached derivative or a step that
-silently crosses into the wrong wind zone. `find_apex()` and `find_zero_angle()` are unchanged
-(still `tiny_bclibc__run_rk4` internally — zero-angle/apex finding does many short, cheap
-integrations per Newton iteration and wasn't the target of this change). Cash-Karp itself is
-still available in the full C++ engine (`BCLIBC_integrateCashKarp`) for callers who want it;
-`tiny_bclibc`'s lean C API only ever bakes in one adaptive method at a time.
+silently crosses into the wrong wind zone. `find_apex()` (via `integrate_at()`) and
+`find_zero_angle()` (via its golden-section/Ridder's bracket search, `range_for_angle()`) also
+run through this same adaptive core — every one of `tiny_bclibc`'s 5 public entry points that
+integrates a trajectory does, all the way back to Cash-Karp before this change (despite some
+older docs/comments in this codebase still saying "RK4" here — those predate Cash-Karp and were
+never updated; `tiny_bclibc__run_rk4` does not exist). Cash-Karp itself is still available in
+the full C++ engine (`BCLIBC_integrateCashKarp`) for callers who want it; `tiny_bclibc`'s lean C
+API only ever bakes in one adaptive method at a time.
 
 ## Usage
 
