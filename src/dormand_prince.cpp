@@ -85,7 +85,19 @@ namespace bclibc
                 if (ground_vx <= 0.0)
                     return;
                 const double remaining = next_range - pos.x;
-                if (remaining <= 0.0)
+                // Below this floor, treat the boundary as already reached rather than
+                // keep shrinking dt to match: once a prior iteration's limiting has
+                // already gotten pos.x within a fraction of a foot of next_range, the
+                // stage combination's own rounding can land the accepted step a few ULPs
+                // *short* of the boundary instead of exactly on or past it. Without this
+                // floor, the next iteration re-limits dt to that now-tinier remaining
+                // distance, and the one after that to a tinier one still: a Zeno's-
+                // paradox loop that in practice never terminates (reproduced, and fixed
+                // the same way, in tiny_bclibc__run_tsitouras for a 3+ wind-zone shot;
+                // this is the same controller logic, so the same failure mode applies
+                // here even though no existing test happens to trigger it). 1e-7 ft
+                // matches the wind-change trigger's own epsilon in embedded_rk45.hpp.
+                if (remaining <= 1e-7)
                     return;
                 const double time_to_boundary = remaining / ground_vx;
                 if (time_to_boundary < dt)

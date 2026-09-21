@@ -192,7 +192,35 @@ static inline void tiny_bclibc__set_error(const char *msg)
         out->vx = tiny_bclibc_hermite_derivative(t, a->time, b->time, a->px, b->px, a->vx, b->vx);
         out->vy = tiny_bclibc_hermite_derivative(t, a->time, b->time, a->py, b->py, a->vy, b->vy);
         out->vz = tiny_bclibc_hermite_derivative(t, a->time, b->time, a->pz, b->pz, a->vz, b->vz);
-        out->mach = a->mach + u * (b->mach - a->mach);
+        /* `.mach` is a *derived* field (speed / local speed of sound), not part of
+         * the ODE's state -- unlike px/py/pz/vx/vy/vz, which the cubic Hermite
+         * polynomial above reconstructs exactly (using both endpoints' known
+         * derivatives), there's no direct Hermite basis for it. A plain linear
+         * interpolation of the ratio itself (`a->mach + u*(b->mach-a->mach)`, the
+         * previous approach here) ignores that the ratio's *curvature* over the
+         * interval comes almost entirely from velocity's curvature -- and
+         * velocity is exactly reconstructable (out->vx/vy/vz above). So: back out
+         * each endpoint's speed of sound (fps) from its already-known ratio and
+         * speed, linearly interpolate *that* (it varies smoothly and near-linearly
+         * with altitude, unlike the ratio near a drag curve's transonic bump), and
+         * divide the accurately-reconstructed velocity magnitude by it. Matches
+         * bclibc's C++ traj_filter.cpp exactly (interpolates raw speed of sound,
+         * derives velocity from the position Hermite polynomial's derivative).
+         * Previously this repo's linear-ratio-interpolation cost real accuracy at
+         * the MACH crossing specifically (the one place this interval-interior
+         * value matters most, and where the ratio's curvature is largest, right
+         * at the drag curve's transonic bump) -- confirmed empirically against
+         * the C++ engine: up to ~0.6 yd out of ~963 yd on a real shot, not a
+         * rounding-noise level difference. See CHANGELOG. */
+        {
+            real_t speed_a = TINY_BCLIBC_SQRT(a->vx * a->vx + a->vy * a->vy + a->vz * a->vz);
+            real_t speed_b = TINY_BCLIBC_SQRT(b->vx * b->vx + b->vy * b->vy + b->vz * b->vz);
+            real_t sound_a = (a->mach != REAL_C(0.0)) ? speed_a / a->mach : REAL_C(0.0);
+            real_t sound_b = (b->mach != REAL_C(0.0)) ? speed_b / b->mach : REAL_C(0.0);
+            real_t sound_t = sound_a + u * (sound_b - sound_a);
+            real_t speed_t = TINY_BCLIBC_SQRT(out->vx * out->vx + out->vy * out->vy + out->vz * out->vz);
+            out->mach = (sound_t != REAL_C(0.0)) ? speed_t / sound_t : REAL_C(0.0);
+        }
         return 1;
     }
 
@@ -301,7 +329,13 @@ static inline void tiny_bclibc__set_error(const char *msg)
     }
 
     /* ════════════════════════════════════════════════════════════════════
-     *  Cash-Karp adaptive RK45 (Numerical Recipes `rkck`)
+     *  Shared physics RHS evaluator.
+     *
+     *  Named with a "Ck" prefix from when this file's only adaptive core was
+     *  Cash-Karp (Numerical Recipes `rkck`); the type/function themselves are
+     *  generic -- just the acceleration/velocity derivative -- and are reused
+     *  unchanged by tiny_bclibc__run_tsitouras below, which is now the only
+     *  adaptive core in this file.
      * ════════════════════════════════════════════════════════════════════ */
 
     typedef struct tiny_bclibc__CkDeriv
@@ -331,8 +365,34 @@ static inline void tiny_bclibc__set_error(const char *msg)
         return d;
     }
 
-    /* ── Cash-Karp adaptive RK45 loop ── */
-    TINY_BCLIBC_INTERNAL int32_t tiny_bclibc__run_cashkarp(
+    /* ════════════════════════════════════════════════════════════════════
+     *  Tsitouras 5(4) ("Tsit5") adaptive RK -- Ch. Tsitouras, "Runge-Kutta
+     *  pairs of order 5(4) satisfying only the first column simplifying
+     *  assumption", Computers & Mathematics with Applications 62(2), 2011.
+     *  Same coefficients as bclibc's BCLIBC_integrateTsitouras (verified
+     *  against ARKODE_TSITOURAS_7_4_5 in SUNDIALS/ARKODE). Reuses Cash-Karp's
+     *  derivative evaluator (tiny_bclibc__ck_deriv) unchanged -- it computes
+     *  the shared physics RHS, nothing Cash-Karp-specific.
+     *
+     *  Unlike tiny_bclibc__run_cashkarp above, this:
+     *   - is FSAL (First Same As Last): stage 7's derivative is evaluated at
+     *     the accepted next state, so it doubles as stage 1 of the *next*
+     *     step -- skipping a derivative evaluation entirely, once per step,
+     *     whenever nothing invalidates the cache (see below). Stage 1 is
+     *     also reused, uncached, across *retried* attempts of the same step
+     *     (it depends only on the step's fixed start state, not on dt).
+     *   - recomputes vr from the persisted ground-frame velocity on every
+     *     wind-zone change (vr = vel - wind), and limits dt so a step never
+     *     overshoots the next wind-zone boundary -- both needed because this
+     *     method's cached first-stage derivative would otherwise go stale
+     *     mid-step; matching bclibc's ScipyRKController exactly (see
+     *     bclibc/tsitouras.hpp and dormand_prince.hpp's doc comments).
+     *   - uses the same SciPy RK45-style step controller as bclibc's
+     *     Tsitouras/Dormand-Prince (safety 0.9, factor clamped to [0.2, 10],
+     *     growth capped at 1x for one step right after a rejection),
+     *     instead of Cash-Karp's own asymmetric grow/shrink exponents.
+     */
+    TINY_BCLIBC_INTERNAL int32_t tiny_bclibc__run_tsitouras(
         const TINY_BCLIBC_ShotProps *props,
         const TINY_BCLIBC_TrajectoryRequest *req,
         tiny_bclibc__OnStep on_first,
@@ -379,6 +439,10 @@ static inline void tiny_bclibc__set_error(const char *msg)
         real_t time = REAL_C(0.0);
         *out_reason = TINY_BCLIBC_TERM_NO_TERMINATE;
 
+        tiny_bclibc__CkDeriv cached_first;
+        memset(&cached_first, 0, sizeof(cached_first));
+        int32_t have_first = 0;
+
         TINY_BCLIBC_BaseTrajData step_start;
         {
             real_t density_ratio, mach_fps;
@@ -402,8 +466,23 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
         while (*out_reason == TINY_BCLIBC_TERM_NO_TERMINATE)
         {
-            if (pos.x >= ws.next_range)
+            int32_t wind_changed = 0;
+            /* Epsilon tolerance matches the C++ core's ScipyRKController exactly
+             * (see embedded_rk45.hpp) -- required here, unlike a plain `>=`, because
+             * of the wind-boundary step limiting below: it shrinks dt so an accepted
+             * step lands at (never strictly past) next_range, and floating-point
+             * rounding of that landing can leave pos.x a few ULPs *short* of
+             * next_range. Without this tolerance, the next iteration re-limits dt to
+             * that now-tinier remaining distance, and the one after that to a tinier
+             * one still -- a Zeno's-paradox loop that in practice never terminates
+             * (reproduced by tests/test_computer.py::test_multiple_wind, a 3+
+             * wind-zone shot, before this fix). */
+            if (pos.x + REAL_C(1e-7) >= ws.next_range)
+            {
                 wind = TINY_BCLIBC_WindSock_vector_for_range(&ws, pos.x);
+                vr = TINY_BCLIBC_V3dT_sub(vel, wind);
+                wind_changed = 1;
+            }
 
             TINY_BCLIBC_V3dT gpc = gravity;
             if (!props->coriolis.flat_fire_only)
@@ -414,88 +493,189 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 gpc.y += ca.y;
                 gpc.z += ca.z;
             }
+            if (wind_changed || !props->coriolis.flat_fire_only)
+                have_first = 0;
+
+            /* Wind is only re-sampled once, at the *start* of a step, and
+             * held constant across every stage evaluation within it -- shrink
+             * dt so the step lands at (never past) the next wind-zone
+             * boundary, mirroring bclibc's ScipyRKController exactly. */
+            {
+                real_t ground_vx = vr.x + wind.x;
+                if (ground_vx > REAL_C(0.0))
+                {
+                    real_t remaining = ws.next_range - pos.x;
+                    /* Below this floor, treat the boundary as already reached
+                     * rather than keep shrinking dt to match: once a prior
+                     * iteration's limiting already got pos.x within a fraction
+                     * of a foot of next_range, the stage combination's own
+                     * rounding can land the accepted step a few ULPs *short* of
+                     * the boundary instead of exactly on or past it. Without
+                     * this floor, the next iteration re-limits dt to that
+                     * now-tinier remaining distance, and the one after that to
+                     * a tinier one still -- a Zeno's-paradox loop that in
+                     * practice never terminates (reproduced via
+                     * tests/test_computer.py::test_multiple_wind, a 3+
+                     * wind-zone shot; the wind-change epsilon above alone does
+                     * NOT fix this -- it decides *whether* to call
+                     * TINY_BCLIBC_WindSock_vector_for_range, but that function's
+                     * own internal comparison against next_range has no
+                     * tolerance, so it can keep returning the same
+                     * unadvanced wind zone every iteration). 1e-7 matches the
+                     * wind-change trigger's own epsilon. */
+                    if (remaining > REAL_C(1e-7))
+                    {
+                        real_t time_to_boundary = remaining / ground_vx;
+                        if (time_to_boundary < dt)
+                            dt = time_to_boundary;
+                    }
+                }
+            }
 
             TINY_BCLIBC_V3dT vr_next = vr, pos_next = pos;
             real_t dt_used = dt;
+            int32_t rejected_attempt = 0;
             int32_t attempt;
             for (attempt = 0; attempt < 24; attempt++)
             {
-                tiny_bclibc__CkDeriv k1 = tiny_bclibc__ck_deriv(props, wind, gpc, vr, pos);
+                tiny_bclibc__CkDeriv k1 = have_first ? cached_first : tiny_bclibc__ck_deriv(props, wind, gpc, vr, pos);
+                cached_first = k1;
+                have_first = 1;
 
+                /* Each stage below accumulates its *unscaled* weighted sum of
+                 * prior derivatives (dv/dp = Sigma k_j*A(i,j), no dt yet) into
+                 * a zero-based accumulator, then applies dt and adds to
+                 * vr/pos exactly once -- matching the C++ generic core's
+                 * order in embedded_rk45.hpp bit-for-bit (dv accumulate, then
+                 * `vr + dv*dt`), rather than folding dt into each term and
+                 * FMA'ing directly onto the (much larger-magnitude) vr/pos
+                 * base. The two orders are algebraically identical but round
+                 * differently: repeatedly perturbing a large base with small
+                 * per-term corrections accumulates more rounding error than
+                 * summing the small corrections together first and adding to
+                 * the large base once. This was the source of a small
+                 * residual cross-implementation difference against the C++
+                 * Tsitouras engine (see CHANGELOG). */
+                TINY_BCLIBC_V3dT dv2 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT dp2 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT_fma(&dv2, k1.dvr, REAL_C(0.161));
+                TINY_BCLIBC_V3dT_fma(&dp2, k1.dp, REAL_C(0.161));
                 TINY_BCLIBC_V3dT vr2 = vr, p2 = pos;
-                TINY_BCLIBC_V3dT_fma(&vr2, k1.dvr, dt * REAL_C(0.2));
-                TINY_BCLIBC_V3dT_fma(&p2, k1.dp, dt * REAL_C(0.2));
+                TINY_BCLIBC_V3dT_fma(&vr2, dv2, dt);
+                TINY_BCLIBC_V3dT_fma(&p2, dp2, dt);
                 tiny_bclibc__CkDeriv k2 = tiny_bclibc__ck_deriv(props, wind, gpc, vr2, p2);
 
+                TINY_BCLIBC_V3dT dv3 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT dp3 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT_fma(&dv3, k1.dvr, REAL_C(-0.008480655492356988544426874250230774675121));
+                TINY_BCLIBC_V3dT_fma(&dv3, k2.dvr, REAL_C(0.3354806554923569885444268742502307746751));
+                TINY_BCLIBC_V3dT_fma(&dp3, k1.dp, REAL_C(-0.008480655492356988544426874250230774675121));
+                TINY_BCLIBC_V3dT_fma(&dp3, k2.dp, REAL_C(0.3354806554923569885444268742502307746751));
                 TINY_BCLIBC_V3dT vr3 = vr, p3 = pos;
-                TINY_BCLIBC_V3dT_fma(&vr3, k1.dvr, dt * (REAL_C(3.0) / REAL_C(40.0)));
-                TINY_BCLIBC_V3dT_fma(&vr3, k2.dvr, dt * (REAL_C(9.0) / REAL_C(40.0)));
-                TINY_BCLIBC_V3dT_fma(&p3, k1.dp, dt * (REAL_C(3.0) / REAL_C(40.0)));
-                TINY_BCLIBC_V3dT_fma(&p3, k2.dp, dt * (REAL_C(9.0) / REAL_C(40.0)));
+                TINY_BCLIBC_V3dT_fma(&vr3, dv3, dt);
+                TINY_BCLIBC_V3dT_fma(&p3, dp3, dt);
                 tiny_bclibc__CkDeriv k3 = tiny_bclibc__ck_deriv(props, wind, gpc, vr3, p3);
 
+                TINY_BCLIBC_V3dT dv4 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT dp4 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT_fma(&dv4, k1.dvr, REAL_C(2.897153057105493432130432594192938764925));
+                TINY_BCLIBC_V3dT_fma(&dv4, k2.dvr, REAL_C(-6.359448489975074843148159912383825625953));
+                TINY_BCLIBC_V3dT_fma(&dv4, k3.dvr, REAL_C(4.362295432869581411017727318190886861028));
+                TINY_BCLIBC_V3dT_fma(&dp4, k1.dp, REAL_C(2.897153057105493432130432594192938764925));
+                TINY_BCLIBC_V3dT_fma(&dp4, k2.dp, REAL_C(-6.359448489975074843148159912383825625953));
+                TINY_BCLIBC_V3dT_fma(&dp4, k3.dp, REAL_C(4.362295432869581411017727318190886861028));
                 TINY_BCLIBC_V3dT vr4 = vr, p4 = pos;
-                TINY_BCLIBC_V3dT_fma(&vr4, k1.dvr, dt * (REAL_C(3.0) / REAL_C(10.0)));
-                TINY_BCLIBC_V3dT_fma(&vr4, k2.dvr, dt * (REAL_C(-9.0) / REAL_C(10.0)));
-                TINY_BCLIBC_V3dT_fma(&vr4, k3.dvr, dt * (REAL_C(6.0) / REAL_C(5.0)));
-                TINY_BCLIBC_V3dT_fma(&p4, k1.dp, dt * (REAL_C(3.0) / REAL_C(10.0)));
-                TINY_BCLIBC_V3dT_fma(&p4, k2.dp, dt * (REAL_C(-9.0) / REAL_C(10.0)));
-                TINY_BCLIBC_V3dT_fma(&p4, k3.dp, dt * (REAL_C(6.0) / REAL_C(5.0)));
+                TINY_BCLIBC_V3dT_fma(&vr4, dv4, dt);
+                TINY_BCLIBC_V3dT_fma(&p4, dp4, dt);
                 tiny_bclibc__CkDeriv k4 = tiny_bclibc__ck_deriv(props, wind, gpc, vr4, p4);
 
+                TINY_BCLIBC_V3dT dv5 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT dp5 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT_fma(&dv5, k1.dvr, REAL_C(5.325864828439256604428877920840511317836));
+                TINY_BCLIBC_V3dT_fma(&dv5, k2.dvr, REAL_C(-11.74888356406282787774717033978577296189));
+                TINY_BCLIBC_V3dT_fma(&dv5, k3.dvr, REAL_C(7.495539342889836208304604784564358155659));
+                TINY_BCLIBC_V3dT_fma(&dv5, k4.dvr, REAL_C(-0.0924950663617552492565020793320719161135));
+                TINY_BCLIBC_V3dT_fma(&dp5, k1.dp, REAL_C(5.325864828439256604428877920840511317836));
+                TINY_BCLIBC_V3dT_fma(&dp5, k2.dp, REAL_C(-11.74888356406282787774717033978577296189));
+                TINY_BCLIBC_V3dT_fma(&dp5, k3.dp, REAL_C(7.495539342889836208304604784564358155659));
+                TINY_BCLIBC_V3dT_fma(&dp5, k4.dp, REAL_C(-0.0924950663617552492565020793320719161135));
                 TINY_BCLIBC_V3dT vr5 = vr, p5 = pos;
-                TINY_BCLIBC_V3dT_fma(&vr5, k1.dvr, dt * (REAL_C(-11.0) / REAL_C(54.0)));
-                TINY_BCLIBC_V3dT_fma(&vr5, k2.dvr, dt * REAL_C(2.5));
-                TINY_BCLIBC_V3dT_fma(&vr5, k3.dvr, dt * (REAL_C(-70.0) / REAL_C(27.0)));
-                TINY_BCLIBC_V3dT_fma(&vr5, k4.dvr, dt * (REAL_C(35.0) / REAL_C(27.0)));
-                TINY_BCLIBC_V3dT_fma(&p5, k1.dp, dt * (REAL_C(-11.0) / REAL_C(54.0)));
-                TINY_BCLIBC_V3dT_fma(&p5, k2.dp, dt * REAL_C(2.5));
-                TINY_BCLIBC_V3dT_fma(&p5, k3.dp, dt * (REAL_C(-70.0) / REAL_C(27.0)));
-                TINY_BCLIBC_V3dT_fma(&p5, k4.dp, dt * (REAL_C(35.0) / REAL_C(27.0)));
+                TINY_BCLIBC_V3dT_fma(&vr5, dv5, dt);
+                TINY_BCLIBC_V3dT_fma(&p5, dp5, dt);
                 tiny_bclibc__CkDeriv k5 = tiny_bclibc__ck_deriv(props, wind, gpc, vr5, p5);
 
+                TINY_BCLIBC_V3dT dv6 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT dp6 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT_fma(&dv6, k1.dvr, REAL_C(5.861455442946420028659251486982647890394));
+                TINY_BCLIBC_V3dT_fma(&dv6, k2.dvr, REAL_C(-12.92096931784710929170611868178335939542));
+                TINY_BCLIBC_V3dT_fma(&dv6, k3.dvr, REAL_C(8.159367898576158643180400794539253485182));
+                TINY_BCLIBC_V3dT_fma(&dv6, k4.dvr, REAL_C(-0.07158497328140099722453054252582973869127));
+                TINY_BCLIBC_V3dT_fma(&dv6, k5.dvr, REAL_C(-0.02826905039406838290900305721271224146718));
+                TINY_BCLIBC_V3dT_fma(&dp6, k1.dp, REAL_C(5.861455442946420028659251486982647890394));
+                TINY_BCLIBC_V3dT_fma(&dp6, k2.dp, REAL_C(-12.92096931784710929170611868178335939542));
+                TINY_BCLIBC_V3dT_fma(&dp6, k3.dp, REAL_C(8.159367898576158643180400794539253485182));
+                TINY_BCLIBC_V3dT_fma(&dp6, k4.dp, REAL_C(-0.07158497328140099722453054252582973869127));
+                TINY_BCLIBC_V3dT_fma(&dp6, k5.dp, REAL_C(-0.02826905039406838290900305721271224146718));
                 TINY_BCLIBC_V3dT vr6 = vr, p6 = pos;
-                TINY_BCLIBC_V3dT_fma(&vr6, k1.dvr, dt * (REAL_C(1631.0) / REAL_C(55296.0)));
-                TINY_BCLIBC_V3dT_fma(&vr6, k2.dvr, dt * (REAL_C(175.0) / REAL_C(512.0)));
-                TINY_BCLIBC_V3dT_fma(&vr6, k3.dvr, dt * (REAL_C(575.0) / REAL_C(13824.0)));
-                TINY_BCLIBC_V3dT_fma(&vr6, k4.dvr, dt * (REAL_C(44275.0) / REAL_C(110592.0)));
-                TINY_BCLIBC_V3dT_fma(&vr6, k5.dvr, dt * (REAL_C(253.0) / REAL_C(4096.0)));
-                TINY_BCLIBC_V3dT_fma(&p6, k1.dp, dt * (REAL_C(1631.0) / REAL_C(55296.0)));
-                TINY_BCLIBC_V3dT_fma(&p6, k2.dp, dt * (REAL_C(175.0) / REAL_C(512.0)));
-                TINY_BCLIBC_V3dT_fma(&p6, k3.dp, dt * (REAL_C(575.0) / REAL_C(13824.0)));
-                TINY_BCLIBC_V3dT_fma(&p6, k4.dp, dt * (REAL_C(44275.0) / REAL_C(110592.0)));
-                TINY_BCLIBC_V3dT_fma(&p6, k5.dp, dt * (REAL_C(253.0) / REAL_C(4096.0)));
+                TINY_BCLIBC_V3dT_fma(&vr6, dv6, dt);
+                TINY_BCLIBC_V3dT_fma(&p6, dp6, dt);
                 tiny_bclibc__CkDeriv k6 = tiny_bclibc__ck_deriv(props, wind, gpc, vr6, p6);
 
-                vr_next = vr;
-                pos_next = pos;
-                TINY_BCLIBC_V3dT_fma(&vr_next, k1.dvr, dt * (REAL_C(37.0) / REAL_C(378.0)));
-                TINY_BCLIBC_V3dT_fma(&vr_next, k3.dvr, dt * (REAL_C(250.0) / REAL_C(621.0)));
-                TINY_BCLIBC_V3dT_fma(&vr_next, k4.dvr, dt * (REAL_C(125.0) / REAL_C(594.0)));
-                TINY_BCLIBC_V3dT_fma(&vr_next, k6.dvr, dt * (REAL_C(512.0) / REAL_C(1771.0)));
-                TINY_BCLIBC_V3dT_fma(&pos_next, k1.dp, dt * (REAL_C(37.0) / REAL_C(378.0)));
-                TINY_BCLIBC_V3dT_fma(&pos_next, k3.dp, dt * (REAL_C(250.0) / REAL_C(621.0)));
-                TINY_BCLIBC_V3dT_fma(&pos_next, k4.dp, dt * (REAL_C(125.0) / REAL_C(594.0)));
-                TINY_BCLIBC_V3dT_fma(&pos_next, k6.dp, dt * (REAL_C(512.0) / REAL_C(1771.0)));
+                /* Stage 7 -- its A-row equals the 5th-order B weights (the
+                 * FSAL point), so vr7/p7 below ARE vr_next/pos_next: no
+                 * separate weighted-sum pass needed. dv7/dp7 here is exactly
+                 * the same expression the C++ core computes as `sum_v`/
+                 * `sum_p` in its separate final-result pass (same coefficients,
+                 * same accumulation order, stage 7's own B(6)=0 term
+                 * contributing nothing) -- so vr7/p7 equal the C++ core's
+                 * vr_next/pos_next bit-for-bit, not just algebraically. */
+                TINY_BCLIBC_V3dT dv7 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT dp7 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
+                TINY_BCLIBC_V3dT_fma(&dv7, k1.dvr, REAL_C(0.09646076681806522951816731316512876333712));
+                TINY_BCLIBC_V3dT_fma(&dv7, k2.dvr, REAL_C(0.01));
+                TINY_BCLIBC_V3dT_fma(&dv7, k3.dvr, REAL_C(0.479889650414499574775249532290596519913));
+                TINY_BCLIBC_V3dT_fma(&dv7, k4.dvr, REAL_C(1.379008574103741893192274821856872770756));
+                TINY_BCLIBC_V3dT_fma(&dv7, k5.dvr, REAL_C(-3.290069515436080679901047585711363850116));
+                TINY_BCLIBC_V3dT_fma(&dv7, k6.dvr, REAL_C(2.324710524099773982415355918398765796109));
+                TINY_BCLIBC_V3dT_fma(&dp7, k1.dp, REAL_C(0.09646076681806522951816731316512876333712));
+                TINY_BCLIBC_V3dT_fma(&dp7, k2.dp, REAL_C(0.01));
+                TINY_BCLIBC_V3dT_fma(&dp7, k3.dp, REAL_C(0.479889650414499574775249532290596519913));
+                TINY_BCLIBC_V3dT_fma(&dp7, k4.dp, REAL_C(1.379008574103741893192274821856872770756));
+                TINY_BCLIBC_V3dT_fma(&dp7, k5.dp, REAL_C(-3.290069515436080679901047585711363850116));
+                TINY_BCLIBC_V3dT_fma(&dp7, k6.dp, REAL_C(2.324710524099773982415355918398765796109));
+                TINY_BCLIBC_V3dT vr7 = vr, p7 = pos;
+                TINY_BCLIBC_V3dT_fma(&vr7, dv7, dt);
+                TINY_BCLIBC_V3dT_fma(&p7, dp7, dt);
+                tiny_bclibc__CkDeriv k7 = tiny_bclibc__ck_deriv(props, wind, gpc, vr7, p7);
 
+                vr_next = vr7;
+                pos_next = p7;
+
+                /* Error weights: 5th-order minus embedded 4th-order. */
                 TINY_BCLIBC_V3dT err_v = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
                 TINY_BCLIBC_V3dT err_p = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
-                const real_t D1 = REAL_C(37.0) / REAL_C(378.0) - REAL_C(2825.0) / REAL_C(27648.0);
-                const real_t D3 = REAL_C(250.0) / REAL_C(621.0) - REAL_C(18575.0) / REAL_C(48384.0);
-                const real_t D4 = REAL_C(125.0) / REAL_C(594.0) - REAL_C(13525.0) / REAL_C(55296.0);
-                const real_t D5 = REAL_C(0.0) - REAL_C(277.0) / REAL_C(14336.0);
-                const real_t D6 = REAL_C(512.0) / REAL_C(1771.0) - REAL_C(0.25);
+                const real_t D1 = REAL_C(0.09646076681806522951816731316512876333712) - REAL_C(0.09468075576583945807478876255758922856118);
+                const real_t D2 = REAL_C(0.01) - REAL_C(0.009183565540343253096776363936645313759814);
+                const real_t D3 = REAL_C(0.479889650414499574775249532290596519913) - REAL_C(0.4877705284247615707855642599631228241517);
+                const real_t D4 = REAL_C(1.379008574103741893192274821856872770756) - REAL_C(1.234297566930478985655109673884237654036);
+                const real_t D5 = REAL_C(-3.290069515436080679901047585711363850116) - REAL_C(-2.707712349983525454881109975059321670690);
+                const real_t D6 = REAL_C(2.324710524099773982415355918398765796109) - REAL_C(1.866628418170587035753719399566211498666);
+                const real_t D7 = REAL_C(0.0) - REAL_C(0.01515151515151515151515151515151515151515);
                 TINY_BCLIBC_V3dT_fma(&err_v, k1.dvr, D1);
+                TINY_BCLIBC_V3dT_fma(&err_v, k2.dvr, D2);
                 TINY_BCLIBC_V3dT_fma(&err_v, k3.dvr, D3);
                 TINY_BCLIBC_V3dT_fma(&err_v, k4.dvr, D4);
                 TINY_BCLIBC_V3dT_fma(&err_v, k5.dvr, D5);
                 TINY_BCLIBC_V3dT_fma(&err_v, k6.dvr, D6);
+                TINY_BCLIBC_V3dT_fma(&err_v, k7.dvr, D7);
                 TINY_BCLIBC_V3dT_scale_assign(&err_v, dt);
                 TINY_BCLIBC_V3dT_fma(&err_p, k1.dp, D1);
+                TINY_BCLIBC_V3dT_fma(&err_p, k2.dp, D2);
                 TINY_BCLIBC_V3dT_fma(&err_p, k3.dp, D3);
                 TINY_BCLIBC_V3dT_fma(&err_p, k4.dp, D4);
                 TINY_BCLIBC_V3dT_fma(&err_p, k5.dp, D5);
                 TINY_BCLIBC_V3dT_fma(&err_p, k6.dp, D6);
+                TINY_BCLIBC_V3dT_fma(&err_p, k7.dp, D7);
                 TINY_BCLIBC_V3dT_scale_assign(&err_p, dt);
 
                 const real_t atol = REAL_C(1e-6);
@@ -515,17 +695,28 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 if (err_norm <= REAL_C(1.0) || dt <= min_dt * REAL_C(1.0001))
                 {
                     dt_used = dt;
-                    real_t grow = (err_norm > REAL_C(1.89e-4))
-                                      ? REAL_C(0.9) * TINY_BCLIBC_POW(err_norm, REAL_C(-0.20))
-                                      : REAL_C(5.0);
-                    grow = (grow < REAL_C(1.0)) ? REAL_C(1.0) : ((grow > REAL_C(5.0)) ? REAL_C(5.0) : grow);
+                    real_t grow;
+                    if (err_norm == REAL_C(0.0))
+                        grow = REAL_C(10.0);
+                    else
+                    {
+                        grow = REAL_C(0.9) * TINY_BCLIBC_POW(err_norm, REAL_C(-0.2));
+                        if (grow > REAL_C(10.0))
+                            grow = REAL_C(10.0);
+                    }
+                    if (rejected_attempt && grow > REAL_C(1.0))
+                        grow = REAL_C(1.0);
                     dt = dt * grow;
                     if (dt > max_dt)
                         dt = max_dt;
+                    cached_first = k7;
+                    have_first = 1;
                     break;
                 }
-                real_t shrink = REAL_C(0.9) * TINY_BCLIBC_POW(err_norm, REAL_C(-0.25));
-                shrink = (shrink < REAL_C(0.1)) ? REAL_C(0.1) : ((shrink > REAL_C(0.9)) ? REAL_C(0.9) : shrink);
+                rejected_attempt = 1;
+                real_t shrink = REAL_C(0.9) * TINY_BCLIBC_POW(err_norm, REAL_C(-0.2));
+                if (shrink < REAL_C(0.2))
+                    shrink = REAL_C(0.2);
                 dt = dt * shrink;
                 if (dt < min_dt)
                     dt = min_dt;
@@ -650,6 +841,98 @@ static inline void tiny_bclibc__set_error(const char *msg)
         }
     }
 
+    /* Returns every crossing of the scalar-quantity cubic Hermite polynomial
+     * built from its value (y0/y1) and time-derivative (dy0/dy1) at the
+     * interval's two endpoints (dt = interval length; roots are returned as
+     * u in (0,1), i.e. fractions of dt from the start). Mirrors bclibc's
+     * hermite_scalar_roots (src/traj_filter.cpp) exactly: a plain sign
+     * comparison of y0 vs y1 alone misses an up/down pair of roots
+     * contained in one adaptive accepted interval (both endpoints can land
+     * on the same side even though the curve crosses zero twice in
+     * between) -- which is exactly what an FSAL controller's much larger
+     * accepted steps make far more likely than Cash-Karp's smaller ones
+     * ever were. Splitting [0,1] at the cubic's own critical points (the
+     * roots of its quadratic derivative) makes each sub-interval monotonic,
+     * so every crossing is bracketed and found by bisection, without
+     * imposing any solver-step-size policy here. out_roots must hold at
+     * least 3 elements (a cubic has at most 3 real roots); returns the
+     * count found, in increasing order. */
+    static inline int32_t tiny_bclibc__hermite_scalar_roots(
+        real_t y0, real_t y1, real_t dy0, real_t dy1, real_t dt, real_t *out_roots)
+    {
+        const real_t c = dt * dy0;
+        const real_t b = REAL_C(-3.0) * y0 + REAL_C(3.0) * y1 - REAL_C(2.0) * c - dt * dy1;
+        const real_t a = REAL_C(2.0) * y0 - REAL_C(2.0) * y1 + c + dt * dy1;
+
+        real_t points[4];
+        int32_t n_points = 0;
+        points[n_points++] = REAL_C(0.0);
+        points[n_points++] = REAL_C(1.0);
+
+        const real_t qa = REAL_C(3.0) * a, qb = REAL_C(2.0) * b, qc = c;
+        if (TINY_BCLIBC_FABS(qa) > REAL_C(1e-15))
+        {
+            const real_t disc = qb * qb - REAL_C(4.0) * qa * qc;
+            if (disc >= REAL_C(0.0))
+            {
+                const real_t root = TINY_BCLIBC_SQRT(disc);
+                const real_t u1 = (-qb - root) / (REAL_C(2.0) * qa);
+                const real_t u2 = (-qb + root) / (REAL_C(2.0) * qa);
+                if (u1 > REAL_C(0.0) && u1 < REAL_C(1.0))
+                    points[n_points++] = u1;
+                if (u2 > REAL_C(0.0) && u2 < REAL_C(1.0))
+                    points[n_points++] = u2;
+            }
+        }
+        else if (TINY_BCLIBC_FABS(qb) > REAL_C(1e-15))
+        {
+            const real_t u = -qc / qb;
+            if (u > REAL_C(0.0) && u < REAL_C(1.0))
+                points[n_points++] = u;
+        }
+
+        /* insertion sort -- n_points <= 4 */
+        for (int32_t i = 1; i < n_points; i++)
+        {
+            real_t key = points[i];
+            int32_t j = i - 1;
+            while (j >= 0 && points[j] > key)
+            {
+                points[j + 1] = points[j];
+                j--;
+            }
+            points[j + 1] = key;
+        }
+
+        int32_t n_roots = 0;
+        for (int32_t i = 1; i < n_points; i++)
+        {
+            real_t lo = points[i - 1], hi = points[i];
+            real_t flo = ((a * lo + b) * lo + c) * lo + y0;
+            const real_t fhi = ((a * hi + b) * hi + c) * hi + y0;
+            if (flo == REAL_C(0.0) && lo > REAL_C(1e-12) && lo < REAL_C(1.0) - REAL_C(1e-12))
+                out_roots[n_roots++] = lo;
+            if ((flo < REAL_C(0.0)) == (fhi < REAL_C(0.0)))
+                continue;
+            for (int32_t k = 0; k < 48; k++)
+            {
+                const real_t mid = REAL_C(0.5) * (lo + hi);
+                const real_t fm = ((a * mid + b) * mid + c) * mid + y0;
+                if ((flo < REAL_C(0.0)) != (fm < REAL_C(0.0)))
+                    hi = mid;
+                else
+                {
+                    lo = mid;
+                    flo = fm;
+                }
+            }
+            const real_t root = REAL_C(0.5) * (lo + hi);
+            if (root > REAL_C(1e-12) && root < REAL_C(1.0) - REAL_C(1e-12))
+                out_roots[n_roots++] = root;
+        }
+        return n_roots;
+    }
+
     static inline int32_t tiny_bclibc__integrate_on_first(const TINY_BCLIBC_BaseTrajData *pt, void *ctx_)
     {
         tiny_bclibc__IntegrateCtx *c = (tiny_bclibc__IntegrateCtx *)ctx_;
@@ -729,26 +1012,25 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
         if (c->active_flags & TINY_BCLIBC_TRAJ_FLAG_ZERO)
         {
-            tiny_bclibc__SlantAux aux;
-            aux.la_cos = TINY_BCLIBC_COS(c->props->look_angle);
-            aux.la_sin = TINY_BCLIBC_SIN(c->props->look_angle);
-            real_t start_slant = start->py * aux.la_cos - start->px * aux.la_sin;
-            real_t end_slant = end->py * aux.la_cos - end->px * aux.la_sin;
-            int32_t cross_flag = 0;
-            if (c->active_flags & TINY_BCLIBC_TRAJ_FLAG_ZERO_UP)
-            {
-                if (start_slant < REAL_C(0.0) && end_slant > REAL_C(0.0))
-                    cross_flag = TINY_BCLIBC_TRAJ_FLAG_ZERO_UP;
-            }
-            else if (c->active_flags & TINY_BCLIBC_TRAJ_FLAG_ZERO_DOWN)
-            {
-                if (start_slant > REAL_C(0.0) && end_slant < REAL_C(0.0))
-                    cross_flag = TINY_BCLIBC_TRAJ_FLAG_ZERO_DOWN;
-            }
-            if (cross_flag)
+            const real_t la_cos = TINY_BCLIBC_COS(c->props->look_angle);
+            const real_t la_sin = TINY_BCLIBC_SIN(c->props->look_angle);
+            const real_t y0 = start->py * la_cos - start->px * la_sin;
+            const real_t y1 = end->py * la_cos - end->px * la_sin;
+            const real_t dy0 = start->vy * la_cos - start->vx * la_sin;
+            const real_t dy1 = end->vy * la_cos - end->vx * la_sin;
+            const real_t dt = end->time - start->time;
+            real_t roots[3];
+            int32_t n_roots = tiny_bclibc__hermite_scalar_roots(y0, y1, dy0, dy1, dt, roots);
+            for (int32_t ri = 0; ri < n_roots; ri++)
             {
                 TINY_BCLIBC_BaseTrajData r;
-                if (tiny_bclibc__hermite_at_value(start, end, tiny_bclibc__value_slant, &aux, REAL_C(0.0), &r))
+                if (!tiny_bclibc__hermite_at_time(start, end, start->time + roots[ri] * dt, &r))
+                    continue;
+                const real_t slope = r.vy * la_cos - r.vx * la_sin;
+                const int32_t cross_flag = (slope > REAL_C(0.0))
+                                               ? TINY_BCLIBC_TRAJ_FLAG_ZERO_UP
+                                               : TINY_BCLIBC_TRAJ_FLAG_ZERO_DOWN;
+                if (c->active_flags & cross_flag)
                 {
                     tiny_bclibc__integrate_emit(c, &r, cross_flag);
                     c->active_flags &= ~cross_flag;
@@ -786,7 +1068,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         ctx.capacity = buf_capacity;
 
         int32_t reason = TINY_BCLIBC_TERM_NO_TERMINATE;
-        int32_t rc = tiny_bclibc__run_cashkarp(props, req,
+        int32_t rc = tiny_bclibc__run_tsitouras(props, req,
                                                tiny_bclibc__integrate_on_first,
                                                tiny_bclibc__integrate_on_interval,
                                                &ctx, &reason);
@@ -825,7 +1107,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         ctx.stream_ctx = cb_ctx;
 
         int32_t reason = TINY_BCLIBC_TERM_NO_TERMINATE;
-        int32_t rc = tiny_bclibc__run_cashkarp(props, req,
+        int32_t rc = tiny_bclibc__run_tsitouras(props, req,
                                                tiny_bclibc__integrate_on_first,
                                                tiny_bclibc__integrate_on_interval,
                                                &ctx, &reason);
@@ -912,7 +1194,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         ctx.cb_ctx = cb_ctx;
 
         int32_t reason = TINY_BCLIBC_TERM_NO_TERMINATE;
-        int32_t rc = tiny_bclibc__run_cashkarp(props, &req,
+        int32_t rc = tiny_bclibc__run_tsitouras(props, &req,
                                                tiny_bclibc__raw_ck_on_first,
                                                tiny_bclibc__raw_ck_on_interval,
                                                &ctx, &reason);
@@ -1046,7 +1328,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         req.filter_flags = TINY_BCLIBC_TRAJ_FLAG_NONE;
 
         int32_t reason;
-        tiny_bclibc__run_cashkarp(props, &req,
+        tiny_bclibc__run_tsitouras(props, &req,
                                   tiny_bclibc__at_ck_on_first,
                                   tiny_bclibc__at_ck_on_interval,
                                   &ctx, &reason);
@@ -1163,7 +1445,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         req.filter_flags = TINY_BCLIBC_TRAJ_FLAG_NONE;
 
         int32_t reason;
-        tiny_bclibc__run_cashkarp(props_mut, &req,
+        tiny_bclibc__run_tsitouras(props_mut, &req,
                                   tiny_bclibc__zero_cross_ck_on_first,
                                   tiny_bclibc__zero_cross_ck_on_interval,
                                   &ctx, &reason);

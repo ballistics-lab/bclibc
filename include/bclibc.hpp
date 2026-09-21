@@ -16,5 +16,6 @@
 #include "bclibc/embedded_rk45.hpp"
 #include "bclibc/cash_karp.hpp"
 #include "bclibc/dormand_prince.hpp"
+#include "bclibc/tsitouras.hpp"
 
 #endif // BCLIBC_HPP

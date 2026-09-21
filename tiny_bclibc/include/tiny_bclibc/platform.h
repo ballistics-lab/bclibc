@@ -58,8 +58,9 @@ typedef double real_t;
 /* ── Large internal functions (engine.h) ────────────────────────────
  *  TINY_BCLIBC_INTERNAL: static + noinline.
  *
- *  Without this -O2/-O3 inlines tiny_bclibc__run_rk4 (~4 KB) into each
- *  of the 5 public functions → 20 KB of duplicate code in .so and native .mpy.
+ *  Without this -O2/-O3 inlines tiny_bclibc__run_tsitouras into each
+ *  of the 5 public functions that call it → several KB of duplicate code
+ *  in .so and native .mpy.
  *  noinline guarantees a single instance regardless of build flags.
  *
  *  Small helpers (v3d, interp, atmosphere_update) remain

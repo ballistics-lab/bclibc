@@ -7,6 +7,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-beta.8] - 2026-09-21
+
+### Added
+- New `BCLIBC_integrateTsitouras` (`bclibc/tsitouras.hpp`): Tsitouras 5(4) ("Tsit5"), a 7-stage
+  FSAL RK45 pair structurally identical to `BCLIBC_integrateDormandPrince` (same
+  `ScipyRKController`, same tolerance API shape), with coefficients verified against
+  `ARKODE_TSITOURAS_7_4_5` in SUNDIALS/ARKODE. Adds `BCLIBCFFI_INTEGRATION_TSITOURAS` to the FFI
+  enum and `build_wasm.sh`'s source list.
+- `tiny_bclibc` migrated from Cash-Karp to Tsitouras as its baked-in adaptive core
+  (`tiny_bclibc__run_tsitouras` in `engine.h`), including the FSAL derivative cache and
+  wind-boundary step limiting the C++ `ScipyRKController` also does. Measured against the
+  previous Cash-Karp build: within noise on wall-clock and accepted-step-count benchmarks for
+  smooth ballistic trajectories — see [tiny_bclibc's README](tiny_bclibc/README.md#adaptive-integration-tsitouras)
+  and the top-level [Adaptive integration](README.md#adaptive-integration) section for the
+  measured numbers and why it was switched anyway.
+
+### Fixed
+- `bclibc_ffi.cpp`'s `calcStep()`/`selectIntegrateFunc()` grouped `BCLIBCFFI_INTEGRATION_EULER`
+  with the switch's `default:` label, so any unrecognized/out-of-range method value silently ran
+  (and step-sized for) Euler instead of RK4, the library's documented default. `default:` now
+  falls back to RK4.
+- `ScipyRKController::limit_step_at_wind_boundary` (shared logic duplicated in
+  `dormand_prince.cpp` and `tsitouras.cpp`) could shrink `dt` toward zero without ever actually
+  crossing a wind-zone boundary: it re-limits `dt` to the exact remaining distance every
+  iteration, and floating-point rounding of that "land at, never past" step can leave `pos.x` a
+  few ULPs short of the boundary instead of on or past it -- a Zeno's-paradox loop. Confirmed via
+  `tiny_bclibc`'s C port of the same controller (which hit it in practice for a 3+ wind-zone
+  shot, `tests/test_computer.py::test_multiple_wind` in py-ballisticcalc); Dormand-Prince simply
+  hadn't hit it on the existing test suite, not because the logic was safe. Fixed by treating the
+  boundary as already reached below a `1e-7` ft floor, matching the wind-change trigger's own
+  epsilon.
+- `tiny_bclibc`'s `ZERO_UP`/`ZERO_DOWN` event detection compared only each accepted interval's
+  two endpoint signs, missing an up/down pair of crossings entirely contained within one interval
+  (both endpoints land on the same side of the sight line). Cash-Karp's more conservative
+  controller never grew a step wide enough to do this; Tsitouras's FSAL/larger-growth-cap
+  controller does. Fixed by porting bclibc's own cubic-Hermite multi-root finder
+  (`hermite_scalar_roots` in `src/traj_filter.cpp`) to `tiny_bclibc__hermite_scalar_roots` in
+  `engine.h`, used the same way: split the interval at the cubic's own critical points so each
+  sub-interval is monotonic, then bisect each for a sign change.
+
+### Fixed
+- `tiny_bclibc__run_tsitouras` folded `dt` into each stage's coefficient and added the result
+  directly onto the (much larger-magnitude) `vr`/`pos` base, one term at a time -- unlike the
+  C++ generic core (`embedded_rk45.hpp`), which accumulates the unscaled weighted sum of prior
+  derivatives first and applies `dt` in a single multiply-then-add at the end. Both orders are
+  algebraically identical, but repeatedly perturbing a large base with small per-term
+  corrections rounds differently (and less favorably) than summing the small corrections
+  together first. Rewrote all 6 stage computations (and the final FSAL `vr_next`/`pos_next`) to
+  match the C++ core's accumulate-then-scale-then-add order. Confirmed via the identity test:
+  per-field diffs on a simple no-wind shot dropped from ~1e-9 to ~1e-16-1e-13 (several fields
+  now bit-identical). This alone didn't close py-ballisticcalc's
+  `tests/test_hitresult.py::test_flags` divergence (see the next entry for why and how that
+  got fixed too).
+
+- `tiny_bclibc__hermite_at_time` reconstructed its interval-interior `.mach` (speed / local
+  speed of sound) by linearly interpolating the *ratio* itself between the two accepted-step
+  endpoints. Unlike position/velocity, `.mach` isn't part of the ODE's state, so there's no
+  Hermite basis for it directly -- but the ratio's curvature over an interval comes almost
+  entirely from velocity's curvature, and velocity *is* exactly reconstructable (it's what the
+  Hermite derivative above already computes). Linearly interpolating the pre-divided ratio
+  threw that away, costing real accuracy specifically at MACH crossings -- and specifically in
+  the transonic region, where the drag curve's "bump" makes velocity's curvature largest.
+  Confirmed via a step-by-step trajectory diff against the C++ engine on
+  py-ballisticcalc's `tests/test_hitresult.py::test_flags` (a shot with wind and calculated
+  powder sensitivity): every regularly-sampled point on both sides of the MACH crossing agreed
+  to ~1e-14 (the accumulation-order fix above worked), but the crossing itself landed 0.67 yd
+  off out of 963 yd (0.07%) -- isolated entirely to that one interpolated point, not a
+  drifting/diverging step sequence as this entry previously (incorrectly) surmised. Fixed by
+  matching bclibc's own C++ `traj_filter.cpp`: back out each endpoint's speed of sound (fps)
+  from its already-known ratio and speed, linearly interpolate *that* (it varies smoothly with
+  altitude, unlike the ratio near the transonic bump), and divide the accurately-reconstructed
+  velocity magnitude by it. `test_flags` now passes bit-for-bit-adjacent under
+  `TinyBclibcDoubleIntegrationEngine` (previously the suite's one known tiny_bclibc-only
+  failure); no regressions across either precision's full suite.
+
+### Known issues
+- Single precision still shows two additional tolerance misses since the Tsitouras switch
+  (`test_computer.py::test_wind_lag_rule`/`test_multiple_wind`), a side effect of the
+  accumulation-order fix above shifting float32 rounding at already-marginal self-consistency
+  tolerances -- same class as the rest of `TinyBclibcSingleIntegrationEngine`'s pre-existing
+  documented precision-floor failures (see its docstring in py-ballisticcalc's
+  `examples/tiny_bclibc/__init__.py`), not a logic bug.
+
 ## [2.0.0-beta.7] - 2026-09-18
 
 ### Changed
@@ -483,7 +566,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.7...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.8...HEAD
+[2.0.0-beta.8]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.7...v2.0.0-beta.8
 [2.0.0-beta.7]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.6...v2.0.0-beta.7
 [2.0.0-beta.6]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.5...v2.0.0-beta.6
 [2.0.0-beta.5]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.4...v2.0.0-beta.5

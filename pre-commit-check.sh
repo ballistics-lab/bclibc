@@ -127,5 +127,31 @@ if [[ "$OS" == "Linux" ]]; then
 fi
 
 cd ..
+
+# 8. bclibc <-> tiny_bclibc identity test
+#
+# tiny_bclibc is its own standalone CMake project (not add_subdirectory'd from
+# the top-level build above), so it needs its own configure/build/run here --
+# this is the only place that cross-checks the C++ engine's adaptive
+# integrator (currently Tsitouras) against tiny_bclibc's hand-written C port
+# of the same math; nothing else in this script or in CI touches it.
+echo -e "\n${GREEN}8. Running bclibc <-> tiny_bclibc identity test...${NC}"
+TB_BUILD_DIR="tiny_bclibc/build_identity_check"
+rm -rf "$TB_BUILD_DIR"
+cmake -B "$TB_BUILD_DIR" -S tiny_bclibc -DTINY_BCLIBC_BUILD_IDENTITY_TEST=ON -DCMAKE_BUILD_TYPE=Release > /dev/null
+if [[ "$OS" == "Darwin" ]]; then
+    cmake --build "$TB_BUILD_DIR" -j"$(sysctl -n hw.ncpu)" > /dev/null
+else
+    cmake --build "$TB_BUILD_DIR" -j"$(nproc)" > /dev/null
+fi
+if "$TB_BUILD_DIR/tests/test_identity"; then
+    echo -e "   ${GREEN}[OK]${NC} Identity test passed."
+else
+    echo -e "   ${RED}[FAIL]${NC} Identity test failures detected!"
+    rm -rf "$TB_BUILD_DIR"
+    exit 1
+fi
+rm -rf "$TB_BUILD_DIR"
+
 echo -e "\n${GREEN}>>> ALL CHECKS PASSED! Ready for commit.${NC}"
 rm -rf "$BUILD_DIR"

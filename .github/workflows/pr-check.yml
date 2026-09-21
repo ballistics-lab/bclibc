@@ -49,7 +49,7 @@ jobs:
       - name: Run pre-commit check
         run: |
           chmod +x pre-commit-check.sh
-          ./pre-commit-check.sh || true
+          ./pre-commit-check.sh
 
   summary:
     name: Build Summary

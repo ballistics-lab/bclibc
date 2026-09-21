@@ -143,7 +143,7 @@ namespace
     void init_bclibc_engine(bclibc::BCLIBC_BaseEngine &eng, bclibc::BCLIBC_ShotProps props)
     {
         eng.shot = std::move(props);
-        eng.integrate_func = bclibc::BCLIBC_integrateCashKarp;
+        eng.integrate_func = bclibc::BCLIBC_integrateTsitouras;
         eng.config = bclibc::BCLIBC_Config(
             kDefaultConfig.cStepMultiplier,
             kDefaultConfig.cZeroFindingAccuracy,
@@ -167,11 +167,11 @@ namespace
         return records;
     }
 
-    // Run C++ Cash-Karp with the same filtered-output request as tiny_bclibc.
+    // Run C++ Tsitouras with the same filtered-output request as tiny_bclibc.
     std::vector<bclibc::BCLIBC_TrajectoryData>
-    run_bclibc_cashkarp_integrate(bclibc::BCLIBC_BaseEngine &eng, double range_ft, double step_ft)
+    run_bclibc_tsitouras_integrate(bclibc::BCLIBC_BaseEngine &eng, double range_ft, double step_ft)
     {
-        eng.integrate_func = bclibc::BCLIBC_integrateCashKarp;
+        eng.integrate_func = bclibc::BCLIBC_integrateTsitouras;
         return run_bclibc_integrate(eng, range_ft, step_ft);
     }
 
@@ -321,18 +321,21 @@ namespace
 // Test cases
 // ═══════════════════════════════════════════════════════════════════════════
 
-// tiny_bclibc's tiny_bclibc_integrate/_stream run Cash-Karp (adaptive RK45), not RK4 --
-// see engine.h's tiny_bclibc__run_cashkarp doc comment. The bclibc reference engine below
-// still runs fixed-step RK4 (init_bclibc_engine), so these two are now genuinely different
-// (both individually correct) integration algorithms, not two implementations of the same
-// one: their raw accepted-step boundaries fall at different times, so even an exact
-// reconstruction of the requested RANGE-step rows differs from the RK4 reference by small,
-// real, algorithm-dependent amounts. 1e-3 relative (+1e-6 absolute floor for near-zero
-// fields like windage/height close to the muzzle) comfortably covers everything observed
-// here (worst case ~1e-3 relative, on ogw_lb -- it scales as velocity^3, tripling velocity's
-// own relative error) while still catching an actual regression.
-constexpr double kCashKarpRelTol = 4e-3;
-constexpr double kCashKarpAbsFloor = 1e-6;
+// tiny_bclibc's tiny_bclibc_integrate/_stream run Tsitouras 5(4) (adaptive RK45,
+// FSAL), not RK4 -- see engine.h's tiny_bclibc__run_tsitouras doc comment. The
+// bclibc reference engine below now runs the same algorithm (init_bclibc_engine
+// sets BCLIBC_integrateTsitouras), but the C and C++ implementations still are
+// not bit-identical: their raw accepted-step boundaries fall at very slightly
+// different times (different derivative-evaluator call ordering, different
+// FSAL-cache bookkeeping), so even an exact reconstruction of the requested
+// RANGE-step rows differs from the C++ reference by small, real,
+// implementation-dependent amounts. 1e-3 relative (+1e-6 absolute floor for
+// near-zero fields like windage/height close to the muzzle) comfortably covers
+// everything observed here (worst case ~1e-3 relative, on ogw_lb -- it scales
+// as velocity^3, tripling velocity's own relative error) while still catching
+// an actual regression.
+constexpr double kTsitourasRelTol = 4e-3;
+constexpr double kTsitourasAbsFloor = 1e-6;
 
 static bool test_g7_basic_integrate()
 {
@@ -354,7 +357,7 @@ static bool test_g7_basic_integrate()
     auto tb_traj = run_tiny_bclibc_integrate(&tb_props, 3000.0, 100.0);
 
     return identity::compare_trajectories(bc_traj, tb_traj, "G7_BASIC / integrate / 3000ft@100ft",
-                                          kCashKarpAbsFloor, kCashKarpRelTol);
+                                          kTsitourasAbsFloor, kTsitourasRelTol);
 }
 
 static bool test_g7_wind_integrate()
@@ -377,13 +380,13 @@ static bool test_g7_wind_integrate()
     auto tb_traj = run_tiny_bclibc_integrate(&tb_props, 3000.0, 100.0);
 
     return identity::compare_trajectories(bc_traj, tb_traj, "G7_WIND / integrate / 3000ft@100ft",
-                                          kCashKarpAbsFloor, kCashKarpRelTol);
+                                          kTsitourasAbsFloor, kTsitourasRelTol);
 }
 
 // Cash-Karp's accept/reject decisions must use the same per-component RMS
 // controller in the C and C++ engines. This end-to-end case exercises that
 // common policy through their public filtered-trajectory APIs.
-static bool test_g7_basic_cashkarp_parity()
+static bool test_g7_basic_tsitouras_parity()
 {
     bclibc::BCLIBC_BaseEngine bc_eng;
     init_bclibc_engine(bc_eng, make_bclibc_shot_props());
@@ -396,12 +399,12 @@ static bool test_g7_basic_cashkarp_parity()
         return false;
     }
 
-    auto bc_traj = run_bclibc_cashkarp_integrate(bc_eng, 3000.0, 100.0);
+    auto bc_traj = run_bclibc_tsitouras_integrate(bc_eng, 3000.0, 100.0);
     auto tb_traj = run_tiny_bclibc_integrate(&tb_props, 3000.0, 100.0);
 
     return identity::compare_trajectories(bc_traj, tb_traj,
-                                          "G7_BASIC / Cash-Karp parity / 3000ft@100ft",
-                                          kCashKarpAbsFloor, kCashKarpRelTol);
+                                          "G7_BASIC / Tsitouras parity / 3000ft@100ft",
+                                          kTsitourasAbsFloor, kTsitourasRelTol);
 }
 
 static bool test_g7_basic_zero_angle()
@@ -499,7 +502,16 @@ static bool test_g7_basic_find_apex()
     }
 
     std::printf("\n=== G7_BASIC / find_apex / barrel_el=0.05rad ===\n");
-    return identity::compare_point(bc_apex, tb_apex, 0, identity::kAbsTol, true);
+    // Tsitouras is FSAL and takes far fewer, larger adaptive steps than Cash-Karp
+    // (no per-retry-recompute, growth factor capped at 10x vs Cash-Karp's 5x): each
+    // step's own C-vs-C++ stage-arithmetic rounding (templated Tableau::A(i,j) loop
+    // summing derivatives before the single dt-scale in bclibc's C++ core, vs this
+    // file's dt-scale-then-FMA-accumulate C style) therefore carries more weight
+    // per step here than under Cash-Karp, where pure kAbsTol (no rel_tol) happened
+    // to hold. Observed worst case ~1.4e-11 relative on this fixture; 1e-7 leaves
+    // ample margin across platforms/compilers while still catching a real
+    // regression many orders of magnitude larger than expected FP noise.
+    return identity::compare_point(bc_apex, tb_apex, 0, identity::kAbsTol, true, 1e-7);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -514,7 +526,7 @@ int main()
     bool all_pass = true;
     all_pass &= test_g7_basic_integrate();
     all_pass &= test_g7_wind_integrate();
-    all_pass &= test_g7_basic_cashkarp_parity();
+    all_pass &= test_g7_basic_tsitouras_parity();
     all_pass &= test_g7_basic_zero_angle();
     all_pass &= test_g7_basic_zero_point();
     all_pass &= test_g7_basic_find_apex();
