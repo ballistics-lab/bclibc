@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING**: The embedded RK45 methods' per-method tolerance/stats API
+  (`BCLIBC_cashKarpSetRelativeTolerance`, `BCLIBC_cashKarpSetAbsoluteTolerance`,
+  `BCLIBC_cashKarpGetStats`, and the equivalent `dormandPrince`/`tsitouras`
+  functions) is replaced by stateful integrator classes
+  (`BCLIBC_CashKarpIntegrator`, `BCLIBC_DormandPrinceIntegrator`,
+  `BCLIBC_TsitourasIntegrator` — `set_relative_tolerance()`,
+  `set_absolute_tolerance()`, `get_stats()`). The old functions read/wrote a
+  `thread_local` keyed by `<Tableau, Controller>`, so every `BCLIBC_BaseEngine`
+  on a thread using the same method shared one tolerance and one accepted/
+  rejected step count, silently clobbering each other for any caller running
+  more than one engine per thread (e.g. with intentionally different
+  tolerances, or reading stats between two engines' runs). Each new
+  integrator class instance owns its tolerances and stats independently, so
+  it can be assigned straight to one engine's `BCLIBC_IntegrateCallable
+  integrate_func` (wrap it in `std::ref` to keep reading its stats back
+  afterward — `std::function` copies whatever is assigned to it otherwise).
+  `BCLIBC_integrateCashKarp`/`BCLIBC_integrateDormandPrince`/
+  `BCLIBC_integrateTsitouras` are unchanged as plain
+  `BCLIBC_IntegrateCallable`-compatible free functions for the common case of
+  running at the default 1e-6/1e-6 tolerances with no need to read back stats
+  (e.g. `eng.integrate_func = bclibc::BCLIBC_integrateTsitouras;`).
+
 ## [2.0.0-beta.8] - 2026-09-21
 
 ### Added

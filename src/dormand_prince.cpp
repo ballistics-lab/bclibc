@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
 
 #include "bclibc/dormand_prince.hpp"
 #include "bclibc/embedded_rk45.hpp"
@@ -126,22 +127,39 @@ namespace bclibc
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason)
     {
-        integrate_embedded_rk45<DormandPrince54Tableau, ScipyRKController>(eng, handler, reason);
+        BCLIBC_DormandPrinceIntegrator integrator;
+        integrator(eng, handler, reason);
     }
 
-    void BCLIBC_dormandPrinceGetStats(int &out_accepted, int &out_rejected)
+    void BCLIBC_DormandPrinceIntegrator::operator()(
+        BCLIBC_BaseEngine &eng,
+        BCLIBC_BaseTrajDataHandlerInterface &handler,
+        BCLIBC_TerminationReason &reason)
     {
-        embeddedRKGetStats<DormandPrince54Tableau, ScipyRKController>(out_accepted, out_rejected);
+        embedded_rk45_detail::run<DormandPrince54Tableau, ScipyRKController>(
+            eng, handler, reason,
+            accepted_steps_, rejected_steps_,
+            relative_tolerance_, absolute_tolerance_);
     }
 
-    void BCLIBC_dormandPrinceSetRelativeTolerance(double tolerance)
+    void BCLIBC_DormandPrinceIntegrator::get_stats(int &out_accepted, int &out_rejected) const noexcept
     {
-        embeddedRKSetRelativeTolerance<DormandPrince54Tableau, ScipyRKController>(tolerance);
+        out_accepted = accepted_steps_;
+        out_rejected = rejected_steps_;
     }
 
-    void BCLIBC_dormandPrinceSetAbsoluteTolerance(double tolerance)
+    void BCLIBC_DormandPrinceIntegrator::set_relative_tolerance(double tolerance)
     {
-        embeddedRKSetAbsoluteTolerance<DormandPrince54Tableau, ScipyRKController>(tolerance);
+        if (!std::isfinite(tolerance) || tolerance <= 0.0)
+            throw std::invalid_argument("Dormand-Prince relative tolerance must be finite and positive");
+        relative_tolerance_ = tolerance;
+    }
+
+    void BCLIBC_DormandPrinceIntegrator::set_absolute_tolerance(double tolerance)
+    {
+        if (!std::isfinite(tolerance) || tolerance < 0.0)
+            throw std::invalid_argument("Dormand-Prince absolute tolerance must be finite and non-negative");
+        absolute_tolerance_ = tolerance;
     }
 
 }; // namespace bclibc

@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
 
 #include "bclibc/cash_karp.hpp"
 #include "bclibc/embedded_rk45.hpp"
@@ -98,22 +99,39 @@ namespace bclibc
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason)
     {
-        integrate_embedded_rk45<CashKarp54Tableau, CashKarpController>(eng, handler, reason);
+        BCLIBC_CashKarpIntegrator integrator;
+        integrator(eng, handler, reason);
     }
 
-    void BCLIBC_cashKarpGetStats(int &out_accepted, int &out_rejected)
+    void BCLIBC_CashKarpIntegrator::operator()(
+        BCLIBC_BaseEngine &eng,
+        BCLIBC_BaseTrajDataHandlerInterface &handler,
+        BCLIBC_TerminationReason &reason)
     {
-        embeddedRKGetStats<CashKarp54Tableau, CashKarpController>(out_accepted, out_rejected);
+        embedded_rk45_detail::run<CashKarp54Tableau, CashKarpController>(
+            eng, handler, reason,
+            accepted_steps_, rejected_steps_,
+            relative_tolerance_, absolute_tolerance_);
     }
 
-    void BCLIBC_cashKarpSetRelativeTolerance(double tolerance)
+    void BCLIBC_CashKarpIntegrator::get_stats(int &out_accepted, int &out_rejected) const noexcept
     {
-        embeddedRKSetRelativeTolerance<CashKarp54Tableau, CashKarpController>(tolerance);
+        out_accepted = accepted_steps_;
+        out_rejected = rejected_steps_;
     }
 
-    void BCLIBC_cashKarpSetAbsoluteTolerance(double tolerance)
+    void BCLIBC_CashKarpIntegrator::set_relative_tolerance(double tolerance)
     {
-        embeddedRKSetAbsoluteTolerance<CashKarp54Tableau, CashKarpController>(tolerance);
+        if (!std::isfinite(tolerance) || tolerance <= 0.0)
+            throw std::invalid_argument("Cash-Karp relative tolerance must be finite and positive");
+        relative_tolerance_ = tolerance;
+    }
+
+    void BCLIBC_CashKarpIntegrator::set_absolute_tolerance(double tolerance)
+    {
+        if (!std::isfinite(tolerance) || tolerance < 0.0)
+            throw std::invalid_argument("Cash-Karp absolute tolerance must be finite and non-negative");
+        absolute_tolerance_ = tolerance;
     }
 
 }; // namespace bclibc

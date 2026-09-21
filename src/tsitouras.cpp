@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
 
 #include "bclibc/tsitouras.hpp"
 #include "bclibc/embedded_rk45.hpp"
@@ -130,22 +131,39 @@ namespace bclibc
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason)
     {
-        integrate_embedded_rk45<Tsitouras54Tableau, TsitourasController>(eng, handler, reason);
+        BCLIBC_TsitourasIntegrator integrator;
+        integrator(eng, handler, reason);
     }
 
-    void BCLIBC_tsitourasGetStats(int &out_accepted, int &out_rejected)
+    void BCLIBC_TsitourasIntegrator::operator()(
+        BCLIBC_BaseEngine &eng,
+        BCLIBC_BaseTrajDataHandlerInterface &handler,
+        BCLIBC_TerminationReason &reason)
     {
-        embeddedRKGetStats<Tsitouras54Tableau, TsitourasController>(out_accepted, out_rejected);
+        embedded_rk45_detail::run<Tsitouras54Tableau, TsitourasController>(
+            eng, handler, reason,
+            accepted_steps_, rejected_steps_,
+            relative_tolerance_, absolute_tolerance_);
     }
 
-    void BCLIBC_tsitourasSetRelativeTolerance(double tolerance)
+    void BCLIBC_TsitourasIntegrator::get_stats(int &out_accepted, int &out_rejected) const noexcept
     {
-        embeddedRKSetRelativeTolerance<Tsitouras54Tableau, TsitourasController>(tolerance);
+        out_accepted = accepted_steps_;
+        out_rejected = rejected_steps_;
     }
 
-    void BCLIBC_tsitourasSetAbsoluteTolerance(double tolerance)
+    void BCLIBC_TsitourasIntegrator::set_relative_tolerance(double tolerance)
     {
-        embeddedRKSetAbsoluteTolerance<Tsitouras54Tableau, TsitourasController>(tolerance);
+        if (!std::isfinite(tolerance) || tolerance <= 0.0)
+            throw std::invalid_argument("Tsitouras relative tolerance must be finite and positive");
+        relative_tolerance_ = tolerance;
+    }
+
+    void BCLIBC_TsitourasIntegrator::set_absolute_tolerance(double tolerance)
+    {
+        if (!std::isfinite(tolerance) || tolerance < 0.0)
+            throw std::invalid_argument("Tsitouras absolute tolerance must be finite and non-negative");
+        absolute_tolerance_ = tolerance;
     }
 
 }; // namespace bclibc
