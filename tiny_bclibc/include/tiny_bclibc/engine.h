@@ -477,7 +477,25 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 if (ground_vx > REAL_C(0.0))
                 {
                     real_t remaining = ws.next_range - pos.x;
-                    if (remaining > REAL_C(0.0))
+                    /* Below this floor, treat the boundary as already reached
+                     * rather than keep shrinking dt to match: once a prior
+                     * iteration's limiting already got pos.x within a fraction
+                     * of a foot of next_range, the stage combination's own
+                     * rounding can land the accepted step a few ULPs *short* of
+                     * the boundary instead of exactly on or past it. Without
+                     * this floor, the next iteration re-limits dt to that
+                     * now-tinier remaining distance, and the one after that to
+                     * a tinier one still -- a Zeno's-paradox loop that in
+                     * practice never terminates (reproduced via
+                     * tests/test_computer.py::test_multiple_wind, a 3+
+                     * wind-zone shot; the wind-change epsilon above alone does
+                     * NOT fix this -- it decides *whether* to call
+                     * TINY_BCLIBC_WindSock_vector_for_range, but that function's
+                     * own internal comparison against next_range has no
+                     * tolerance, so it can keep returning the same
+                     * unadvanced wind zone every iteration). 1e-7 matches the
+                     * wind-change trigger's own epsilon. */
+                    if (remaining > REAL_C(1e-7))
                     {
                         real_t time_to_boundary = remaining / ground_vx;
                         if (time_to_boundary < dt)
