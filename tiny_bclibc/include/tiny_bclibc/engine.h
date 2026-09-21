@@ -770,6 +770,98 @@ static inline void tiny_bclibc__set_error(const char *msg)
         }
     }
 
+    /* Returns every crossing of the scalar-quantity cubic Hermite polynomial
+     * built from its value (y0/y1) and time-derivative (dy0/dy1) at the
+     * interval's two endpoints (dt = interval length; roots are returned as
+     * u in (0,1), i.e. fractions of dt from the start). Mirrors bclibc's
+     * hermite_scalar_roots (src/traj_filter.cpp) exactly: a plain sign
+     * comparison of y0 vs y1 alone misses an up/down pair of roots
+     * contained in one adaptive accepted interval (both endpoints can land
+     * on the same side even though the curve crosses zero twice in
+     * between) -- which is exactly what an FSAL controller's much larger
+     * accepted steps make far more likely than Cash-Karp's smaller ones
+     * ever were. Splitting [0,1] at the cubic's own critical points (the
+     * roots of its quadratic derivative) makes each sub-interval monotonic,
+     * so every crossing is bracketed and found by bisection, without
+     * imposing any solver-step-size policy here. out_roots must hold at
+     * least 3 elements (a cubic has at most 3 real roots); returns the
+     * count found, in increasing order. */
+    static inline int32_t tiny_bclibc__hermite_scalar_roots(
+        real_t y0, real_t y1, real_t dy0, real_t dy1, real_t dt, real_t *out_roots)
+    {
+        const real_t c = dt * dy0;
+        const real_t b = REAL_C(-3.0) * y0 + REAL_C(3.0) * y1 - REAL_C(2.0) * c - dt * dy1;
+        const real_t a = REAL_C(2.0) * y0 - REAL_C(2.0) * y1 + c + dt * dy1;
+
+        real_t points[4];
+        int32_t n_points = 0;
+        points[n_points++] = REAL_C(0.0);
+        points[n_points++] = REAL_C(1.0);
+
+        const real_t qa = REAL_C(3.0) * a, qb = REAL_C(2.0) * b, qc = c;
+        if (TINY_BCLIBC_FABS(qa) > REAL_C(1e-15))
+        {
+            const real_t disc = qb * qb - REAL_C(4.0) * qa * qc;
+            if (disc >= REAL_C(0.0))
+            {
+                const real_t root = TINY_BCLIBC_SQRT(disc);
+                const real_t u1 = (-qb - root) / (REAL_C(2.0) * qa);
+                const real_t u2 = (-qb + root) / (REAL_C(2.0) * qa);
+                if (u1 > REAL_C(0.0) && u1 < REAL_C(1.0))
+                    points[n_points++] = u1;
+                if (u2 > REAL_C(0.0) && u2 < REAL_C(1.0))
+                    points[n_points++] = u2;
+            }
+        }
+        else if (TINY_BCLIBC_FABS(qb) > REAL_C(1e-15))
+        {
+            const real_t u = -qc / qb;
+            if (u > REAL_C(0.0) && u < REAL_C(1.0))
+                points[n_points++] = u;
+        }
+
+        /* insertion sort -- n_points <= 4 */
+        for (int32_t i = 1; i < n_points; i++)
+        {
+            real_t key = points[i];
+            int32_t j = i - 1;
+            while (j >= 0 && points[j] > key)
+            {
+                points[j + 1] = points[j];
+                j--;
+            }
+            points[j + 1] = key;
+        }
+
+        int32_t n_roots = 0;
+        for (int32_t i = 1; i < n_points; i++)
+        {
+            real_t lo = points[i - 1], hi = points[i];
+            real_t flo = ((a * lo + b) * lo + c) * lo + y0;
+            const real_t fhi = ((a * hi + b) * hi + c) * hi + y0;
+            if (flo == REAL_C(0.0) && lo > REAL_C(1e-12) && lo < REAL_C(1.0) - REAL_C(1e-12))
+                out_roots[n_roots++] = lo;
+            if ((flo < REAL_C(0.0)) == (fhi < REAL_C(0.0)))
+                continue;
+            for (int32_t k = 0; k < 48; k++)
+            {
+                const real_t mid = REAL_C(0.5) * (lo + hi);
+                const real_t fm = ((a * mid + b) * mid + c) * mid + y0;
+                if ((flo < REAL_C(0.0)) != (fm < REAL_C(0.0)))
+                    hi = mid;
+                else
+                {
+                    lo = mid;
+                    flo = fm;
+                }
+            }
+            const real_t root = REAL_C(0.5) * (lo + hi);
+            if (root > REAL_C(1e-12) && root < REAL_C(1.0) - REAL_C(1e-12))
+                out_roots[n_roots++] = root;
+        }
+        return n_roots;
+    }
+
     static inline int32_t tiny_bclibc__integrate_on_first(const TINY_BCLIBC_BaseTrajData *pt, void *ctx_)
     {
         tiny_bclibc__IntegrateCtx *c = (tiny_bclibc__IntegrateCtx *)ctx_;
@@ -849,26 +941,25 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
         if (c->active_flags & TINY_BCLIBC_TRAJ_FLAG_ZERO)
         {
-            tiny_bclibc__SlantAux aux;
-            aux.la_cos = TINY_BCLIBC_COS(c->props->look_angle);
-            aux.la_sin = TINY_BCLIBC_SIN(c->props->look_angle);
-            real_t start_slant = start->py * aux.la_cos - start->px * aux.la_sin;
-            real_t end_slant = end->py * aux.la_cos - end->px * aux.la_sin;
-            int32_t cross_flag = 0;
-            if (c->active_flags & TINY_BCLIBC_TRAJ_FLAG_ZERO_UP)
-            {
-                if (start_slant < REAL_C(0.0) && end_slant > REAL_C(0.0))
-                    cross_flag = TINY_BCLIBC_TRAJ_FLAG_ZERO_UP;
-            }
-            else if (c->active_flags & TINY_BCLIBC_TRAJ_FLAG_ZERO_DOWN)
-            {
-                if (start_slant > REAL_C(0.0) && end_slant < REAL_C(0.0))
-                    cross_flag = TINY_BCLIBC_TRAJ_FLAG_ZERO_DOWN;
-            }
-            if (cross_flag)
+            const real_t la_cos = TINY_BCLIBC_COS(c->props->look_angle);
+            const real_t la_sin = TINY_BCLIBC_SIN(c->props->look_angle);
+            const real_t y0 = start->py * la_cos - start->px * la_sin;
+            const real_t y1 = end->py * la_cos - end->px * la_sin;
+            const real_t dy0 = start->vy * la_cos - start->vx * la_sin;
+            const real_t dy1 = end->vy * la_cos - end->vx * la_sin;
+            const real_t dt = end->time - start->time;
+            real_t roots[3];
+            int32_t n_roots = tiny_bclibc__hermite_scalar_roots(y0, y1, dy0, dy1, dt, roots);
+            for (int32_t ri = 0; ri < n_roots; ri++)
             {
                 TINY_BCLIBC_BaseTrajData r;
-                if (tiny_bclibc__hermite_at_value(start, end, tiny_bclibc__value_slant, &aux, REAL_C(0.0), &r))
+                if (!tiny_bclibc__hermite_at_time(start, end, start->time + roots[ri] * dt, &r))
+                    continue;
+                const real_t slope = r.vy * la_cos - r.vx * la_sin;
+                const int32_t cross_flag = (slope > REAL_C(0.0))
+                                               ? TINY_BCLIBC_TRAJ_FLAG_ZERO_UP
+                                               : TINY_BCLIBC_TRAJ_FLAG_ZERO_DOWN;
+                if (c->active_flags & cross_flag)
                 {
                     tiny_bclibc__integrate_emit(c, &r, cross_flag);
                     c->active_flags &= ~cross_flag;

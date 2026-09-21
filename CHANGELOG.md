@@ -26,6 +26,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with the switch's `default:` label, so any unrecognized/out-of-range method value silently ran
   (and step-sized for) Euler instead of RK4, the library's documented default. `default:` now
   falls back to RK4.
+- `ScipyRKController::limit_step_at_wind_boundary` (shared logic duplicated in
+  `dormand_prince.cpp` and `tsitouras.cpp`) could shrink `dt` toward zero without ever actually
+  crossing a wind-zone boundary: it re-limits `dt` to the exact remaining distance every
+  iteration, and floating-point rounding of that "land at, never past" step can leave `pos.x` a
+  few ULPs short of the boundary instead of on or past it -- a Zeno's-paradox loop. Confirmed via
+  `tiny_bclibc`'s C port of the same controller (which hit it in practice for a 3+ wind-zone
+  shot, `tests/test_computer.py::test_multiple_wind` in py-ballisticcalc); Dormand-Prince simply
+  hadn't hit it on the existing test suite, not because the logic was safe. Fixed by treating the
+  boundary as already reached below a `1e-7` ft floor, matching the wind-change trigger's own
+  epsilon.
+- `tiny_bclibc`'s `ZERO_UP`/`ZERO_DOWN` event detection compared only each accepted interval's
+  two endpoint signs, missing an up/down pair of crossings entirely contained within one interval
+  (both endpoints land on the same side of the sight line). Cash-Karp's more conservative
+  controller never grew a step wide enough to do this; Tsitouras's FSAL/larger-growth-cap
+  controller does. Fixed by porting bclibc's own cubic-Hermite multi-root finder
+  (`hermite_scalar_roots` in `src/traj_filter.cpp`) to `tiny_bclibc__hermite_scalar_roots` in
+  `engine.h`, used the same way: split the interval at the cubic's own critical points so each
+  sub-interval is monotonic, then bisect each for a sign change.
+
+### Known issues
+- `tiny_bclibc`'s Tsitouras port and bclibc's own C++ `BCLIBC_integrateTsitouras` are not
+  bit-identical: the FSAL shortcut (reusing the already-computed 7th-stage state directly as
+  `vr_next`/`pos_next`) sums per-stage contributions in a different order than the C++ core's
+  generic weighted-sum-then-scale-by-dt loop, both individually correct but rounding
+  differently. For most shots this is negligible (see the identity test's ~1e-11 relative
+  diffs), but adaptive step-acceptance decisions are sensitive to it, and for some shots the
+  step sequence itself ends up measurably different a few hundred yards downrange -- e.g.
+  py-ballisticcalc's `tests/test_hitresult.py::test_flags`, a shot with wind and calculated
+  powder sensitivity, lands its MACH crossing about 0.67 yd off out of 963 yd (0.07%,
+  outside that test's ±0.5 yd tolerance) under `tiny_bclibc`, not under the C++ engine. Not a
+  missed event, not a coefficient error (verified byte-identical against `tsitouras.cpp`) --
+  just two valid numerical paths through the same adaptive method. Single precision shows a
+  few additional tolerance misses of the same kind, on top of its own pre-existing documented
+  precision-floor failures (see `TinyBclibcSingleIntegrationEngine`'s docstring in
+  py-ballisticcalc's `examples/tiny_bclibc/__init__.py`).
 
 ## [2.0.0-beta.7] - 2026-09-18
 
