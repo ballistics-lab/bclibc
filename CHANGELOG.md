@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-beta.8] - 2026-09-21
+
 ### Added
 - New `BCLIBC_integrateTsitouras` (`bclibc/tsitouras.hpp`): Tsitouras 5(4) ("Tsit5"), a 7-stage
   FSAL RK45 pair structurally identical to `BCLIBC_integrateDormandPrince` (same
@@ -564,7 +566,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.7...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.8...HEAD
+[2.0.0-beta.8]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.7...v2.0.0-beta.8
 [2.0.0-beta.7]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.6...v2.0.0-beta.7
 [2.0.0-beta.6]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.5...v2.0.0-beta.6
 [2.0.0-beta.5]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.4...v2.0.0-beta.5
