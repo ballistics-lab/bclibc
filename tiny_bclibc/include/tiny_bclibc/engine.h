@@ -439,7 +439,17 @@ static inline void tiny_bclibc__set_error(const char *msg)
         while (*out_reason == TINY_BCLIBC_TERM_NO_TERMINATE)
         {
             int32_t wind_changed = 0;
-            if (pos.x >= ws.next_range)
+            /* Epsilon tolerance matches the C++ core's ScipyRKController exactly
+             * (see embedded_rk45.hpp) -- required here, unlike a plain `>=`, because
+             * of the wind-boundary step limiting below: it shrinks dt so an accepted
+             * step lands at (never strictly past) next_range, and floating-point
+             * rounding of that landing can leave pos.x a few ULPs *short* of
+             * next_range. Without this tolerance, the next iteration re-limits dt to
+             * that now-tinier remaining distance, and the one after that to a tinier
+             * one still -- a Zeno's-paradox loop that in practice never terminates
+             * (reproduced by tests/test_computer.py::test_multiple_wind, a 3+
+             * wind-zone shot, before this fix). */
+            if (pos.x + REAL_C(1e-7) >= ws.next_range)
             {
                 wind = TINY_BCLIBC_WindSock_vector_for_range(&ws, pos.x);
                 vr = TINY_BCLIBC_V3dT_sub(vel, wind);
