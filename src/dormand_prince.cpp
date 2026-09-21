@@ -131,6 +131,12 @@ namespace bclibc
         integrator(eng, handler, reason);
     }
 
+    BCLIBC_DormandPrinceIntegrator::BCLIBC_DormandPrinceIntegrator(double relative_tolerance, double absolute_tolerance)
+    {
+        set_relative_tolerance(relative_tolerance);
+        set_absolute_tolerance(absolute_tolerance);
+    }
+
     void BCLIBC_DormandPrinceIntegrator::operator()(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,

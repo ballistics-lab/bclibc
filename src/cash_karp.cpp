@@ -103,6 +103,12 @@ namespace bclibc
         integrator(eng, handler, reason);
     }
 
+    BCLIBC_CashKarpIntegrator::BCLIBC_CashKarpIntegrator(double relative_tolerance, double absolute_tolerance)
+    {
+        set_relative_tolerance(relative_tolerance);
+        set_absolute_tolerance(absolute_tolerance);
+    }
+
     void BCLIBC_CashKarpIntegrator::operator()(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,

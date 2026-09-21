@@ -34,6 +34,15 @@ namespace bclibc
     class BCLIBC_TsitourasIntegrator
     {
     public:
+        /**
+         * @brief Construct with explicit tolerances (each defaulting to 1e-6).
+         * @throws std::invalid_argument under the same conditions as
+         * @ref set_relative_tolerance / @ref set_absolute_tolerance.
+         */
+        explicit BCLIBC_TsitourasIntegrator(
+            double relative_tolerance = embedded_rk45_detail::default_tolerance,
+            double absolute_tolerance = embedded_rk45_detail::default_tolerance);
+
         void operator()(
             BCLIBC_BaseEngine &eng,
             BCLIBC_BaseTrajDataHandlerInterface &handler,

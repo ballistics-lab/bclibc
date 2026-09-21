@@ -77,8 +77,7 @@ namespace bclibc
      * back after the run:
      *
      * @code
-     * bclibc::BCLIBC_CashKarpIntegrator integrator;
-     * integrator.set_relative_tolerance(1e-8);
+     * bclibc::BCLIBC_CashKarpIntegrator integrator(1e-8);   // rtol=1e-8, atol defaults to 1e-6
      * eng.integrate_func = std::ref(integrator);   // this engine only, same instance
      * // ... eng.integrate(...) / eng.integrate_filtered(...) ...
      * int accepted, rejected;
@@ -92,6 +91,15 @@ namespace bclibc
     class BCLIBC_CashKarpIntegrator
     {
     public:
+        /**
+         * @brief Construct with explicit tolerances (each defaulting to 1e-6).
+         * @throws std::invalid_argument under the same conditions as
+         * @ref set_relative_tolerance / @ref set_absolute_tolerance.
+         */
+        explicit BCLIBC_CashKarpIntegrator(
+            double relative_tolerance = embedded_rk45_detail::default_tolerance,
+            double absolute_tolerance = embedded_rk45_detail::default_tolerance);
+
         void operator()(
             BCLIBC_BaseEngine &eng,
             BCLIBC_BaseTrajDataHandlerInterface &handler,
