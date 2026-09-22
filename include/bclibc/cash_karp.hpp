@@ -90,6 +90,21 @@ namespace bclibc
      * `integrate_func` instead runs Cash-Karp at the default 1e-6/1e-6
      * tolerances with no accessible stats -- use it when neither is needed.
      *
+     * `std::ref` isn't the only option: some binding layers (e.g. Cython,
+     * whose C++ temp-variable codegen requires stack-allocated types to have
+     * a default constructor, which `std::reference_wrapper` lacks) find it
+     * easier to assign the integrator by value and then recover a pointer to
+     * that exact copy via `std::function::target<T>()`, which is stable for
+     * as long as `integrate_func` itself isn't reassigned:
+     *
+     * @code
+     * eng.integrate_func = bclibc::BCLIBC_CashKarpIntegrator(1e-8);   // by value
+     * auto *integrator = eng.integrate_func.target<bclibc::BCLIBC_CashKarpIntegrator>();
+     * // ... eng.integrate(...) / eng.integrate_filtered(...) ...
+     * int accepted, rejected;
+     * integrator->get_stats(accepted, rejected);   // reflects the run above
+     * @endcode
+     *
      * Tolerances and stats are each stored in a `std::atomic`, so a single
      * instance CAN be shared (via `std::ref`) across threads -- e.g. one
      * `BCLIBC_CashKarpIntegrator` driving several `BCLIBC_BaseEngine`s

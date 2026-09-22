@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.1] - 2026-09-22
+
 ### Changed
 - **BREAKING**: The embedded RK45 methods' per-method tolerance/stats API
   (`BCLIBC_cashKarpSetRelativeTolerance`, `BCLIBC_cashKarpSetAbsoluteTolerance`,
@@ -47,9 +49,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fine for approximate monitoring, not for anything requiring the two to
   agree exactly. Verified race-free under ThreadSanitizer with multiple
   engine threads sharing one integrator instance while a separate thread
-  concurrently mutates tolerance and another polls stats; the same test
-  against the pre-`std::atomic` version reproduces a real data race,
-  confirming the fix (and the test).
+  concurrently mutates tolerance and another polls stats
+  (`tests/test_rk45_integrators.cpp::test_concurrent_tolerance_stats_access_is_race_free`,
+  build with the new `-DBCLIBC_SANITIZE_THREAD=ON` CMake option); the same
+  test against the pre-`std::atomic` version reproduces four real data
+  races (one per atomic field), confirming both the fix and the test.
+- Cash-Karp's doc comment (`BCLIBC_CashKarpIntegrator`, and by reference
+  Dormand-Prince/Tsitouras) now also documents `std::function::target<T>()`
+  as an alternative to `std::ref` for binding layers where
+  `std::reference_wrapper`'s lack of a default constructor is inconvenient
+  (e.g. Cython's C++ temp-variable codegen, which requires stack-allocated
+  types to be default-constructible).
 
 ## [2.0.0-beta.8] - 2026-09-21
 
@@ -610,7 +620,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.8...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.1...HEAD
+[2.0.0-rc.1]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.8...v2.0.0-rc.1
 [2.0.0-beta.8]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.7...v2.0.0-beta.8
 [2.0.0-beta.7]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.6...v2.0.0-beta.7
 [2.0.0-beta.6]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.5...v2.0.0-beta.6
