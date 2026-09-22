@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.1] - 2026-09-22
+
+### Changed
+- **BREAKING**: The embedded RK45 methods' per-method tolerance/stats API
+  (`BCLIBC_cashKarpSetRelativeTolerance`, `BCLIBC_cashKarpSetAbsoluteTolerance`,
+  `BCLIBC_cashKarpGetStats`, and the equivalent `dormandPrince`/`tsitouras`
+  functions) is replaced by stateful integrator classes
+  (`BCLIBC_CashKarpIntegrator`, `BCLIBC_DormandPrinceIntegrator`,
+  `BCLIBC_TsitourasIntegrator` — `set_relative_tolerance()`,
+  `set_absolute_tolerance()`, `get_stats()`). The old functions read/wrote a
+  `thread_local` keyed by `<Tableau, Controller>`, so every `BCLIBC_BaseEngine`
+  on a thread using the same method shared one tolerance and one accepted/
+  rejected step count, silently clobbering each other for any caller running
+  more than one engine per thread (e.g. with intentionally different
+  tolerances, or reading stats between two engines' runs). Each new
+  integrator class instance owns its tolerances and stats independently, so
+  it can be assigned straight to one engine's `BCLIBC_IntegrateCallable
+  integrate_func` (wrap it in `std::ref` to keep reading its stats back
+  afterward — `std::function` copies whatever is assigned to it otherwise).
+  `BCLIBC_integrateCashKarp`/`BCLIBC_integrateDormandPrince`/
+  `BCLIBC_integrateTsitouras` are unchanged as plain
+  `BCLIBC_IntegrateCallable`-compatible free functions for the common case of
+  running at the default 1e-6/1e-6 tolerances with no need to read back stats
+  (e.g. `eng.integrate_func = bclibc::BCLIBC_integrateTsitouras;`).
+- Each RK45 integrator class also gained an explicit constructor taking
+  `(relative_tolerance, absolute_tolerance)` (each defaulting to 1e-6, same
+  validation as the setters), so a configured instance can be built in one
+  expression: `BCLIBC_CashKarpIntegrator(1e-8)`.
+- The integrator classes' tolerances and step counts are each stored in a
+  `std::atomic` (relaxed ordering), so a single instance can safely be
+  shared across threads (e.g. via `std::ref`, driving several
+  `BCLIBC_BaseEngine`s concurrently) — `set_relative_tolerance()` /
+  `set_absolute_tolerance()` from one thread cannot race with a concurrent
+  `operator()` or `get_stats()` call from another. `operator()` snapshots
+  both tolerances once at the start of its run, so one integration always
+  sees one consistent tolerance pair even if changed mid-run from another
+  thread. `get_stats()`'s two fields are read independently, so a
+  concurrent run can still return a non-atomic pairing of them (e.g. a
+  fresh `accepted` count against the previous run's `rejected` count) —
+  fine for approximate monitoring, not for anything requiring the two to
+  agree exactly. Verified race-free under ThreadSanitizer with multiple
+  engine threads sharing one integrator instance while a separate thread
+  concurrently mutates tolerance and another polls stats
+  (`tests/test_rk45_integrators.cpp::test_concurrent_tolerance_stats_access_is_race_free`,
+  build with the new `-DBCLIBC_SANITIZE_THREAD=ON` CMake option); the same
+  test against the pre-`std::atomic` version reproduces four real data
+  races (one per atomic field), confirming both the fix and the test.
+- Cash-Karp's doc comment (`BCLIBC_CashKarpIntegrator`, and by reference
+  Dormand-Prince/Tsitouras) now also documents `std::function::target<T>()`
+  as an alternative to `std::ref` for binding layers where
+  `std::reference_wrapper`'s lack of a default constructor is inconvenient
+  (e.g. Cython's C++ temp-variable codegen, which requires stack-allocated
+  types to be default-constructible).
+
 ## [2.0.0-beta.8] - 2026-09-21
 
 ### Added
@@ -566,7 +620,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.8...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.1...HEAD
+[2.0.0-rc.1]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.8...v2.0.0-rc.1
 [2.0.0-beta.8]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.7...v2.0.0-beta.8
 [2.0.0-beta.7]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.6...v2.0.0-beta.7
 [2.0.0-beta.6]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.5...v2.0.0-beta.6

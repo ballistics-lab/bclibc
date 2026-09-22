@@ -8,6 +8,21 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Options
 # ============================================================================
 option(BCLIBC_BUILD_TESTS "Build tests" OFF)
+# Instruments every target with -fsanitize=thread. Needed to actually
+# exercise tests/test_rk45_integrators.cpp's concurrency test as a race
+# detector run, not just a plain (sanitizer-less) pass/fail on values.
+# GCC/Clang only; applied globally (not just to bclibc_core) because TSan
+# requires its runtime linked into the final executable, and a static
+# library built without instrumentation would leave the atomics it defines
+# unobserved by the detector.
+option(BCLIBC_SANITIZE_THREAD "Build with ThreadSanitizer (GCC/Clang only)" OFF)
+if(BCLIBC_SANITIZE_THREAD)
+    if(WIN32)
+        message(FATAL_ERROR "BCLIBC_SANITIZE_THREAD is not supported by MSVC")
+    endif()
+    add_compile_options(-fsanitize=thread -g -O1)
+    add_link_options(-fsanitize=thread)
+endif()
 
 # ============================================================================
 # Platform detection

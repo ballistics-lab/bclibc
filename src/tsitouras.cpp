@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
 
 #include "bclibc/tsitouras.hpp"
 #include "bclibc/embedded_rk45.hpp"
@@ -130,22 +131,70 @@ namespace bclibc
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason)
     {
-        integrate_embedded_rk45<Tsitouras54Tableau, TsitourasController>(eng, handler, reason);
+        BCLIBC_TsitourasIntegrator integrator;
+        integrator(eng, handler, reason);
     }
 
-    void BCLIBC_tsitourasGetStats(int &out_accepted, int &out_rejected)
+    BCLIBC_TsitourasIntegrator::BCLIBC_TsitourasIntegrator(double relative_tolerance, double absolute_tolerance)
     {
-        embeddedRKGetStats<Tsitouras54Tableau, TsitourasController>(out_accepted, out_rejected);
+        set_relative_tolerance(relative_tolerance);
+        set_absolute_tolerance(absolute_tolerance);
     }
 
-    void BCLIBC_tsitourasSetRelativeTolerance(double tolerance)
+    BCLIBC_TsitourasIntegrator::BCLIBC_TsitourasIntegrator(const BCLIBC_TsitourasIntegrator &other) noexcept
+        : accepted_steps_(other.accepted_steps_.load(std::memory_order_relaxed)),
+          rejected_steps_(other.rejected_steps_.load(std::memory_order_relaxed)),
+          relative_tolerance_(other.relative_tolerance_.load(std::memory_order_relaxed)),
+          absolute_tolerance_(other.absolute_tolerance_.load(std::memory_order_relaxed))
     {
-        embeddedRKSetRelativeTolerance<Tsitouras54Tableau, TsitourasController>(tolerance);
     }
 
-    void BCLIBC_tsitourasSetAbsoluteTolerance(double tolerance)
+    BCLIBC_TsitourasIntegrator &BCLIBC_TsitourasIntegrator::operator=(const BCLIBC_TsitourasIntegrator &other) noexcept
     {
-        embeddedRKSetAbsoluteTolerance<Tsitouras54Tableau, TsitourasController>(tolerance);
+        if (this != &other)
+        {
+            accepted_steps_.store(other.accepted_steps_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            rejected_steps_.store(other.rejected_steps_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            relative_tolerance_.store(other.relative_tolerance_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            absolute_tolerance_.store(other.absolute_tolerance_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        }
+        return *this;
+    }
+
+    void BCLIBC_TsitourasIntegrator::operator()(
+        BCLIBC_BaseEngine &eng,
+        BCLIBC_BaseTrajDataHandlerInterface &handler,
+        BCLIBC_TerminationReason &reason)
+    {
+        const double relative_tolerance = relative_tolerance_.load(std::memory_order_relaxed);
+        const double absolute_tolerance = absolute_tolerance_.load(std::memory_order_relaxed);
+        int accepted = 0, rejected = 0;
+        embedded_rk45_detail::run<Tsitouras54Tableau, TsitourasController>(
+            eng, handler, reason,
+            accepted, rejected,
+            relative_tolerance, absolute_tolerance);
+        accepted_steps_.store(accepted, std::memory_order_relaxed);
+        rejected_steps_.store(rejected, std::memory_order_relaxed);
+    }
+
+    void BCLIBC_TsitourasIntegrator::get_stats(int &out_accepted, int &out_rejected) const noexcept
+    {
+        out_accepted = accepted_steps_.load(std::memory_order_relaxed);
+        out_rejected = rejected_steps_.load(std::memory_order_relaxed);
+    }
+
+    void BCLIBC_TsitourasIntegrator::set_relative_tolerance(double tolerance)
+    {
+        if (!std::isfinite(tolerance) || tolerance <= 0.0)
+            throw std::invalid_argument("Tsitouras relative tolerance must be finite and positive");
+        relative_tolerance_.store(tolerance, std::memory_order_relaxed);
+    }
+
+    void BCLIBC_TsitourasIntegrator::set_absolute_tolerance(double tolerance)
+    {
+        if (!std::isfinite(tolerance) || tolerance < 0.0)
+            throw std::invalid_argument("Tsitouras absolute tolerance must be finite and non-negative");
+        absolute_tolerance_.store(tolerance, std::memory_order_relaxed);
     }
 
 }; // namespace bclibc

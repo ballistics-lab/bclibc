@@ -101,10 +101,24 @@ with C bindings.
 ## Adaptive integration
 
 Three embedded RK45 methods share one compile-time core (`bclibc/embedded_rk45.hpp`,
-`integrate_embedded_rk45<Tableau, Controller>`), each selectable via
+`embedded_rk45_detail::run<Tableau, Controller>`), each selectable via
 `BCLIBC_BaseEngine::integrate_func` like any other integrator: **Cash-Karp**, **Dormand-Prince**,
 and **Tsitouras**. All three retry a rejected attempt rather than accepting it, and grow/shrink
 `dt` between `base_step/64` and `base_step*64`.
+
+Each method also has a stateful integrator class (`BCLIBC_CashKarpIntegrator`,
+`BCLIBC_DormandPrinceIntegrator`, `BCLIBC_TsitourasIntegrator`) that owns its own tolerances and
+accepted/rejected step counts *per instance* — assign one (wrapped in `std::ref` if you want to
+read its stats back afterward) to a specific engine's `integrate_func` instead of calling a
+free function that mutated shared thread-local state, which meant every `BCLIBC_BaseEngine` on a
+thread using the same method shared one tolerance/stats, even engines integrating concurrently
+with intentionally different settings. The plain free functions
+(`BCLIBC_integrateCashKarp` and friends) remain for the common case of just wanting that method
+at its default `1e-6`/`1e-6` tolerances with no need to read back stats. Each class also takes
+its tolerances directly in its constructor (e.g. `BCLIBC_CashKarpIntegrator(1e-8)`), and stores
+tolerances/stats in `std::atomic`s, so one instance can safely be shared (via `std::ref`) across
+threads — `set_relative_tolerance()`/`set_absolute_tolerance()` from one thread cannot race with
+a concurrent `operator()` or `get_stats()` call from another (verified under ThreadSanitizer).
 
 Unlike `BCLIBC_integrateRK4`, which freezes the drag coefficient once per step, every adaptive
 method recomputes both the drag coefficient *and* the atmosphere sample fresh at each stage: an
@@ -131,7 +145,7 @@ non-FSAL pair with its own asymmetric grow/shrink controller (safety `0.9`, grow
 `5x`, shrink exponent `-0.25` vs growth exponent `-0.20`) rather than the SciPy-style one below —
 preserved exactly from the pre-refactor standalone implementation. It never limits its step at a
 wind-zone boundary (historical behavior, kept for output-compatibility).
-`BCLIBC_cashKarpSetRelativeTolerance()` / `BCLIBC_cashKarpSetAbsoluteTolerance()` each default to
+`BCLIBC_CashKarpIntegrator::set_relative_tolerance()` / `set_absolute_tolerance()` each default to
 `1e-6`; the scalar `atol` and `rtol` scale every one of the three position and three velocity
 components as `atol + rtol * max(abs(y), abs(y_new))`, and their errors use an RMS norm —
 typically 2-6x fewer total steps than fixed-step RK4 for the same accuracy.
@@ -148,7 +162,7 @@ factor clamped to `[0.2, 10]`, growth capped at `1x` for one step immediately fo
 rejection — and it limits `dt` so a step never overshoots the next wind-zone boundary (needed so
 every stage's wind sample stays valid for a step that starts before and would otherwise end past
 a wind-zone change). Same tolerance API shape as Cash-Karp:
-`BCLIBC_dormandPrinceSetRelativeTolerance()` / `BCLIBC_dormandPrinceSetAbsoluteTolerance()`,
+`BCLIBC_DormandPrinceIntegrator::set_relative_tolerance()` / `set_absolute_tolerance()`,
 default `1e-6` each.
 
 ### Tsitouras
@@ -158,7 +172,7 @@ pairs of order 5(4) satisfying only the first column simplifying assumption", *C
 Mathematics with Applications* 62(2), 770-775; coefficients verified against
 `ARKODE_TSITOURAS_7_4_5` in SUNDIALS/ARKODE). It is Dormand-Prince's structural twin — same
 7-stage FSAL shape, same `ScipyRKController` (see above), same `1e-6` default tolerances via
-`BCLIBC_tsitourasSetRelativeTolerance()` / `BCLIBC_tsitourasSetAbsoluteTolerance()` — but with
+`BCLIBC_TsitourasIntegrator::set_relative_tolerance()` / `set_absolute_tolerance()` — but with
 smaller leading error-term coefficients at each order, and is `tiny_bclibc`'s current default
 adaptive core (see [tiny_bclibc's README](tiny_bclibc/README.md#adaptive-integration-tsitouras)).
 
