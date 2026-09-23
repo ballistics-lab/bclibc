@@ -16,7 +16,7 @@
  *
  * Build: ../build_wasm.sh (both precisions -> build/wasm/tiny_bclibc_{dp,sp}.wasm).
  * Consumers: py-ballisticcalc's examples/tiny_bclibc_wasm (a py_ballisticcalc engine) and
- * bclibc-embedded (micropython-bclibc's minimal tiny_bclibc API), both running this module in
+ * tiny-bclibc-wasm (micropython-bclibc's minimal tiny_bclibc API), both running this module in
  * JavaScriptCore on Pythonista, or in Node / WebKitGTK JavaScriptCore on a desktop.
  *
  * The module imports nothing (no WASI, no Emscripten runtime): libm comes from the toolchain's
