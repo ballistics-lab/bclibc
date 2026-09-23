@@ -44,6 +44,8 @@
  *   tbw_find_apex:        [1..16] one TBW_ROW row
  *   tbw_integrate_at:     [1..8] raw state (time, px, py, pz, vx, vy, vz, mach), [9..24] one TBW_ROW row
  *   tbw_find_max_range:   [1] range_ft, [2] angle_rad
+ *
+ * tbw_bench_{lat,thr,peak}_{dp,sp}(n) -> double: FPU micro-benchmark loops (no buffers involved).
  *   TBW_ROW row = the 15 real_t fields of TINY_BCLIBC_TrajectoryData in declaration order,
  *                 then `flag`.
  */
@@ -436,3 +438,80 @@ int32_t TBW_EXPORT(tbw_find_max_range)(double low_deg, double high_deg)
     tbw__out_len = 3;
     return rc;
 }
+
+/* ── FPU micro-benchmark (the natmod's bench(); see the loops' rationale in micropython-bclibc's
+ * src/bench_mp.h) ─────────────────────────────────────────────────────────────────────────────
+ * Raw timing loops only: the host times a call and derives MFLOPS. Under WebAssembly they measure
+ * the *host* -- how well its engine compiles or interprets f32/f64 arithmetic -- not the CPU
+ * directly. `n` is an i32, not an i64, because a JS host must pass i64 as BigInt.
+ *
+ * a, b stay volatile in lat_* / thr_*: a plain local lets the compiler fold a*b at compile time and
+ * hoist it out of the loop (no multiply executed), inflating the result. peak_* is add-only, so
+ * there is nothing to hoist and `a` stays a plain local (8 register-resident accumulators). */
+
+double TBW_EXPORT(tbw_bench_lat_dp)(int32_t n)
+{
+    volatile double a = 1.00001, b = 1.00002, c = 0.0;
+    for (int32_t i = 0; i < n; i++)
+    {
+        c = c + a * b;
+        c = c - a * b;
+    }
+    return c;
+}
+
+double TBW_EXPORT(tbw_bench_lat_sp)(int32_t n)
+{
+    volatile float a = 1.00001f, b = 1.00002f, c = 0.0f;
+    for (int32_t i = 0; i < n; i++)
+    {
+        c = c + a * b;
+        c = c - a * b;
+    }
+    return (double)c;
+}
+
+#define TBW_BENCH_THR(NAME, T, SUFFIX)                                            \
+    double TBW_EXPORT(NAME)(int32_t n)                                            \
+    {                                                                             \
+        volatile T a = 1.00001##SUFFIX, b = 1.00002##SUFFIX;                      \
+        T c0 = 1, c1 = 2, c2 = 3, c3 = 4, c4 = 5, c5 = 6, c6 = 7, c7 = 8;         \
+        for (int32_t i = 0; i < n; i++)                                           \
+        {                                                                         \
+            c0 += a * b;                                                          \
+            c1 += a * b;                                                          \
+            c2 += a * b;                                                          \
+            c3 += a * b;                                                          \
+            c4 += a * b;                                                          \
+            c5 += a * b;                                                          \
+            c6 += a * b;                                                          \
+            c7 += a * b;                                                          \
+        }                                                                         \
+        volatile T sink = c0 + c1 + c2 + c3 + c4 + c5 + c6 + c7;                  \
+        return (double)sink;                                                      \
+    }
+
+#define TBW_BENCH_PEAK(NAME, T, SUFFIX)                                           \
+    double TBW_EXPORT(NAME)(int32_t n)                                            \
+    {                                                                             \
+        T a = 1.00001##SUFFIX;                                                    \
+        T c0 = 1, c1 = 2, c2 = 3, c3 = 4, c4 = 5, c5 = 6, c6 = 7, c7 = 8;         \
+        for (int32_t i = 0; i < n; i++)                                           \
+        {                                                                         \
+            c0 += a;                                                              \
+            c1 += a;                                                              \
+            c2 += a;                                                              \
+            c3 += a;                                                              \
+            c4 += a;                                                              \
+            c5 += a;                                                              \
+            c6 += a;                                                              \
+            c7 += a;                                                              \
+        }                                                                         \
+        volatile T sink = c0 + c1 + c2 + c3 + c4 + c5 + c6 + c7;                  \
+        return (double)sink;                                                      \
+    }
+
+TBW_BENCH_THR(tbw_bench_thr_dp, double, )
+TBW_BENCH_THR(tbw_bench_thr_sp, float, f)
+TBW_BENCH_PEAK(tbw_bench_peak_dp, double, )
+TBW_BENCH_PEAK(tbw_bench_peak_sp, float, f)
