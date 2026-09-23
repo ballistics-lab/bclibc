@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.2] - 2026-09-23
+
+### Added
+- `tiny_bclibc/build_wasm.sh` + `tiny_bclibc/wasm/tiny_bclibc_wasm.c`: builds tiny_bclibc
+  (double and single precision) into WebAssembly modules that import nothing, so they run in a
+  bare JS engine such as JavaScriptCore's `JSContext` on iOS (Pythonista) with no WASI or
+  Emscripten glue. The wrapper exposes a flat, numbers-only ABI over two `double` buffers
+  (`tbw_integrate` -> `tiny_bclibc_integrate_stream`, `tbw_find_zero_point` ->
+  `tiny_bclibc_find_zero_point`). Toolchain: zig (`pip install ziglang`) or clang with a
+  wasi-sdk sysroot.
+
 ## [2.0.0-rc.1] - 2026-09-22
 
 ### Changed
@@ -620,7 +631,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.1...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.2...HEAD
+[2.0.0-rc.2]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.1...v2.0.0-rc.2
 [2.0.0-rc.1]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.8...v2.0.0-rc.1
 [2.0.0-beta.8]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.7...v2.0.0-beta.8
 [2.0.0-beta.7]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.6...v2.0.0-beta.7

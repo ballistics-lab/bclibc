@@ -409,6 +409,27 @@ a generic string — use the return code instead.
 built-in (usermod), and an FFI shim (`libtiny_bclibc.so`). All three modes are maintained in
 **[micropython-bclibc](https://github.com/ballistics-lab/micropython-bclibc)**.
 
+## WebAssembly
+
+`build_wasm.sh` builds tiny_bclibc into two WebAssembly modules that **import nothing**: no WASI,
+no Emscripten runtime. So any bare WebAssembly host can instantiate them with
+`new WebAssembly.Instance(module, {})`: JavaScriptCore's `JSContext` (e.g. from Pythonista on
+iOS), a browser, or Node.
+
+```bash
+pip install ziglang          # or: zig on PATH, or CC="clang --sysroot=<wasi-sysroot>"
+tiny_bclibc/build_wasm.sh    # -> build/wasm/tiny_bclibc_dp.wasm (~54 KB), tiny_bclibc_sp.wasm (~42 KB)
+```
+
+A bare JS host can pass only numbers, so `wasm/tiny_bclibc_wasm.c` flattens the C API into a
+few exports (`tbw_input`, `tbw_integrate`, `tbw_find_zero_point`, `tbw_output`, ...) that
+exchange two `double` buffers in linear memory: one serialized shot in, and the result header plus
+rows out. `tbw_integrate` runs `tiny_bclibc_integrate_stream` and collects the rows inside the
+module, so one call is one host round trip. I/O is `double` in both precisions. The buffer
+layouts are documented at the top of that file. For a Python consumer, see py-ballisticcalc's
+`examples/tiny_bclibc_wasm` (a py_ballisticcalc engine that runs these modules in JSContext,
+WebKitGTK's JavaScriptCore or Node).
+
 ## Project structure
 
 ```
@@ -422,8 +443,11 @@ tiny_bclibc/
 │   └── engine.h        # Public API + RK4 and Cash-Karp implementations
 ├── src/
 │   └── tiny_bclibc_impl.c   # Single-file library entry point
+├── wasm/
+│   └── tiny_bclibc_wasm.c   # Flat numbers-only ABI for bare WebAssembly hosts
 ├── tests/
 │   └── test_identity.cpp    # bclibc↔tiny_bclibc result comparison
 ├── CMakeLists.txt
+├── build_wasm.sh            # Import-free .wasm builds (dp + sp)
 └── version.h.in
 ```
