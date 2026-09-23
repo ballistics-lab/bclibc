@@ -15,8 +15,9 @@
  * a ctypes binding over the shared library does have to carry).
  *
  * Build: ../build_wasm.sh (both precisions -> build/wasm/tiny_bclibc_{dp,sp}.wasm).
- * Consumer: py-ballisticcalc's examples/tiny_bclibc_wasm (a py_ballisticcalc engine that runs
- * this module in JavaScriptCore on Pythonista, or in Node on a desktop).
+ * Consumers: py-ballisticcalc's examples/tiny_bclibc_wasm (a py_ballisticcalc engine) and
+ * bclibc-embedded (micropython-bclibc's minimal tiny_bclibc API), both running this module in
+ * JavaScriptCore on Pythonista, or in Node / WebKitGTK JavaScriptCore on a desktop.
  *
  * The module imports nothing (no WASI, no Emscripten runtime): libm comes from the toolchain's
  * static libc, and memory for the two buffers comes from a small bump allocator over
@@ -39,6 +40,10 @@
  *                         [4..11] final raw state (time, px, py, pz, vx, vy, vz, mach),
  *                         [12..] n x TBW_ROW rows
  *   tbw_find_zero_point:  [1] angle_rad, [2..17] one TBW_ROW row
+ *   tbw_find_zero_angle:  [1] angle_rad
+ *   tbw_find_apex:        [1..16] one TBW_ROW row
+ *   tbw_integrate_at:     [1..8] raw state (time, px, py, pz, vx, vy, vz, mach), [9..24] one TBW_ROW row
+ *   tbw_find_max_range:   [1] range_ft, [2] angle_rad
  *   TBW_ROW row = the 15 real_t fields of TINY_BCLIBC_TrajectoryData in declaration order,
  *                 then `flag`.
  */
@@ -54,6 +59,7 @@ enum
     TBW_ROW = 16,
     TBW_OUT_INTEGRATE_HEADER = 12,
     TBW_OUT_ZERO_HEADER = 2,
+    TBW_OUT_AT_HEADER = 9,
 };
 
 /* ── Memory: a bump allocator over memory.grow ─────────────────────────────────────────────
@@ -341,5 +347,92 @@ int32_t TBW_EXPORT(tbw_find_zero_point)(double distance_ft)
     o[1] = res.angle_rad;
     tbw__put_row(o + TBW_OUT_ZERO_HEADER, &res.point);
     tbw__out_len = TBW_OUT_ZERO_HEADER + TBW_ROW;
+    return rc;
+}
+
+/* Shared prologue of the single-result exports below: reserve `n` doubles of output and load the
+ * shot from the input buffer into `c`. */
+static int32_t tbw__begin(tbw__call *c, int32_t n)
+{
+    tbw__out_len = 0;
+    if (!tbw__reserve(&tbw__out, n, 0))
+        return TINY_BCLIBC_ERR_RUNTIME;
+    int32_t rc = tbw__load(c);
+    if (rc != TINY_BCLIBC_OK)
+        return tbw__fail(rc, tiny_bclibc_last_error());
+    return TINY_BCLIBC_OK;
+}
+
+/* tiny_bclibc_find_zero_angle over the shot in the input buffer. */
+int32_t TBW_EXPORT(tbw_find_zero_angle)(double distance_ft)
+{
+    tbw__call c;
+    int32_t rc = tbw__begin(&c, 2);
+    if (rc != TINY_BCLIBC_OK)
+        return rc;
+    real_t angle = 0;
+    rc = tiny_bclibc_find_zero_angle(&c.props, (real_t)distance_ft, &angle);
+    tbw__out.data[0] = (double)rc;
+    tbw__out.data[1] = angle;
+    tbw__out_len = 2;
+    return rc;
+}
+
+/* tiny_bclibc_find_apex over the shot in the input buffer. */
+int32_t TBW_EXPORT(tbw_find_apex)(void)
+{
+    tbw__call c;
+    int32_t rc = tbw__begin(&c, 1 + TBW_ROW);
+    if (rc != TINY_BCLIBC_OK)
+        return rc;
+    TINY_BCLIBC_TrajectoryData row;
+    memset(&row, 0, sizeof(row));
+    rc = tiny_bclibc_find_apex(&c.props, &row);
+    tbw__out.data[0] = (double)rc;
+    tbw__put_row(tbw__out.data + 1, &row);
+    tbw__out_len = 1 + TBW_ROW;
+    return rc;
+}
+
+/* tiny_bclibc_integrate_at over the shot in the input buffer. */
+int32_t TBW_EXPORT(tbw_integrate_at)(int32_t key, double target_value)
+{
+    tbw__call c;
+    int32_t rc = tbw__begin(&c, TBW_OUT_AT_HEADER + TBW_ROW);
+    if (rc != TINY_BCLIBC_OK)
+        return rc;
+    TINY_BCLIBC_BaseTrajData raw;
+    TINY_BCLIBC_TrajectoryData row;
+    memset(&raw, 0, sizeof(raw));
+    memset(&row, 0, sizeof(row));
+    rc = tiny_bclibc_integrate_at(&c.props, key, (real_t)target_value, &raw, &row);
+    double *o = tbw__out.data;
+    o[0] = (double)rc;
+    o[1] = raw.time;
+    o[2] = raw.px;
+    o[3] = raw.py;
+    o[4] = raw.pz;
+    o[5] = raw.vx;
+    o[6] = raw.vy;
+    o[7] = raw.vz;
+    o[8] = raw.mach;
+    tbw__put_row(o + TBW_OUT_AT_HEADER, &row);
+    tbw__out_len = TBW_OUT_AT_HEADER + TBW_ROW;
+    return rc;
+}
+
+/* tiny_bclibc_find_max_range over the shot in the input buffer (angle bracket in degrees). */
+int32_t TBW_EXPORT(tbw_find_max_range)(double low_deg, double high_deg)
+{
+    tbw__call c;
+    int32_t rc = tbw__begin(&c, 3);
+    if (rc != TINY_BCLIBC_OK)
+        return rc;
+    real_t range_ft = 0, angle_rad = 0;
+    rc = tiny_bclibc_find_max_range(&c.props, (real_t)low_deg, (real_t)high_deg, &range_ft, &angle_rad);
+    tbw__out.data[0] = (double)rc;
+    tbw__out.data[1] = range_ft;
+    tbw__out.data[2] = angle_rad;
+    tbw__out_len = 3;
     return rc;
 }
