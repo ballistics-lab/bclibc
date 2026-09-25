@@ -24,7 +24,8 @@ if(NOT ZIG)
             RESULT_VARIABLE _ziglang_status
         )
         if(_ziglang_status EQUAL 0 AND EXISTS "${_ziglang_path}")
-            set(ZIG "${_ziglang_path}" CACHE FILEPATH "zig (from the ziglang package)")
+            # FORCE: find_program above left ZIG-NOTFOUND in the cache, which a plain `set(... CACHE ...)` keeps
+            set(ZIG "${_ziglang_path}" CACHE FILEPATH "zig (from the ziglang package)" FORCE)
             break()
         endif()
     endforeach()
