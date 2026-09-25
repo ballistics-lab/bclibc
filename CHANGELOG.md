@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `BCLIBC_BaseEngine`'s lock is now the type `BCLIBC_Mutex`: `std::recursive_mutex` as before, except where
+  there are no threads (`__wasm__`, or `-DBCLIBC_NO_THREADS`), where it is a lock that does nothing. WebAssembly's
+  libc++ has no `std::recursive_mutex`, so the engine did not compile there. Native builds are unchanged.
+- `log.hpp` no longer includes `<iostream>` or uses exceptions: `BCLIBC_LOG_LEVEL` is read with `std::strtol`
+  (the same values as `std::stoi` gave, anything else keeps the default) and the log line goes out through
+  `fprintf(stderr)`, with the same text as before. A translation unit that got `<iostream>` (`std::cout`, `std::cerr`)
+  only through `bclibc/log.hpp` has to include it itself now.
+- Under `__wasm__` the log prints nothing by default, so that a bare module needs no WASI `fd_write`; define
+  `BCLIBC_WASM_LOG` to have it (with WASI).
+
+### Notes
+- Toward one WebAssembly binary of the C++ core for every host (no Emscripten, no embind): with these two changes
+  the only thing left that stops `bclibc_ffi` from building with `-fno-exceptions` (zig `wasm32-wasi`) is the
+  `throw`/`try` in the solver (37 `throw`, 3 `try`).
+
 ## [2.0.0-rc.2] - 2026-09-23
 
 ### Added
