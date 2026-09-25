@@ -71,7 +71,7 @@ CORE_SOURCES=(
     "${BCLIBC_SRC_DIR}/velocity_verlet.cpp"
 )
 
-EXPORTED_FUNCTIONS='["_malloc","_free","_BCLIBCFFI_get_version","_BCLIBCFFI_find_apex","_BCLIBCFFI_find_max_range","_BCLIBCFFI_find_zero_angle","_BCLIBCFFI_find_zero_point","_BCLIBCFFI_integrate","_BCLIBCFFI_free_trajectory","_BCLIBCFFI_integrate_at","_BCLIBCFFI_find_apex_shot","_BCLIBCFFI_find_max_range_shot","_BCLIBCFFI_find_zero_angle_shot","_BCLIBCFFI_find_zero_point_shot","_BCLIBCFFI_integrate_shot","_BCLIBCFFI_integrate_at_shot","_BCLIBCFFI_get_correction","_BCLIBCFFI_calculate_energy","_BCLIBCFFI_calculate_ogw","_BCLIBCFFI_interpolate_trajectory_data","_BCLIBCFFI_get_layout"]'
+EXPORTED_FUNCTIONS='["_malloc","_free","_BCLIBCFFI_get_version","_BCLIBCFFI_find_apex","_BCLIBCFFI_find_max_range","_BCLIBCFFI_find_zero_angle","_BCLIBCFFI_find_zero_point","_BCLIBCFFI_integrate","_BCLIBCFFI_free_trajectory","_BCLIBCFFI_integrate_at","_BCLIBCFFI_find_apex_shot","_BCLIBCFFI_find_max_range_shot","_BCLIBCFFI_find_zero_angle_shot","_BCLIBCFFI_find_zero_point_shot","_BCLIBCFFI_integrate_shot","_BCLIBCFFI_integrate_at_shot","_BCLIBCFFI_get_correction","_BCLIBCFFI_calculate_energy","_BCLIBCFFI_calculate_ogw","_BCLIBCFFI_interpolate_trajectory_data","_BCLIBCFFI_hermite","_BCLIBCFFI_interpolate_3pt","_BCLIBCFFI_interpolate_2pt","_BCLIBCFFI_get_layout"]'
 
 # NOTE: no -sSINGLE_FILE — as of emsdk 6.0.3 it produces a wasm blob Chrome's
 # WebAssembly.instantiate rejects ("invalid value type 0x1"), even though the

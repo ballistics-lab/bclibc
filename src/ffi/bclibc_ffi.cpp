@@ -553,6 +553,32 @@ extern "C"
         return BCLIBC_calculateOgw(bullet_weight_grain, velocity_fps);
     }
 
+    double BCLIBCFFI_hermite(double x, double xk, double xk1, double yk, double yk1, double mk, double mk1)
+    {
+        return BCLIBC_hermite(x, xk, xk1, yk, yk1, mk, mk1);
+    }
+
+    double BCLIBCFFI_interpolate_3pt(double x, double x0, double x1, double x2, double y0, double y1, double y2)
+    {
+        return BCLIBC_interpolate3pt(x, x0, x1, x2, y0, y1, y2);
+    }
+
+    int32_t BCLIBCFFI_interpolate_2pt(double x, double x0, double y0, double x1, double y1, double *out, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        {
+            if (!out)
+            {
+                throw std::invalid_argument("interpolate_2pt: a null output");
+            }
+            if (BCLIBC_interpolate2pt(x, x0, y0, x1, y1, *out) != BCLIBC_InterpStatus::SUCCESS)
+            {
+                throw std::domain_error("Zero division error during interpolation");
+            }
+            return BCLIBCFFI_OK; },
+                        err);
+    }
+
     int32_t BCLIBCFFI_interpolate_trajectory_data(
         int32_t key,
         double value,
