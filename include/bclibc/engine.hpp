@@ -70,6 +70,19 @@ namespace bclibc
         bool has_point = false;
     };
 
+    // The lock type of the engine. WebAssembly has no threads (and its libc++ has no std::recursive_mutex), so there
+    // a lock that does nothing takes its place; everywhere else it is the real, recursive one.
+#if defined(__wasm__) || defined(BCLIBC_NO_THREADS)
+    struct BCLIBC_Mutex
+    {
+        void lock() {}
+        void unlock() {}
+        bool try_lock() { return true; }
+    };
+#else
+    using BCLIBC_Mutex = std::recursive_mutex;
+#endif
+
     class BCLIBC_BaseEngine;
 
     using BCLIBC_IntegrateFunc = void(
@@ -87,7 +100,7 @@ namespace bclibc
         // A recursive mutex that guarantees thread-safe access (read/write) to the entire Engine state,
         // specifically `config` and `shot`. The recursive nature is necessary because public methods
         // (like zero_angle) call other internal methods (like integrate), requiring nested locking.
-        std::recursive_mutex engine_mutex;
+        BCLIBC_Mutex engine_mutex;
 
     public:
         int integration_step_count;
