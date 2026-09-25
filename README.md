@@ -223,6 +223,8 @@ Or via Make:
 make          # Build everything (Core + FFI)
 make core     # Static core only
 make ffi      # Shared FFI only
+make wasm WASI_SDK_PATH=...   # Bare WebAssembly module with exceptions (see WASM build)
+make wasm-zig                 # ... or the small one with zig, where a throw is a trap
 make clean    # Remove build/
 ```
 
@@ -276,6 +278,61 @@ cmake --build build --config Release
 Output: `build/web/bclibc_ffi.js` + `build/web/bclibc_ffi.wasm` (Emscripten JS-glue module, `MODULARIZE=1`). Ship both files together — do **not** re-add `-sSINGLE_FILE=1`: as of emsdk 6.0.3 it produces a wasm blob Chrome's `WebAssembly.instantiate` rejects (`invalid value type 0x1`), even though the identical bytes load fine under Node. The two-file layout is the verified-working one.
 
 The module exports the flat `BCLIBCFFI_*` functions directly (no Embind) plus `BCLIBCFFI_get_layout()`, which returns every `BCLIBCFFI_Shot`-family struct's field byte offsets/sizes, computed via `offsetof()`/`sizeof()` by whichever compiler built the module. Callers marshal structs into wasm linear memory (`_malloc`/`HEAPU8`) using those offsets instead of hardcoding them — see `dart-bclibc`'s `lib/ffi/bclibc_ffi_web.dart` for a complete `dart:js_interop` binding built this way.
+
+### Bare WebAssembly build (no Emscripten, no imports)
+
+The same C ABI as one module that imports **nothing**, built with CMake and one of two toolchains, neither of them
+Emscripten:
+
+| toolchain | `-DCMAKE_TOOLCHAIN_FILE=` | C++ exceptions | size |
+|---|---|---|---|
+| [wasi-sdk](https://github.com/WebAssembly/wasi-sdk/releases) (34 tested; `-DWASI_SDK_PATH=` or `$WASI_SDK_PATH`) | `cmake/wasi-sdk-wasm32.cmake` | **yes**: the core throws and the flat C ABI returns the same `BCLIBCFFI_ERR_*` codes as the native library | ~1.6 MB |
+| [zig](https://ziglang.org) (`zig` on `PATH`, `-DZIG=`, or `pip install ziglang`) | `cmake/zig-wasm32-wasi.cmake` | no: a `throw` is a trap | ~78 KB (`-Oz -flto`) |
+
+```bash
+cmake -S . -B build/wasm -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/wasi-sdk-wasm32.cmake -DWASI_SDK_PATH=/opt/wasi-sdk-34.0 -DBCLIBC_WASM_BARE=ON
+cmake --build build/wasm          # -> build/wasm/bclibc_wasm.wasm; the build fails if it imports from WASI
+```
+
+Or `make wasm WASI_SDK_PATH=/opt/wasi-sdk-34.0` (wasi-sdk, `build/wasm/`) and `make wasm-zig` (zig, `build/wasm-zig/`).
+
+`tests/wasm_parity/parity.py` runs the same shots through the native library and the module (wasmhost, on wasmtime and Node) and
+fails on any difference beyond 1 ulp in the angle fields, or on a failed solve that does not return the native status
+(wasi-sdk) or trap (zig); the `WASM (bare module)` workflow builds both flavours and runs it.
+
+It runs with an empty import object in any host that has WebAssembly: Node, browsers, JavaScriptCore, wasmtime, wasm3,
+or Python through [wasmhost](https://github.com/ballistics-lab/py-wasmhost). What a host has to know, since there is
+no Emscripten glue to do it:
+
+- Call `_initialize()` once before the first call (it is a reactor: static initializers).
+- The memory is the module's own (exported as `memory`, 17 pages to start, grows on its own up to 2 GiB,
+  `BCLIBC_WASM_MAX_MEMORY`; the shadow stack is 1 MiB, `BCLIBC_WASM_STACK_SIZE`). Nothing is passed in. After any call
+  that may allocate, take `memory.buffer` again: a grown memory detaches the old `ArrayBuffer`.
+- `malloc` and `free` are exported: put arguments into the module's memory and free what a call hands back
+  (`BCLIBCFFI_free_trajectory` for the records).
+- Pointers and `size_t` are 4 bytes, so read struct fields at the offsets `BCLIBCFFI_get_layout()` reports.
+- **wasi-sdk build: exceptions need the host to have WebAssembly's final exception encoding (`try_table`).** wasi-sdk's
+  libraries use only that one (a module mixing it with the older `try`/`catch` is invalid, so the code is built with
+  `-mllvm -wasm-use-legacy-eh=false`). Measured: wasmtime 49, wasm3 (git, 2026), Node 25 and JavaScriptCore (WebKitGTK)
+  run it; hosts older than the encoding (older Node, Safari/iOS before it) do not, and `wasmhost.selftest` can tell.
+  The build is **not** link-time optimized on purpose: that option does not reach the code generator of an LTO build, and
+  the module then compiles but never catches (the exception escapes the call).
+- **zig build: a `throw` is a trap** (no exception runtime): a solve that fails (`ZeroFinding`, `OutOfRange`, ...) ends
+  the call with `unreachable` instead of returning a `BCLIBCFFI_ERR_*` code, and a trap leaves the shadow stack where it
+  was, so **make a new instance after any trap**.
+- `src/wasm/bare_runtime.cpp` is what keeps WASI out: libc++'s abort, and for wasi-sdk a set of inert stand-ins for the
+  parts of wasi-libc that libunwind and libc++abi call (stderr, the environment, locks, the clock, the stack protector
+  seed). A newer wasi-sdk may find another way in; the post-build check says so.
+
+Numerically it matches the native library: the same inputs through `libbclibc_ffi.so` (x86-64, glibc) and the
+module (both builds), on wasmtime, wasm3, JavaScriptCore and Node, for the six integration methods, `find_zero_*`, `find_apex`,
+`find_max_range` and `integrate_at`, with sea-level, high-altitude and vacuum atmospheres, with and without Coriolis, cant
+and look angle: 2098 values compared, **all bit-identical except 71 that differ by 1 ulp**, and only in
+`drop_angle_rad`, `windage_angle_rad` and `angle_rad`, the ones computed with `atan`/`atan2` (libm differs between
+glibc and the module's musl; `+ - * / sqrt` are exact everywhere). 1 ulp is the spacing between two neighbouring
+`double`s, about 2.2e-16 relative: for a 0.01 rad angle 1.7e-18 rad, some 10^12 times finer than the solver's own
+zero-finding accuracy. So compare results across platforms with a tolerance (say relative 1e-12), not with `==`. The
+engines agree with each other exactly; on arm64 (FMA) it has not been measured.
 
 ---
 

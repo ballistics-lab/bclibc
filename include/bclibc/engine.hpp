@@ -70,6 +70,22 @@ namespace bclibc
         bool has_point = false;
     };
 
+    // The lock type of the engine: the real, recursive `std::recursive_mutex`, except where the standard library
+    // has no threads (libc++ for a bare WebAssembly target, e.g. zig's wasm32-wasi, has no `std::recursive_mutex`),
+    // or where BCLIBC_NO_THREADS asks for none: there it is a lock that does nothing. It follows what libc++ says
+    // about threads, not the target: Emscripten (which has them, also for `-pthread`) keeps the real lock.
+#if defined(BCLIBC_NO_THREADS) || defined(_LIBCPP_HAS_NO_THREADS) || \
+    (defined(_LIBCPP_HAS_THREADS) && !_LIBCPP_HAS_THREADS)
+    struct BCLIBC_Mutex
+    {
+        void lock() {}
+        void unlock() {}
+        bool try_lock() { return true; }
+    };
+#else
+    using BCLIBC_Mutex = std::recursive_mutex;
+#endif
+
     class BCLIBC_BaseEngine;
 
     using BCLIBC_IntegrateFunc = void(
@@ -87,7 +103,7 @@ namespace bclibc
         // A recursive mutex that guarantees thread-safe access (read/write) to the entire Engine state,
         // specifically `config` and `shot`. The recursive nature is necessary because public methods
         // (like zero_angle) call other internal methods (like integrate), requiring nested locking.
-        std::recursive_mutex engine_mutex;
+        BCLIBC_Mutex engine_mutex;
 
     public:
         int integration_step_count;

@@ -8,6 +8,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Options
 # ============================================================================
 option(BCLIBC_BUILD_TESTS "Build tests" OFF)
+# One WebAssembly module of the core + its C ABI that imports nothing (see cmake/zig-wasm32-wasi.cmake): builds
+# only that, not the native library.
+option(BCLIBC_WASM_BARE "Build the bare WebAssembly module (with cmake/zig-wasm32-wasi.cmake)" OFF)
 # Instruments every target with -fsanitize=thread. Needed to actually
 # exercise tests/test_rk45_integrators.cpp's concurrency test as a race
 # detector run, not just a plain (sanitizer-less) pass/fail on values.
@@ -100,6 +103,11 @@ set(BCLIBC_SOURCES
     "${BCLIBC_SRC_DIR}/tsitouras.cpp"
     "${BCLIBC_SRC_DIR}/velocity_verlet.cpp"
 )
+
+if(BCLIBC_WASM_BARE)
+    include(cmake/BclibcWasmBare.cmake)
+    return()
+endif()
 
 # ============================================================================
 # 1. Target: Pure core (Static Library)

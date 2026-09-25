@@ -64,7 +64,7 @@ namespace bclibc
         this->integrate_func_not_empty();
 
         // Block access to engine if it is needed for integration
-        std::lock_guard<std::recursive_mutex> lock(this->engine_mutex);
+        std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
 
         // 1. Create a mandatory filter/writer ON THE HEAP using unique_ptr.
         // This ensures that a large object does not pollute the stack frame.
@@ -111,7 +111,7 @@ namespace bclibc
         this->integrate_func_not_empty();
 
         // Block access to engine if it is needed for integration
-        std::lock_guard<std::recursive_mutex> lock(this->engine_mutex);
+        std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
 
         // Essential termination reason control
         BCLIBC_EssentialTerminators terminators(
@@ -173,7 +173,7 @@ namespace bclibc
         integrate_func_not_empty();
 
         // Block access to engine if it is needed for integration
-        std::lock_guard<std::recursive_mutex> lock(this->engine_mutex);
+        std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
 
         BCLIBC_TerminationReason reason;
         BCLIBC_SinglePointHandler handler(key, target_value, &reason);
@@ -207,7 +207,7 @@ namespace bclibc
     void BCLIBC_BaseEngine::find_apex(BCLIBC_BaseTrajData &apex_out)
     {
         // Block access to engine if it is needed for integration
-        std::lock_guard<std::recursive_mutex> lock(this->engine_mutex);
+        std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
 
         if (this->shot.barrel_elevation <= 0)
         {
@@ -262,7 +262,7 @@ namespace bclibc
         BCLIBC_BaseTrajData *hit_out)
     {
         // Block access to engine if it is needed for integration
-        std::lock_guard<std::recursive_mutex> lock(this->engine_mutex);
+        std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
 
         this->shot.barrel_elevation = angle_rad;
 
@@ -317,7 +317,7 @@ namespace bclibc
         BCLIBC_ZeroInitialData &result)
     {
         // Block access to engine if it is needed for integration
-        std::lock_guard<std::recursive_mutex> lock(this->engine_mutex);
+        std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
 
         BCLIBC_BaseTrajData apex;
         double apex_slant_ft;
@@ -379,7 +379,7 @@ namespace bclibc
         double ALLOWED_ZERO_ERROR_FEET)
     {
         // Block access to engine if it is needed for integration
-        std::lock_guard<std::recursive_mutex> lock(this->engine_mutex);
+        std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
 
         try
         {
@@ -399,7 +399,7 @@ namespace bclibc
         double APEX_IS_MAX_RANGE_RADIANS,
         double ALLOWED_ZERO_ERROR_FEET)
     {
-        std::lock_guard<std::recursive_mutex> lock(this->engine_mutex);
+        std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
 
         BCLIBC_ZeroPointResult result;
         try
@@ -445,7 +445,7 @@ namespace bclibc
         BCLIBC_ZeroPointResult *result_out)
     {
         // Block access to engine if it is needed for integration
-        std::lock_guard<std::recursive_mutex> lock(this->engine_mutex);
+        std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
 
         if (result_out != nullptr)
         {
@@ -656,7 +656,7 @@ namespace bclibc
     double BCLIBC_BaseEngine::range_for_angle(double angle_rad)
     {
         // Block access to engine if it is needed for integration
-        std::lock_guard<std::recursive_mutex> lock(this->engine_mutex);
+        std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
 
         this->shot.barrel_elevation = angle_rad;
 
@@ -693,7 +693,7 @@ namespace bclibc
         double APEX_IS_MAX_RANGE_RADIANS)
     {
         // Block access to engine if it is needed for integration
-        std::lock_guard<std::recursive_mutex> lock(this->engine_mutex);
+        std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
 
         double look_angle_rad = this->shot.look_angle;
         double max_range_ft;
@@ -789,7 +789,7 @@ namespace bclibc
         BCLIBC_ZeroPointResult *result_out)
     {
         // Block access to engine if it is needed for integration
-        std::lock_guard<std::recursive_mutex> lock(this->engine_mutex);
+        std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
 
         if (result_out != nullptr)
         {

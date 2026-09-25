@@ -1,7 +1,8 @@
 #ifndef BCLIBC_LOG_HPP
 #define BCLIBC_LOG_HPP
 
-#include <iostream>
+#include <cerrno>
+#include <climits>
 #include <string>
 #include <cstdio>    // For vsnprintf
 #include <cstdarg>   // For va_list
@@ -51,18 +52,17 @@ namespace bclibc
         {
             if (const char *env_level_str = std::getenv("BCLIBC_LOG_LEVEL"))
             {
-                try
+                // strtol rather than std::stoi: no exceptions, so this header works where they are disabled.
+                // Anything that is not a number in the range of an int keeps the default.
+                char *end = nullptr;
+                errno = 0;
+                long level_val = std::strtol(env_level_str, &end, 10);
+                if (end == env_level_str || errno == ERANGE || level_val > INT_MAX || level_val < INT_MIN)
                 {
-                    // Use std::stoi to convert string to integer safely
-                    int level_val = std::stoi(env_level_str);
-                    // Ensure the level is not negative
-                    return static_cast<BCLIBC_LogLevel>(std::max(0, level_val));
-                }
-                catch (const std::exception &e)
-                {
-                    // Ignore conversion errors and use default
                     return BCLIBC_LogLevel::CRITICAL;
                 }
+                // Ensure the level is not negative
+                return static_cast<BCLIBC_LogLevel>(std::max(0L, level_val));
             }
             return BCLIBC_LogLevel::CRITICAL; // Default: logging disabled
         }();
@@ -120,6 +120,16 @@ namespace bclibc
      */
     inline void log_impl_v(BCLIBC_LogLevel level, const char *file, int line, const char *func, const char *format, va_list args)
     {
+#if defined(__wasm__) && !defined(BCLIBC_WASM_LOG)
+        // A bare WebAssembly module has nowhere to write: printing would make it import WASI's fd_write, and a
+        // module that imports nothing runs anywhere. Define BCLIBC_WASM_LOG to have the log back (it needs WASI).
+        (void)level;
+        (void)file;
+        (void)line;
+        (void)func;
+        (void)format;
+        (void)args;
+#else
         // --- 1. Format the user message into a std::string ---
 
         // Copy va_list to safely determine size (required for portable vsnprintf use)
@@ -132,7 +142,7 @@ namespace bclibc
         if (size < 0)
         {
             // Error in formatting
-            std::cerr << "Log formatting error.\n";
+            std::fputs("Log formatting error.\n", stderr);
             return;
         }
 
@@ -141,22 +151,20 @@ namespace bclibc
         // Write the formatted message into the buffer
         std::vsnprintf(&message_buffer[0], size + 1, format, args);
 
-        // --- 2. Construct and output the final log line ---
+        // --- 2. Construct and output the final log line, on the standard error stream ---
 
-        const char *color = level_to_color(level);
-        const char *level_str = level_to_string(level);
-
-        // Print to standard error stream (std::cerr)
-        std::cerr << color
-                  << level_str
-                  << BCLIBC_ANSI_COLOR_RESET << ": "
-                  << file << ":" << line
-                  << " in " << func << ": "
-                  << message_buffer
-                  << "\n";
-
-        // IMPORTANT: Flush std::cerr to ensure immediate output
-        std::cerr.flush();
+        std::fprintf(
+            stderr,
+            "%s%s%s: %s:%d in %s: %s\n",
+            level_to_color(level),
+            level_to_string(level),
+            BCLIBC_ANSI_COLOR_RESET,
+            file,
+            line,
+            func,
+            message_buffer.c_str());
+        std::fflush(stderr); // to make sure it is out at once
+#endif
     }
 
     /**
@@ -171,6 +179,16 @@ namespace bclibc
      */
     inline void log(BCLIBC_LogLevel level, const char *file, int line, const char *func, const char *format, ...)
     {
+#if defined(__wasm__) && !defined(BCLIBC_WASM_LOG)
+        // Nothing is printed here (see log_impl_v), and reading the level would pull in getenv, which makes a bare
+        // module import WASI's environ_get and environ_sizes_get.
+        (void)level;
+        (void)file;
+        (void)line;
+        (void)func;
+        (void)format;
+        return;
+#endif
         if (static_cast<int>(level) < static_cast<int>(get_min_level()))
         {
             return;
