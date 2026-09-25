@@ -486,6 +486,56 @@ extern "C"
     BCLIBC_API double BCLIBCFFI_calculate_ogw(double bullet_weight_grain, double velocity_fps);
 
     // ============================================================================
+    // Interpolation between trajectory points
+    // ============================================================================
+
+    /** BCLIBC_TrajectoryData_InterpKey: the field of a trajectory point that is the independent variable. */
+    typedef enum BCLIBCFFI_TrajectoryInterpKey
+    {
+        BCLIBCFFI_TRAJ_KEY_TIME = 0,
+        BCLIBCFFI_TRAJ_KEY_DISTANCE = 1,
+        BCLIBCFFI_TRAJ_KEY_VELOCITY = 2,
+        BCLIBCFFI_TRAJ_KEY_MACH = 3,
+        BCLIBCFFI_TRAJ_KEY_HEIGHT = 4,
+        BCLIBCFFI_TRAJ_KEY_SLANT_HEIGHT = 5,
+        BCLIBCFFI_TRAJ_KEY_DROP_ANGLE = 6,
+        BCLIBCFFI_TRAJ_KEY_WINDAGE = 7,
+        BCLIBCFFI_TRAJ_KEY_WINDAGE_ANGLE = 8,
+        BCLIBCFFI_TRAJ_KEY_SLANT_DISTANCE = 9,
+        BCLIBCFFI_TRAJ_KEY_ANGLE = 10,
+        BCLIBCFFI_TRAJ_KEY_DENSITY_RATIO = 11,
+        BCLIBCFFI_TRAJ_KEY_DRAG = 12,
+        BCLIBCFFI_TRAJ_KEY_ENERGY = 13,
+        BCLIBCFFI_TRAJ_KEY_OGW = 14,
+        BCLIBCFFI_TRAJ_KEY_FLAG = 15,
+    } BCLIBCFFI_TrajectoryInterpKey;
+
+    typedef enum BCLIBCFFI_InterpMethod
+    {
+        BCLIBCFFI_INTERP_PCHIP = 0,
+        BCLIBCFFI_INTERP_LINEAR = 1,
+    } BCLIBCFFI_InterpMethod;
+
+    /**
+     * The point of a trajectory where the field `key` has the value `value`, interpolated from the three points
+     * around it (BCLIBC_TrajectoryData::interpolate): every field is interpolated, the key field is set to `value`
+     * and `flag` (BCLIBCFFI_TrajFlag) is the flag of the result.
+     * @param key     BCLIBCFFI_TrajectoryInterpKey
+     * @param method  BCLIBCFFI_InterpMethod
+     * @return BCLIBCFFI_OK, or an error code (fills *err), for example when two of the points have the same key.
+     */
+    BCLIBC_API int32_t BCLIBCFFI_interpolate_trajectory_data(
+        int32_t key,
+        double value,
+        const BCLIBCFFI_TrajectoryData *t0,
+        const BCLIBCFFI_TrajectoryData *t1,
+        const BCLIBCFFI_TrajectoryData *t2,
+        int32_t flag,
+        int32_t method,
+        BCLIBCFFI_TrajectoryData *out,
+        BCLIBCFFI_Error *err);
+
+    // ============================================================================
     // ABI layout introspection (WASM/JS interop only — unused by dart:ffi,
     // which derives struct layout at ffigen-generation time instead).
     // ============================================================================

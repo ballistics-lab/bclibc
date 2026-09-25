@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `BCLIBCFFI_interpolate_trajectory_data` (with `BCLIBCFFI_TrajectoryInterpKey` and `BCLIBCFFI_InterpMethod`) in the flat C
+  ABI: the point of a trajectory where a chosen field has a given value, interpolated from the three points around
+  it (`BCLIBC_TrajectoryData::interpolate`, PCHIP or linear). Until now only the Embind bindings of js-ballistics
+  had it, which the bare WebAssembly build has no use for. No struct changes: `BCLIBCFFI_get_layout()` is the same.
+
 ## [2.0.0-rc.3] - 2026-09-25
 
 ### Changed
