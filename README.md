@@ -223,6 +223,8 @@ Or via Make:
 make          # Build everything (Core + FFI)
 make core     # Static core only
 make ffi      # Shared FFI only
+make wasm WASI_SDK_PATH=...   # Bare WebAssembly module with exceptions (see WASM build)
+make wasm-zig                 # ... or the small one with zig, where a throw is a trap
 make clean    # Remove build/
 ```
 
@@ -291,6 +293,8 @@ Emscripten:
 cmake -S . -B build/wasm -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/wasi-sdk-wasm32.cmake -DWASI_SDK_PATH=/opt/wasi-sdk-34.0 -DBCLIBC_WASM_BARE=ON
 cmake --build build/wasm          # -> build/wasm/bclibc_wasm.wasm; the build fails if it imports from WASI
 ```
+
+Or `make wasm WASI_SDK_PATH=/opt/wasi-sdk-34.0` (wasi-sdk, `build/wasm/`) and `make wasm-zig` (zig, `build/wasm-zig/`).
 
 It runs with an empty import object in any host that has WebAssembly: Node, browsers, JavaScriptCore, wasmtime, wasm3,
 or Python through [wasmhost](https://github.com/ballistics-lab/py-wasmhost). What a host has to know, since there is
