@@ -179,6 +179,16 @@ namespace bclibc
      */
     inline void log(BCLIBC_LogLevel level, const char *file, int line, const char *func, const char *format, ...)
     {
+#if defined(__wasm__) && !defined(BCLIBC_WASM_LOG)
+        // Nothing is printed here (see log_impl_v), and reading the level would pull in getenv, which makes a bare
+        // module import WASI's environ_get and environ_sizes_get.
+        (void)level;
+        (void)file;
+        (void)line;
+        (void)func;
+        (void)format;
+        return;
+#endif
         if (static_cast<int>(level) < static_cast<int>(get_min_level()))
         {
             return;
