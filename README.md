@@ -277,6 +277,41 @@ Output: `build/web/bclibc_ffi.js` + `build/web/bclibc_ffi.wasm` (Emscripten JS-g
 
 The module exports the flat `BCLIBCFFI_*` functions directly (no Embind) plus `BCLIBCFFI_get_layout()`, which returns every `BCLIBCFFI_Shot`-family struct's field byte offsets/sizes, computed via `offsetof()`/`sizeof()` by whichever compiler built the module. Callers marshal structs into wasm linear memory (`_malloc`/`HEAPU8`) using those offsets instead of hardcoding them — see `dart-bclibc`'s `lib/ffi/bclibc_ffi_web.dart` for a complete `dart:js_interop` binding built this way.
 
+### Bare WebAssembly build (no Emscripten, no imports)
+
+The same C ABI as one module that imports **nothing**, built with [zig](https://ziglang.org) and CMake (`zig` on `PATH`,
+`-DZIG=`, or `pip install ziglang`):
+
+```bash
+cmake -S . -B build/wasm -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/zig-wasm32-wasi.cmake -DBCLIBC_WASM_BARE=ON
+cmake --build build/wasm          # -> build/wasm/bclibc_wasm.wasm (about 78 KB); fails if it imports from WASI
+```
+
+It runs with an empty import object in any host that has WebAssembly (Node, browsers, JavaScriptCore, wasmtime, wasm3,
+or Python through [wasmhost](https://github.com/ballistics-lab/py-wasmhost)). What a host has to know, since there is
+no Emscripten glue to do it:
+
+- Call `_initialize()` once before the first call (it is a reactor: static initializers).
+- The memory is the module's own (exported as `memory`, 17 pages to start, grows on its own up to 2 GiB,
+  `BCLIBC_WASM_MAX_MEMORY`; the shadow stack is 1 MiB, `BCLIBC_WASM_STACK_SIZE`). Nothing is passed in. After any call
+  that may allocate, take `memory.buffer` again: a grown memory detaches the old `ArrayBuffer`.
+- `malloc` and `free` are exported: put arguments into the module's memory and free what a call hands back
+  (`BCLIBCFFI_free_trajectory` for the records).
+- Pointers and `size_t` are 4 bytes, so read struct fields at the offsets `BCLIBCFFI_get_layout()` reports.
+- **A `throw` is a trap** in this build (no exception runtime): a solve that fails (`ZeroFinding`, `OutOfRange`, ...)
+  ends the call with `unreachable` instead of returning a `BCLIBCFFI_ERR_*` code, and a trap leaves the shadow stack
+  where it was, so **make a new instance after any trap**. Until the core reports errors without exceptions.
+
+Numerically it matches the native library: the same inputs through `libbclibc_ffi.so` (x86-64, glibc) and the
+module, on wasmtime, wasm3, JavaScriptCore and Node, for the six integration methods, `find_zero_*`, `find_apex`,
+`find_max_range` and `integrate_at`, with sea-level, high-altitude and vacuum atmospheres, with and without Coriolis, cant
+and look angle: 2098 values compared, **all bit-identical except 71 that differ by 1 ulp**, and only in
+`drop_angle_rad`, `windage_angle_rad` and `angle_rad`, the ones computed with `atan`/`atan2` (libm differs between
+glibc and the module's musl; `+ - * / sqrt` are exact everywhere). 1 ulp is the spacing between two neighbouring
+`double`s, about 2.2e-16 relative: for a 0.01 rad angle 1.7e-18 rad, some 10^12 times finer than the solver's own
+zero-finding accuracy. So compare results across platforms with a tolerance (say relative 1e-12), not with `==`. The
+engines agree with each other exactly; on arm64 (FMA) it has not been measured.
+
 ---
 
 ## FFI API

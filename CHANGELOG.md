@@ -40,6 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Notes
 - Toward one WebAssembly binary of the C++ core for every host (no Emscripten, no embind): the build above works with
   a `throw` as a trap. What is left is for the core to report errors without exceptions (37 `throw`, 3 `try`).
+- The bare module and the native library agree to the last bit except for 1 ulp in the angle fields (`drop_angle_rad`,
+  `windage_angle_rad`, `angle_rad`: `atan`/`atan2` differ between glibc and musl); measured on x86-64 for all integration
+  methods and atmospheres, and identical on wasmtime, wasm3, JavaScriptCore and Node. Documented in the README.
 
 ## [2.0.0-rc.2] - 2026-09-23
 
