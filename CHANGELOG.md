@@ -40,6 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cmake -S . -B build/wasm -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/wasi-sdk-wasm32.cmake -DWASI_SDK_PATH=... -DBCLIBC_WASM_BARE=ON
   ```
   `make wasm WASI_SDK_PATH=...` and `make wasm-zig` do it.
+- `tests/wasm_parity/parity.py` and the `WASM (bare module)` workflow (`.github/workflows/wasm-bare.yml`): both flavours of the
+  bare module are built (wasi-sdk with exceptions, zig with the trap) and every result of the same shots is compared with
+  `libbclibc_ffi` on wasmtime and Node: identical except up to a few ulp in the angle fields, and a failed solve returns
+  the native status (wasi-sdk) or traps (zig).
 - `src/wasm/bare_runtime.cpp` (only that build compiles it, it is not among `src/*.cpp`): libc++'s default
   `__libcpp_verbose_abort` writes to stderr, which makes a module import WASI's `fd_write`, `fd_seek` and `fd_close`
   as soon as it uses `std::vector`, `std::string` or `std::sort`; this one traps instead. Under wasi-sdk it also stands

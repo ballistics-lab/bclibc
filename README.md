@@ -296,6 +296,10 @@ cmake --build build/wasm          # -> build/wasm/bclibc_wasm.wasm; the build fa
 
 Or `make wasm WASI_SDK_PATH=/opt/wasi-sdk-34.0` (wasi-sdk, `build/wasm/`) and `make wasm-zig` (zig, `build/wasm-zig/`).
 
+`tests/wasm_parity/parity.py` runs the same shots through the native library and the module (wasmhost, on wasmtime and Node) and
+fails on any difference beyond 1 ulp in the angle fields, or on a failed solve that does not return the native status
+(wasi-sdk) or trap (zig); the `WASM (bare module)` workflow builds both flavours and runs it.
+
 It runs with an empty import object in any host that has WebAssembly: Node, browsers, JavaScriptCore, wasmtime, wasm3,
 or Python through [wasmhost](https://github.com/ballistics-lab/py-wasmhost). What a host has to know, since there is
 no Emscripten glue to do it:
