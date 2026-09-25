@@ -24,40 +24,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `BCLIBC_WASM_BARE=ON`: builds the core and its flat C ABI (`bclibc_ffi.h`) into one WebAssembly module,
-  `bclibc_wasm.wasm`, that imports nothing, so it runs with an empty import object in any host: Node, browsers,
-  JavaScriptCore, wasmtime, wasm3. No Emscripten: CMake with one of two toolchain files. It exports `malloc` and `free`,
-  is a reactor (the host calls `_initialize` first), its memory is its own and grows up to 2 GiB
-  (`BCLIBC_WASM_MAX_MEMORY`, as Emscripten's `MAXIMUM_MEMORY`) with a 1 MiB stack (`BCLIBC_WASM_STACK_SIZE`), and the
-  build fails if the module imports from WASI.
-  - `cmake/wasi-sdk-wasm32.cmake` (wasi-sdk, `-DWASI_SDK_PATH=`): **with C++ exceptions**, so the flat C ABI returns
-    the same error codes as the native library (checked against `libbclibc_ffi.so`, error path included, on wasmtime,
-    wasm3, JavaScriptCore and Node). About 1.6 MB. It uses WebAssembly's final exception encoding (`try_table`), the
-    only one wasi-sdk's libraries have, so the host needs it (wasmtime, recent wasm3, Node 24+, recent Safari/iOS); the
-    build is deliberately not LTO (with LTO the encoding option is lost and nothing is ever caught).
-  - `cmake/zig-wasm32-wasi.cmake` (zig): about 78 KB, but zig has no exception runtime, so **a `throw` is a trap** there:
-    a failed solve ends the call instead of coming back as an error code, and the host makes a new instance after it.
-  ```
-  cmake -S . -B build/wasm -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/wasi-sdk-wasm32.cmake -DWASI_SDK_PATH=... -DBCLIBC_WASM_BARE=ON
-  ```
-  `make wasm WASI_SDK_PATH=...` and `make wasm-zig` do it.
-- `tests/wasm_parity/parity.py` and the `WASM (bare module)` workflow (`.github/workflows/wasm-bare.yml`): both flavours of the
-  bare module are built (wasi-sdk with exceptions, zig with the trap) and every result of the same shots is compared with
-  `libbclibc_ffi` on wasmtime and Node: identical except up to a few ulp in the angle fields, and a failed solve returns
-  the native status (wasi-sdk) or traps (zig).
+  `bclibc_wasm.wasm`, that imports nothing, so it runs with an empty import object in any host that has WebAssembly, and
+  needs no Emscripten and no embind: CMake with one of two toolchain files (or `make wasm WASI_SDK_PATH=...` and
+  `make wasm-zig`). The module exports `malloc` and `free`, is a reactor (the host calls `_initialize` first), its memory
+  is its own and grows up to 2 GiB (`BCLIBC_WASM_MAX_MEMORY`, as Emscripten's `MAXIMUM_MEMORY`) with a 1 MiB stack
+  (`BCLIBC_WASM_STACK_SIZE`), and the build fails if it imports from WASI.
+  - `cmake/wasi-sdk-wasm32.cmake` (wasi-sdk 34, `-DWASI_SDK_PATH=`): **with C++ exceptions**, so the flat C ABI returns
+    the same error codes as the native library. About 1.6 MB. It uses WebAssembly's final exception encoding
+    (`try_table`), the only one wasi-sdk's libraries have, so the host must have it: wasmtime 49, wasm3 (a build from
+    git), Node 25 and JavaScriptCore (WebKitGTK) were tried, and iOS 26 (an iPhone 16, Pythonista's `JSContext`, through
+    `wasmhost.selftest`); `wasmhost.selftest` tells which encodings an engine takes. The build is deliberately not LTO:
+    with LTO the option that selects the encoding is lost, and the module never catches.
+  - `cmake/zig-wasm32-wasi.cmake` (zig 0.16): about 78 KB, but zig has no exception runtime, so **a `throw` is a trap**
+    there: a failed solve ends the call instead of coming back as an error code, and the host makes a new instance
+    after it.
 - `src/wasm/bare_runtime.cpp` (only that build compiles it, it is not among `src/*.cpp`): libc++'s default
   `__libcpp_verbose_abort` writes to stderr, which makes a module import WASI's `fd_write`, `fd_seek` and `fd_close`
   as soon as it uses `std::vector`, `std::string` or `std::sort`; this one traps instead. Under wasi-sdk it also stands
   in for the parts of wasi-libc that libunwind and libc++abi would call (stderr, the environment, locks, the clock, the
   stack protector seed), and under zig it defines `__cxa_allocate_exception` and `__cxa_throw` as traps.
-
-### Notes
-- Toward one WebAssembly binary of the C++ core for every host (no Emscripten, no embind): the wasi-sdk build above
-  keeps the exceptions and passes the same error paths as native. What is left is the consumers' side: a loader for
-  the flat C ABI in place of embind (js-ballistics) and of Emscripten's glue (dart web), and `build_wasm.sh` stays until
-  those move.
-- The bare module and the native library agree to the last bit except for 1 ulp in the angle fields (`drop_angle_rad`,
-  `windage_angle_rad`, `angle_rad`: `atan`/`atan2` differ between glibc and musl); measured on x86-64 for all integration
-  methods and atmospheres, and identical on wasmtime, wasm3, JavaScriptCore and Node. Documented in the README.
+- `tests/wasm_parity/parity.py` and the `WASM (bare module)` workflow (`.github/workflows/wasm-bare.yml`): both
+  flavours are built and the results of the same shots are compared with `libbclibc_ffi` on wasmtime and Node: every
+  double is bit-identical except the angle fields (`drop_angle_rad`, `windage_angle_rad`, `angle_rad`), which differ by
+  1 ulp (`atan`/`atan2` are not the same in glibc and in the module's musl; measured on x86-64, for all integration
+  methods and atmospheres, and the same on wasmtime, wasm3, JavaScriptCore and Node), and a failed solve returns the
+  native status (wasi-sdk) or traps (zig).
 
 ## [2.0.0-rc.2] - 2026-09-23
 
