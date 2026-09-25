@@ -279,16 +279,21 @@ The module exports the flat `BCLIBCFFI_*` functions directly (no Embind) plus `B
 
 ### Bare WebAssembly build (no Emscripten, no imports)
 
-The same C ABI as one module that imports **nothing**, built with [zig](https://ziglang.org) and CMake (`zig` on `PATH`,
-`-DZIG=`, or `pip install ziglang`):
+The same C ABI as one module that imports **nothing**, built with CMake and one of two toolchains, neither of them
+Emscripten:
+
+| toolchain | `-DCMAKE_TOOLCHAIN_FILE=` | C++ exceptions | size |
+|---|---|---|---|
+| [wasi-sdk](https://github.com/WebAssembly/wasi-sdk/releases) (34 tested; `-DWASI_SDK_PATH=` or `$WASI_SDK_PATH`) | `cmake/wasi-sdk-wasm32.cmake` | **yes**: the core throws and the flat C ABI returns the same `BCLIBCFFI_ERR_*` codes as the native library | ~1.6 MB |
+| [zig](https://ziglang.org) (`zig` on `PATH`, `-DZIG=`, or `pip install ziglang`) | `cmake/zig-wasm32-wasi.cmake` | no: a `throw` is a trap | ~78 KB (`-Oz -flto`) |
 
 ```bash
-cmake -S . -B build/wasm -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/zig-wasm32-wasi.cmake -DBCLIBC_WASM_BARE=ON
-cmake --build build/wasm          # -> build/wasm/bclibc_wasm.wasm (about 78 KB); fails if it imports from WASI
+cmake -S . -B build/wasm -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/wasi-sdk-wasm32.cmake -DWASI_SDK_PATH=/opt/wasi-sdk-34.0 -DBCLIBC_WASM_BARE=ON
+cmake --build build/wasm          # -> build/wasm/bclibc_wasm.wasm; the build fails if it imports from WASI
 ```
 
-It runs with an empty import object in any host that has WebAssembly (Node, browsers, JavaScriptCore, wasmtime, wasm3,
-or Python through [wasmhost](https://github.com/ballistics-lab/py-wasmhost)). What a host has to know, since there is
+It runs with an empty import object in any host that has WebAssembly: Node, browsers, JavaScriptCore, wasmtime, wasm3,
+or Python through [wasmhost](https://github.com/ballistics-lab/py-wasmhost). What a host has to know, since there is
 no Emscripten glue to do it:
 
 - Call `_initialize()` once before the first call (it is a reactor: static initializers).
@@ -298,12 +303,21 @@ no Emscripten glue to do it:
 - `malloc` and `free` are exported: put arguments into the module's memory and free what a call hands back
   (`BCLIBCFFI_free_trajectory` for the records).
 - Pointers and `size_t` are 4 bytes, so read struct fields at the offsets `BCLIBCFFI_get_layout()` reports.
-- **A `throw` is a trap** in this build (no exception runtime): a solve that fails (`ZeroFinding`, `OutOfRange`, ...)
-  ends the call with `unreachable` instead of returning a `BCLIBCFFI_ERR_*` code, and a trap leaves the shadow stack
-  where it was, so **make a new instance after any trap**. Until the core reports errors without exceptions.
+- **wasi-sdk build: exceptions need the host to have WebAssembly's final exception encoding (`try_table`).** wasi-sdk's
+  libraries use only that one (a module mixing it with the older `try`/`catch` is invalid, so the code is built with
+  `-mllvm -wasm-use-legacy-eh=false`). Measured: wasmtime 49, wasm3 (git, 2026), Node 25 and JavaScriptCore (WebKitGTK)
+  run it; hosts older than the encoding (older Node, Safari/iOS before it) do not, and `wasmhost.selftest` can tell.
+  The build is **not** link-time optimized on purpose: that option does not reach the code generator of an LTO build, and
+  the module then compiles but never catches (the exception escapes the call).
+- **zig build: a `throw` is a trap** (no exception runtime): a solve that fails (`ZeroFinding`, `OutOfRange`, ...) ends
+  the call with `unreachable` instead of returning a `BCLIBCFFI_ERR_*` code, and a trap leaves the shadow stack where it
+  was, so **make a new instance after any trap**.
+- `src/wasm/bare_runtime.cpp` is what keeps WASI out: libc++'s abort, and for wasi-sdk a set of inert stand-ins for the
+  parts of wasi-libc that libunwind and libc++abi call (stderr, the environment, locks, the clock, the stack protector
+  seed). A newer wasi-sdk may find another way in; the post-build check says so.
 
 Numerically it matches the native library: the same inputs through `libbclibc_ffi.so` (x86-64, glibc) and the
-module, on wasmtime, wasm3, JavaScriptCore and Node, for the six integration methods, `find_zero_*`, `find_apex`,
+module (both builds), on wasmtime, wasm3, JavaScriptCore and Node, for the six integration methods, `find_zero_*`, `find_apex`,
 `find_max_range` and `integrate_at`, with sea-level, high-altitude and vacuum atmospheres, with and without Coriolis, cant
 and look angle: 2098 values compared, **all bit-identical except 71 that differ by 1 ulp**, and only in
 `drop_angle_rad`, `windage_angle_rad` and `angle_rad`, the ones computed with `atan`/`atan2` (libm differs between
