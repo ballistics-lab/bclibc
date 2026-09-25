@@ -70,9 +70,12 @@ namespace bclibc
         bool has_point = false;
     };
 
-    // The lock type of the engine. WebAssembly has no threads (and its libc++ has no std::recursive_mutex), so there
-    // a lock that does nothing takes its place; everywhere else it is the real, recursive one.
-#if defined(__wasm__) || defined(BCLIBC_NO_THREADS)
+    // The lock type of the engine: the real, recursive `std::recursive_mutex`, except where the standard library
+    // has no threads (libc++ for a bare WebAssembly target, e.g. zig's wasm32-wasi, has no `std::recursive_mutex`),
+    // or where BCLIBC_NO_THREADS asks for none: there it is a lock that does nothing. It follows what libc++ says
+    // about threads, not the target: Emscripten (which has them, also for `-pthread`) keeps the real lock.
+#if defined(BCLIBC_NO_THREADS) || defined(_LIBCPP_HAS_NO_THREADS) || \
+    (defined(_LIBCPP_HAS_THREADS) && !_LIBCPP_HAS_THREADS)
     struct BCLIBC_Mutex
     {
         void lock() {}

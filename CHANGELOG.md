@@ -8,9 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- `BCLIBC_BaseEngine`'s lock is now the type `BCLIBC_Mutex`: `std::recursive_mutex` as before, except where
-  there are no threads (`__wasm__`, or `-DBCLIBC_NO_THREADS`), where it is a lock that does nothing. WebAssembly's
-  libc++ has no `std::recursive_mutex`, so the engine did not compile there. Native builds are unchanged.
+- `BCLIBC_BaseEngine`'s lock is now the type `BCLIBC_Mutex`: `std::recursive_mutex` as before, except where the
+  standard library has no threads (libc++ for a bare `wasm32-wasi`, or `-DBCLIBC_NO_THREADS`), where it is a lock
+  that does nothing. WebAssembly's bare libc++ has no `std::recursive_mutex`, so the engine did not compile there.
+  It follows libc++'s `_LIBCPP_HAS_THREADS`, not the target, so Emscripten (with or without `-pthread`) and every
+  native build keep the real lock.
 - `log.hpp` no longer includes `<iostream>` or uses exceptions: `BCLIBC_LOG_LEVEL` is read with `std::strtol`
   (the same values as `std::stoi` gave, anything else keeps the default) and the log line goes out through
   `fprintf(stderr)`, with the same text as before. A translation unit that got `<iostream>` (`std::cout`, `std::cerr`)
