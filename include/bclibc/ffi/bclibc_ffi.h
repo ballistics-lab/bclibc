@@ -489,6 +489,18 @@ extern "C"
     // Interpolation between trajectory points
     // ============================================================================
 
+    /** Cubic Hermite polynomial through (xk, yk) and (xk1, yk1) with slopes mk and mk1, at x. */
+    BCLIBC_API double BCLIBCFFI_hermite(double x, double xk, double xk1, double yk, double yk1, double mk, double mk1);
+
+    /** PCHIP interpolation at x through three points (x0, y0), (x1, y1), (x2, y2). */
+    BCLIBC_API double BCLIBCFFI_interpolate_3pt(double x, double x0, double x1, double x2, double y0, double y1, double y2);
+
+    /**
+     * Linear interpolation at x between (x0, y0) and (x1, y1).
+     * @return BCLIBCFFI_OK, or BCLIBCFFI_ERR_GENERIC (fills *err) when x0 == x1.
+     */
+    BCLIBC_API int32_t BCLIBCFFI_interpolate_2pt(double x, double x0, double y0, double x1, double y1, double *out, BCLIBCFFI_Error *err);
+
     /** BCLIBC_TrajectoryData_InterpKey: the field of a trajectory point that is the independent variable. */
     typedef enum BCLIBCFFI_TrajectoryInterpKey
     {
