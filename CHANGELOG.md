@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.3] - 2026-09-25
+
 ### Changed
 - `BCLIBC_BaseEngine`'s lock is now the type `BCLIBC_Mutex`: `std::recursive_mutex` as before, except where the
   standard library has no threads (libc++ for a bare `wasm32-wasi`, or `-DBCLIBC_NO_THREADS`), where it is a lock
@@ -17,8 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (the same values as `std::stoi` gave, anything else keeps the default) and the log line goes out through
   `fprintf(stderr)`, with the same text as before. A translation unit that got `<iostream>` (`std::cout`, `std::cerr`)
   only through `bclibc/log.hpp` has to include it itself now.
-- Under `__wasm__` the log prints nothing by default, so that a bare module needs no WASI `fd_write`; define
-  `BCLIBC_WASM_LOG` to have it (with WASI).
+- Under `__wasm__` the log prints nothing by default (and does not even read `BCLIBC_LOG_LEVEL`, which would make
+  a bare module import WASI's `environ_get`), so that it needs no WASI; define `BCLIBC_WASM_LOG` to have it (with WASI).
+
+### Added
+- `src/wasm/bare_runtime.cpp`: for a bare `wasm32-wasi` build with zig (link it in). libc++'s default `__libcpp_verbose_abort`
+  writes to stderr, which makes a module import WASI's `fd_write`, `fd_seek` and `fd_close` as soon as it uses
+  `std::vector`, `std::string` or `std::sort`; this one traps instead. It is not among `src/*.cpp`, so no existing build
+  compiles it. With it (and `-fno-exceptions`) the core links to a module that imports nothing.
 
 ### Notes
 - Toward one WebAssembly binary of the C++ core for every host (no Emscripten, no embind): with these two changes
@@ -649,7 +657,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.2...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.3...HEAD
+[2.0.0-rc.3]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.2...v2.0.0-rc.3
 [2.0.0-rc.2]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.1...v2.0.0-rc.2
 [2.0.0-rc.1]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.8...v2.0.0-rc.1
 [2.0.0-beta.8]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.7...v2.0.0-beta.8
