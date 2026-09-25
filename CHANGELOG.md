@@ -27,7 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   WebAssembly module, `bclibc_wasm.wasm` (about 78 KB, `-Oz -flto`), that imports nothing, so it runs with an empty
   import object in any host: Node, browsers, JavaScriptCore, wasmtime, wasm3. Needs only zig (`zig` on `PATH`,
   `-DZIG=`, or `pip install ziglang`), no Emscripten. It exports `malloc` and `free`, is a reactor (the host calls
-  `_initialize` first), and the build fails if the module imports from WASI.
+  `_initialize` first), its memory is its own and grows up to 2 GiB (`BCLIBC_WASM_MAX_MEMORY`, as Emscripten's
+  `MAXIMUM_MEMORY`) with a 1 MiB stack (`BCLIBC_WASM_STACK_SIZE`), and the build fails if the module imports from WASI.
   `cmake -S . -B build/wasm -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/zig-wasm32-wasi.cmake -DBCLIBC_WASM_BARE=ON`
 - `src/wasm/bare_runtime.cpp` (only that build compiles it, it is not among `src/*.cpp`): libc++'s default
   `__libcpp_verbose_abort` writes to stderr, which makes a module import WASI's `fd_write`, `fd_seek` and `fd_close`

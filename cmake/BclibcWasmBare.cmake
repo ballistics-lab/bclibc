@@ -2,6 +2,9 @@
 # (bclibc_ffi.h) in one module that imports nothing. Included by CMakeLists.txt, which stops after it.
 
 set(BCLIBC_WASM_STACK_SIZE 1048576 CACHE STRING "Size of the shadow stack of the module, in bytes")
+# The same ceiling as Emscripten's MAXIMUM_MEMORY (2 GiB), so the module grows as far as the Emscripten build did and
+# no further; the memory is the module's own (exported), it needs nothing from the host.
+set(BCLIBC_WASM_MAX_MEMORY 2147483648 CACHE STRING "Largest size the memory of the module may grow to, in bytes")
 
 add_executable(bclibc_wasm
     ${BCLIBC_SOURCES}
@@ -25,6 +28,7 @@ target_link_options(bclibc_wasm PRIVATE
     -Wl,--export=malloc   # the host puts arguments into the module's memory, and frees what it gets back
     -Wl,--export=free
     -Wl,-z,stack-size=${BCLIBC_WASM_STACK_SIZE}
+    -Wl,--max-memory=${BCLIBC_WASM_MAX_MEMORY}
 )
 set_target_properties(bclibc_wasm PROPERTIES SUFFIX ".wasm" RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
