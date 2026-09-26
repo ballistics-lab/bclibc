@@ -53,7 +53,7 @@ namespace bclibc
          * thread_local shared by every BCLIBC_BaseEngine on the thread using
          * the same method. */
         template <typename Tableau, typename Controller>
-        void run(BCLIBC_BaseEngine &eng,
+        BCLIBC_BaseResult<std::monostate> run(BCLIBC_BaseEngine &eng,
                 BCLIBC_BaseTrajDataHandlerInterface &handler,
                 BCLIBC_TerminationReason &reason,
                 int &accepted_steps,
@@ -72,7 +72,7 @@ namespace bclibc
             {
                 BCLIBC_ERROR("Invalid calc_step=%.9f (must be > 0); integration aborted", base_dt);
                 reason = BCLIBC_TerminationReason::MINIMUM_VELOCITY_REACHED;
-                return;
+                return std::monostate{};
             }
             const double min_dt = base_dt / min_dt_divisor;
             const double max_dt = base_dt * max_dt_multiplier;
@@ -97,7 +97,8 @@ namespace bclibc
             eng.shot.atmo.update_density_factor_and_mach_for_altitude(
                 eng.shot.alt0 + pos.y, density_ratio, mach_fps);
             BCLIBC_BaseTrajData step_start(time, pos, velocity, mach_fps);
-            handler.handle(step_start);
+            const auto start_result = handler.handle(step_start);
+            if (has_error(start_result)) return start_result;
 
             while (reason == BCLIBC_TerminationReason::NO_TERMINATE)
             {
@@ -194,9 +195,11 @@ namespace bclibc
                 eng.shot.atmo.update_density_factor_and_mach_for_altitude(
                     eng.shot.alt0 + pos.y, density_ratio, mach_fps);
                 BCLIBC_BaseTrajData step_end(time, pos, velocity, mach_fps);
-                handler.handle_step(step_start, step_end);
+                const auto step_result = handler.handle_step(step_start, step_end);
+                if (has_error(step_result)) return step_result;
                 step_start = step_end;
             }
+            return std::monostate{};
         }
     }
 }; // namespace bclibc

@@ -58,7 +58,7 @@ namespace bclibc
      * @param handler Interface for processing computed trajectory data points.
      * @param reason Output parameter indicating why the simulation terminated.
      */
-    void BCLIBC_integrateEULER(
+BCLIBC_BaseResult<std::monostate> BCLIBC_integrateEULER(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason)
@@ -86,7 +86,7 @@ namespace bclibc
             BCLIBC_ERROR(
                 "Invalid calc_step=%.9f (must be > 0); integration aborted", calc_step);
             reason = BCLIBC_TerminationReason::MINIMUM_VELOCITY_REACHED;
-            return;
+            return std::monostate{};
         }
 
         // Initialize working variables
@@ -130,7 +130,8 @@ namespace bclibc
             density_ratio,
             mach);
         BCLIBC_BaseTrajData step_start(time, range_vector, velocity_vector, mach);
-        handler.handle(step_start);
+        const auto start_result = handler.handle(step_start);
+        if (has_error(start_result)) return start_result;
 
         // Main trajectory integration loop
         // Continue until range limit is reached or termination condition is met
@@ -205,11 +206,13 @@ namespace bclibc
                 density_ratio,
                 mach);
             BCLIBC_BaseTrajData step_end(time, range_vector, velocity_vector, mach);
-            handler.handle_step(step_start, step_end);
+            const auto step_result = handler.handle_step(step_start, step_end);
+            if (has_error(step_result)) return step_result;
             step_start = step_end;
         }
 
         BCLIBC_DEBUG("Function exit, reason=%d\n", reason);
+        return std::monostate{};
     }
 
 }; // namespace bclibc

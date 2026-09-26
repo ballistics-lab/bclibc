@@ -276,7 +276,7 @@ namespace bclibc
          *
          * @param data Trajectory data to distribute.
          */
-        virtual void handle(const BCLIBC_BaseTrajData &data) = 0;
+        virtual BCLIBC_BaseResult<std::monostate> handle(const BCLIBC_BaseTrajData &data) = 0;
 
         /**
          * @brief Receives one accepted integration interval.
@@ -285,11 +285,11 @@ namespace bclibc
          * materialising intermediate raw points.  Existing handlers retain
          * their endpoint-only behaviour through this default implementation.
          */
-        virtual void handle_step(const BCLIBC_BaseTrajData &start,
-                                 const BCLIBC_BaseTrajData &end)
+        virtual BCLIBC_BaseResult<std::monostate> handle_step(const BCLIBC_BaseTrajData &start,
+                                                                     const BCLIBC_BaseTrajData &end)
         {
             (void)start;
-            this->handle(end);
+            return this->handle(end);
         }
     };
 
@@ -319,10 +319,10 @@ namespace bclibc
          * @brief Distributes data point to all registered handlers.
          * @param data Trajectory data to distribute.
          */
-        void handle(const BCLIBC_BaseTrajData &data) override;
+        BCLIBC_BaseResult<std::monostate> handle(const BCLIBC_BaseTrajData &data) override;
 
-        void handle_step(const BCLIBC_BaseTrajData &start,
-                         const BCLIBC_BaseTrajData &end) override;
+        BCLIBC_BaseResult<std::monostate> handle_step(const BCLIBC_BaseTrajData &start,
+                                                             const BCLIBC_BaseTrajData &end) override;
 
         /**
          * @brief Adds a handler to the distribution list.
@@ -396,7 +396,7 @@ namespace bclibc
          *
          * @param data Trajectory data to append.
          */
-        void handle(const BCLIBC_BaseTrajData &data) override;
+        BCLIBC_BaseResult<std::monostate> handle(const BCLIBC_BaseTrajData &data) override;
 
         /**
          * @brief Appends trajectory point to sequence.

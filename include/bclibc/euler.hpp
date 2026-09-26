@@ -42,7 +42,7 @@ namespace bclibc
      * @param handler Interface for processing computed trajectory data points.
      * @param reason Output parameter indicating why the simulation terminated.
      */
-    void BCLIBC_integrateEULER(
+    BCLIBC_BaseResult<std::monostate> BCLIBC_integrateEULER(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason);

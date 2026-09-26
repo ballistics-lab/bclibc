@@ -68,17 +68,17 @@ namespace bclibc
          *
          * Delegates to `record()` for interpolation and filtering.
          */
-        void handle(const BCLIBC_BaseTrajData &data) override;
+        BCLIBC_BaseResult<std::monostate> handle(const BCLIBC_BaseTrajData &data) override;
 
-        void handle_step(const BCLIBC_BaseTrajData &start,
-                         const BCLIBC_BaseTrajData &end) override;
+        BCLIBC_BaseResult<std::monostate> handle_step(const BCLIBC_BaseTrajData &start,
+                                                             const BCLIBC_BaseTrajData &end) override;
 
         /**
          * @brief Records a new trajectory point, interpolates missing points based on time or range,
          *        and applies feature-specific filters (apex, Mach, zero crossings).
          * @param new_data The latest trajectory point from simulation.
          */
-        void record(const BCLIBC_BaseTrajData &new_data);
+        BCLIBC_BaseResult<std::monostate> record(const BCLIBC_BaseTrajData &new_data);
 
         /**
          * @brief Returns the vector of filtered and processed trajectory data.
@@ -193,7 +193,7 @@ namespace bclibc
             std::function<bool(const BCLIBC_BaseTrajData &)> condition,
             const char *debug_name = "GenericTerminator");
 
-        void handle(const BCLIBC_BaseTrajData &data) override;
+        BCLIBC_BaseResult<std::monostate> handle(const BCLIBC_BaseTrajData &data) override;
     };
 
     // ============================================================================
@@ -235,7 +235,7 @@ namespace bclibc
             double min_altitude_ft,
             BCLIBC_TerminationReason &termination_reason_ref);
 
-        void handle(const BCLIBC_BaseTrajData &data) override;
+        BCLIBC_BaseResult<std::monostate> handle(const BCLIBC_BaseTrajData &data) override;
     };
 
     // ============================================================================
@@ -279,10 +279,10 @@ namespace bclibc
             double target_value,
             BCLIBC_TerminationReason *termination_reason_ptr);
 
-        void handle(const BCLIBC_BaseTrajData &data) override;
+        BCLIBC_BaseResult<std::monostate> handle(const BCLIBC_BaseTrajData &data) override;
 
-        void handle_step(const BCLIBC_BaseTrajData &start,
-                         const BCLIBC_BaseTrajData &end) override;
+        BCLIBC_BaseResult<std::monostate> handle_step(const BCLIBC_BaseTrajData &start,
+                                                             const BCLIBC_BaseTrajData &end) override;
 
         /**
          * @brief Returns whether target point was found and interpolated.
@@ -343,7 +343,7 @@ namespace bclibc
         explicit BCLIBC_ZeroCrossingHandler(
             double look_angle_rad, BCLIBC_TerminationReason *termination_reason_ptr);
 
-        void handle(const BCLIBC_BaseTrajData &data) override;
+        BCLIBC_BaseResult<std::monostate> handle(const BCLIBC_BaseTrajData &data) override;
 
         /**
          * @brief Returns whether zero-crossing was found.
@@ -356,6 +356,7 @@ namespace bclibc
          */
         double get_slant_distance() const;
     };
+
 }; // namespace bclibc
 
 #endif // BCLIBC_TRAJ_FILTER_HPP

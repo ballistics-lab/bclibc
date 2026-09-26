@@ -309,12 +309,12 @@ namespace bclibc
      *
      * Delegates to `record()` for interpolation and filtering.
      */
-    void BCLIBC_TrajectoryDataFilter::handle(const BCLIBC_BaseTrajData &data)
+    BCLIBC_BaseResult<std::monostate> BCLIBC_TrajectoryDataFilter::handle(const BCLIBC_BaseTrajData &data)
     {
-        this->record(data);
+        return this->record(data);
     };
 
-    void BCLIBC_TrajectoryDataFilter::handle_step(
+    BCLIBC_BaseResult<std::monostate> BCLIBC_TrajectoryDataFilter::handle_step(
         const BCLIBC_BaseTrajData &start,
         const BCLIBC_BaseTrajData &end)
     {
@@ -419,6 +419,7 @@ namespace bclibc
 
         this->prev_prev_data = start;
         this->prev_data = end;
+        return std::monostate{};
     }
 
     /**
@@ -439,7 +440,7 @@ namespace bclibc
      *        and applies feature-specific filters (apex, Mach, zero crossings).
      * @param new_data The latest trajectory point from simulation.
      */
-    void BCLIBC_TrajectoryDataFilter::record(const BCLIBC_BaseTrajData &new_data)
+    BCLIBC_BaseResult<std::monostate> BCLIBC_TrajectoryDataFilter::record(const BCLIBC_BaseTrajData &new_data)
     {
         std::vector<BCLIBC_FlaggedData> rows;
         bool is_can_interpolate = this->can_interpolate(new_data);
@@ -474,16 +475,11 @@ namespace bclibc
                     }
                     else if (is_can_interpolate) /* if (this->prev_data && this->prev_prev_data) */
                     {
-                        if (!has_error(BCLIBC_BaseTrajData::interpolate(
-                                BCLIBC_BaseTrajData_InterpKey::POS_X,
-                                record_distance,
-                                this->prev_prev_data,
-                                this->prev_data,
-                                new_data,
-                                result_data)))
-                        {
-                            found_data = true;
-                        }
+                        const auto interpolation = BCLIBC_BaseTrajData::interpolate(
+                            BCLIBC_BaseTrajData_InterpKey::POS_X, record_distance,
+                            this->prev_prev_data, this->prev_data, new_data, result_data);
+                        if (has_error(interpolation)) return interpolation;
+                        found_data = true;
                     }
                     if (found_data)
                     {
@@ -509,21 +505,11 @@ namespace bclibc
 
                     BCLIBC_BaseTrajData result_data = BCLIBC_BaseTrajData();
 
-                    if (!has_error(BCLIBC_BaseTrajData::interpolate(
-                            BCLIBC_BaseTrajData_InterpKey::TIME,
-                            this->time_of_last_record,
-                            this->prev_prev_data,
-                            this->prev_data,
-                            new_data,
-                            result_data)))
-                    {
-                        this->add_row(rows, result_data, BCLIBC_TRAJ_FLAG_RANGE);
-                    }
-                    else
-                    {
-                        // Can't interpolate without valid data/segment
-                        break;
-                    }
+                    const auto interpolation = BCLIBC_BaseTrajData::interpolate(
+                        BCLIBC_BaseTrajData_InterpKey::TIME, this->time_of_last_record,
+                        this->prev_prev_data, this->prev_data, new_data, result_data);
+                    if (has_error(interpolation)) return interpolation;
+                    this->add_row(rows, result_data, BCLIBC_TRAJ_FLAG_RANGE);
                 }
             }
             // endregion Time steps
@@ -536,18 +522,12 @@ namespace bclibc
                 // "Apex" is the point where the vertical component of velocity goes from positive to negative.
                 BCLIBC_BaseTrajData result_data = BCLIBC_BaseTrajData();
 
-                if (!has_error(BCLIBC_BaseTrajData::interpolate(
-                        BCLIBC_BaseTrajData_InterpKey::VEL_Y,
-                        0.0,
-                        this->prev_prev_data,
-                        this->prev_data,
-                        new_data,
-                        result_data)))
-                {
-                    // "Apex" is the point where the vertical component of velocity goes from positive to negative.
-                    this->add_row(rows, result_data, BCLIBC_TRAJ_FLAG_APEX);
-                    this->filter = (BCLIBC_TrajFlag)(this->filter & ~BCLIBC_TRAJ_FLAG_APEX);
-                }
+                const auto interpolation = BCLIBC_BaseTrajData::interpolate(
+                    BCLIBC_BaseTrajData_InterpKey::VEL_Y, 0.0,
+                    this->prev_prev_data, this->prev_data, new_data, result_data);
+                if (has_error(interpolation)) return interpolation;
+                this->add_row(rows, result_data, BCLIBC_TRAJ_FLAG_APEX);
+                this->filter = (BCLIBC_TrajFlag)(this->filter & ~BCLIBC_TRAJ_FLAG_APEX);
             }
         }
 
@@ -610,8 +590,8 @@ namespace bclibc
                             1.0,
                             t0, t1, t2,
                             BCLIBC_TRAJ_FLAG_MACH);
-                    if (const auto *data = std::get_if<BCLIBC_TrajectoryData>(&interpolated))
-                        add_td.push_back(*data);
+                    if (has_error(interpolated)) return std::get<BCLIBC_BaseError>(interpolated);
+                    add_td.push_back(std::get<BCLIBC_TrajectoryData>(interpolated));
                 }
                 if (compute_flags & BCLIBC_TRAJ_FLAG_ZERO)
                 {
@@ -620,8 +600,8 @@ namespace bclibc
                             0.0,
                             t0, t1, t2,
                             compute_flags);
-                    if (const auto *data = std::get_if<BCLIBC_TrajectoryData>(&interpolated))
-                        add_td.push_back(*data);
+                    if (has_error(interpolated)) return std::get<BCLIBC_BaseError>(interpolated);
+                    add_td.push_back(std::get<BCLIBC_TrajectoryData>(interpolated));
                 }
                 // Add TrajectoryData, keeping `results` sorted by time.
                 for (const auto &td : add_td)
@@ -638,6 +618,7 @@ namespace bclibc
         // endregion
         this->prev_prev_data = this->prev_data;
         this->prev_data = new_data;
+        return std::monostate{};
     };
 
     /**
@@ -765,13 +746,14 @@ namespace bclibc
           condition(condition),
           debug_name(debug_name) {};
 
-    void BCLIBC_GenericTerminator::handle(const BCLIBC_BaseTrajData &data)
+    BCLIBC_BaseResult<std::monostate> BCLIBC_GenericTerminator::handle(const BCLIBC_BaseTrajData &data)
     {
         if (condition(data))
         {
             termination_reason_ref = reason_value;
             BCLIBC_DEBUG("%s triggered", debug_name);
         }
+        return std::monostate{};
     };
 
     // ============================================================================
@@ -793,55 +775,20 @@ namespace bclibc
           initial_altitude_ft(shot.alt0),
           termination_reason_ref(termination_reason_ref) {};
 
-    void BCLIBC_EssentialTerminators::handle(const BCLIBC_BaseTrajData &data)
+    BCLIBC_BaseResult<std::monostate> BCLIBC_EssentialTerminators::handle(const BCLIBC_BaseTrajData &data)
     {
-        // 1. Early return
-        if (this->termination_reason_ref != BCLIBC_TerminationReason::NO_TERMINATE)
-        {
-            return;
-        }
-
-        // 2. Range Limit
-        this->step_count++;
+        if (this->termination_reason_ref != BCLIBC_TerminationReason::NO_TERMINATE) return std::monostate{};
+        ++this->step_count;
         if (this->step_count >= this->MIN_ITERATIONS_COUNT && data.px > this->range_limit_ft)
-        {
-            this->termination_reason_ref = BCLIBC_TerminationReason::TARGET_RANGE_REACHED;
-            BCLIBC_DEBUG("MaxRange limit reached: %.2f > %.2f",
-                         data.px, this->range_limit_ft);
-            return;
-        }
-
-        // 3. Min Velocity
+        { this->termination_reason_ref = BCLIBC_TerminationReason::TARGET_RANGE_REACHED; BCLIBC_DEBUG("MaxRange limit reached: %.2f > %.2f", data.px, this->range_limit_ft); return std::monostate{}; }
         const double velocity = data.velocity().mag();
         if (velocity < this->min_velocity_fps)
-        {
-            this->termination_reason_ref = BCLIBC_TerminationReason::MINIMUM_VELOCITY_REACHED;
-            BCLIBC_DEBUG("MinVelocity termination: v=%.2f < %.2f",
-                         velocity, this->min_velocity_fps);
-            return;
-        }
-
-        // 4. Max Drop
+        { this->termination_reason_ref = BCLIBC_TerminationReason::MINIMUM_VELOCITY_REACHED; BCLIBC_DEBUG("MinVelocity termination: v=%.2f < %.2f", velocity, this->min_velocity_fps); return std::monostate{}; }
         if (data.py < this->max_drop_ft)
-        {
-            this->termination_reason_ref = BCLIBC_TerminationReason::MAXIMUM_DROP_REACHED;
-            BCLIBC_DEBUG("MaxDrop termination: y=%.2f < %.2f",
-                         data.py, this->max_drop_ft);
-            return;
-        }
-
-        // 5. Min Altitude
-        if (data.vy <= 0.0)
-        {
-            double current_altitude = this->initial_altitude_ft + data.py;
-            if (current_altitude < this->min_altitude_ft)
-            {
-                this->termination_reason_ref = BCLIBC_TerminationReason::MINIMUM_ALTITUDE_REACHED;
-                BCLIBC_DEBUG("MinAltitude termination: alt=%.2f < %.2f",
-                             current_altitude, this->min_altitude_ft);
-                return;
-            }
-        }
+        { this->termination_reason_ref = BCLIBC_TerminationReason::MAXIMUM_DROP_REACHED; BCLIBC_DEBUG("MaxDrop termination: y=%.2f < %.2f", data.py, this->max_drop_ft); return std::monostate{}; }
+        if (data.vy <= 0.0 && this->initial_altitude_ft + data.py < this->min_altitude_ft)
+        { this->termination_reason_ref = BCLIBC_TerminationReason::MINIMUM_ALTITUDE_REACHED; BCLIBC_DEBUG("MinAltitude termination: alt=%.2f < %.2f", this->initial_altitude_ft + data.py, this->min_altitude_ft); }
+        return std::monostate{};
     };
 
     // ============================================================================
@@ -865,83 +812,33 @@ namespace bclibc
           target_passed(false),
           termination_reason_ptr(termination_reason_ptr) {};
 
-    void BCLIBC_SinglePointHandler::handle(const BCLIBC_BaseTrajData &data)
+    BCLIBC_BaseResult<std::monostate> BCLIBC_SinglePointHandler::handle(const BCLIBC_BaseTrajData &data)
     {
-        if (this->is_found)
-            return; // Already found target
-
-        // Shift window: [0] <- [1] <- [2] <- new
-        if (this->count >= 3)
-        {
-            this->points[0] = this->points[1];
-            this->points[1] = this->points[2];
-            this->points[2] = data;
-        }
-        else
-        {
-            this->points[this->count] = data;
-            this->count++;
-        }
-
-        // Check if we have enough points and crossed target
-        if (this->count >= 3 && !this->target_passed)
-        {
-            double val_prev = this->points[1][this->key_kind];
-            double val_curr = this->points[2][this->key_kind];
-
-            // Check if target is between previous and current point
-            bool crossed = (val_prev <= this->target_value && this->target_value <= val_curr) ||
-                           (val_curr <= this->target_value && this->target_value <= val_prev);
-
-            if (crossed)
-            {
-                this->target_passed = true;
-                // Interpolate immediately
-                if (!has_error(BCLIBC_BaseTrajData::interpolate(
-                        this->key_kind,
-                        this->target_value,
-                        this->points[0],
-                        this->points[1],
-                        this->points[2],
-                        this->result)))
-                {
-                    this->is_found = true;
-                    if (termination_reason_ptr != nullptr)
-                    {
-                        *this->termination_reason_ptr = BCLIBC_TerminationReason::HANDLER_REQUESTED_STOP;
-                        BCLIBC_INFO("BCLIBC_SinglePointHandler requested early termination");
-                    }
-                }
-            }
-        }
+        if (this->is_found) return std::monostate{};
+        if (this->count >= 3) { this->points[0] = this->points[1]; this->points[1] = this->points[2]; this->points[2] = data; }
+        else { this->points[this->count] = data; ++this->count; }
+        if (this->count < 3 || this->target_passed) return std::monostate{};
+        const double val_prev = this->points[1][this->key_kind];
+        const double val_curr = this->points[2][this->key_kind];
+        const bool crossed = (val_prev <= this->target_value && this->target_value <= val_curr) || (val_curr <= this->target_value && this->target_value <= val_prev);
+        if (!crossed) return std::monostate{};
+        this->target_passed = true;
+        const auto interpolation = BCLIBC_BaseTrajData::interpolate(this->key_kind, this->target_value, this->points[0], this->points[1], this->points[2], this->result);
+        if (has_error(interpolation)) return interpolation;
+        this->is_found = true;
+        if (termination_reason_ptr != nullptr) { *this->termination_reason_ptr = BCLIBC_TerminationReason::HANDLER_REQUESTED_STOP; BCLIBC_INFO("BCLIBC_SinglePointHandler requested early termination"); }
+        return std::monostate{};
     };
 
-    void BCLIBC_SinglePointHandler::handle_step(
+    BCLIBC_BaseResult<std::monostate> BCLIBC_SinglePointHandler::handle_step(
         const BCLIBC_BaseTrajData &start,
         const BCLIBC_BaseTrajData &end)
     {
-        if (this->is_found || this->key_kind != BCLIBC_BaseTrajData_InterpKey::POS_X)
-        {
-            if (!this->is_found)
-            {
-                this->handle(end);
-            }
-            return;
-        }
-
-        if (!hermite_at_x(start, end, this->target_value, this->result))
-        {
-            this->handle(end);
-            return;
-        }
-
-        this->is_found = true;
-        this->target_passed = true;
-        if (this->termination_reason_ptr != nullptr)
-        {
-            *this->termination_reason_ptr = BCLIBC_TerminationReason::HANDLER_REQUESTED_STOP;
-            BCLIBC_INFO("BCLIBC_SinglePointHandler requested early termination");
-        }
+        if (this->is_found || this->key_kind != BCLIBC_BaseTrajData_InterpKey::POS_X) return this->is_found ? BCLIBC_BaseResult<std::monostate>{std::monostate{}} : this->handle(end);
+        if (!hermite_at_x(start, end, this->target_value, this->result)) return this->handle(end);
+        this->is_found = true; this->target_passed = true;
+        if (this->termination_reason_ptr != nullptr) { *this->termination_reason_ptr = BCLIBC_TerminationReason::HANDLER_REQUESTED_STOP; BCLIBC_INFO("BCLIBC_SinglePointHandler requested early termination"); }
+        return std::monostate{};
     }
 
     /**
@@ -1002,16 +899,16 @@ namespace bclibc
           has_prev_(false),
           termination_reason_ptr(termination_reason_ptr) {};
 
-    void BCLIBC_ZeroCrossingHandler::handle(const BCLIBC_BaseTrajData &data)
+    BCLIBC_BaseResult<std::monostate> BCLIBC_ZeroCrossingHandler::handle(const BCLIBC_BaseTrajData &data)
     {
         if (this->is_found)
-            return; // Already found crossing
+            return std::monostate{}; // Already found crossing
 
         if (!this->has_prev_)
         {
             this->prev_point = data;
             this->has_prev_ = true;
-            return;
+            return std::monostate{};
         }
 
         // Compute slant heights
@@ -1050,6 +947,7 @@ namespace bclibc
         }
 
         this->prev_point = data;
+        return std::monostate{};
     };
 
     /**

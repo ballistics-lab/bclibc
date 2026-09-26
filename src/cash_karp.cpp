@@ -94,13 +94,13 @@ namespace bclibc
         };
     } // namespace
 
-    void BCLIBC_integrateCashKarp(
+BCLIBC_BaseResult<std::monostate> BCLIBC_integrateCashKarp(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason)
     {
         BCLIBC_CashKarpIntegrator integrator;
-        integrator(eng, handler, reason);
+        return integrator(eng, handler, reason);
     }
 
     BCLIBC_CashKarpIntegrator::BCLIBC_CashKarpIntegrator(double relative_tolerance, double absolute_tolerance)
@@ -129,7 +129,7 @@ namespace bclibc
         return *this;
     }
 
-    void BCLIBC_CashKarpIntegrator::operator()(
+    BCLIBC_BaseResult<std::monostate> BCLIBC_CashKarpIntegrator::operator()(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason)
@@ -141,12 +141,13 @@ namespace bclibc
         const double relative_tolerance = relative_tolerance_.load(std::memory_order_relaxed);
         const double absolute_tolerance = absolute_tolerance_.load(std::memory_order_relaxed);
         int accepted = 0, rejected = 0;
-        embedded_rk45_detail::run<CashKarp54Tableau, CashKarpController>(
+        const auto result = embedded_rk45_detail::run<CashKarp54Tableau, CashKarpController>(
             eng, handler, reason,
             accepted, rejected,
             relative_tolerance, absolute_tolerance);
         accepted_steps_.store(accepted, std::memory_order_relaxed);
         rejected_steps_.store(rejected, std::memory_order_relaxed);
+        return result;
     }
 
     void BCLIBC_CashKarpIntegrator::get_stats(int &out_accepted, int &out_rejected) const noexcept

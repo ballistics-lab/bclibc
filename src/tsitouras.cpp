@@ -126,13 +126,13 @@ namespace bclibc
         };
     } // namespace
 
-    void BCLIBC_integrateTsitouras(
+BCLIBC_BaseResult<std::monostate> BCLIBC_integrateTsitouras(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason)
     {
         BCLIBC_TsitourasIntegrator integrator;
-        integrator(eng, handler, reason);
+        return integrator(eng, handler, reason);
     }
 
     BCLIBC_TsitourasIntegrator::BCLIBC_TsitourasIntegrator(double relative_tolerance, double absolute_tolerance)
@@ -161,7 +161,7 @@ namespace bclibc
         return *this;
     }
 
-    void BCLIBC_TsitourasIntegrator::operator()(
+    BCLIBC_BaseResult<std::monostate> BCLIBC_TsitourasIntegrator::operator()(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason)
@@ -169,12 +169,13 @@ namespace bclibc
         const double relative_tolerance = relative_tolerance_.load(std::memory_order_relaxed);
         const double absolute_tolerance = absolute_tolerance_.load(std::memory_order_relaxed);
         int accepted = 0, rejected = 0;
-        embedded_rk45_detail::run<Tsitouras54Tableau, TsitourasController>(
+        const auto result = embedded_rk45_detail::run<Tsitouras54Tableau, TsitourasController>(
             eng, handler, reason,
             accepted, rejected,
             relative_tolerance, absolute_tolerance);
         accepted_steps_.store(accepted, std::memory_order_relaxed);
         rejected_steps_.store(rejected, std::memory_order_relaxed);
+        return result;
     }
 
     void BCLIBC_TsitourasIntegrator::get_stats(int &out_accepted, int &out_rejected) const noexcept
