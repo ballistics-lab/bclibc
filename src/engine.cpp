@@ -183,14 +183,22 @@ namespace bclibc
         if (!handler.found())
         {
             // Record last valid point
-            raw_data = handler.get_last();
+            const auto last_result = handler.get_last();
+            const auto *last = std::get_if<std::reference_wrapper<const BCLIBC_BaseTrajData>>(&last_result);
+            if (last == nullptr)
+                throw BCLIBC_SolverRuntimeException("Integration produced no trajectory data");
+            raw_data = last->get();
             full_data = BCLIBC_TrajectoryData(this->shot, raw_data);
             throw BCLIBC_InterceptionException(
                 "Intercept point not found for target key and value",
                 raw_data, full_data);
         }
 
-        raw_data = handler.get_result();
+        const auto result = handler.get_result();
+        const auto *intercept = std::get_if<std::reference_wrapper<const BCLIBC_BaseTrajData>>(&result);
+        if (intercept == nullptr)
+            throw BCLIBC_SolverRuntimeException("Single-point handler lost its interpolated result");
+        raw_data = intercept->get();
         full_data = BCLIBC_TrajectoryData(this->shot, raw_data);
     };
 
@@ -238,7 +246,11 @@ namespace bclibc
                 "Runtime error (No apex flagged in trajectory data)");
         }
 
-        apex_out = apex_handler.get_result();
+        const auto apex_result = apex_handler.get_result();
+        const auto *apex = std::get_if<std::reference_wrapper<const BCLIBC_BaseTrajData>>(&apex_result);
+        if (apex == nullptr)
+            throw BCLIBC_SolverRuntimeException("Apex handler lost its interpolated result");
+        apex_out = apex->get();
     };
 
     /**
@@ -282,7 +294,11 @@ namespace bclibc
                 "Trajectory too short to determine error at distance.");
         }
 
-        const BCLIBC_BaseTrajData &hit = handler.get_result();
+        const auto hit_result = handler.get_result();
+        const auto *hit_ref = std::get_if<std::reference_wrapper<const BCLIBC_BaseTrajData>>(&hit_result);
+        if (hit_ref == nullptr)
+            throw BCLIBC_SolverRuntimeException("Single-point handler lost its interpolated result");
+        const BCLIBC_BaseTrajData &hit = hit_ref->get();
 
         if (hit_out != nullptr)
         {
@@ -526,7 +542,11 @@ namespace bclibc
                 throw BCLIBC_SolverRuntimeException("Failed to interpolate trajectory at target distance");
             }
 
-            hit = handler.get_result();
+            const auto hit_result = handler.get_result();
+            const auto *hit_ref = std::get_if<std::reference_wrapper<const BCLIBC_BaseTrajData>>(&hit_result);
+            if (hit_ref == nullptr)
+                throw BCLIBC_SolverRuntimeException("Single-point handler lost its interpolated result");
+            hit = hit_ref->get();
 
             if (hit.time == 0.0)
             {

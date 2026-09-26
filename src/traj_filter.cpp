@@ -951,32 +951,32 @@ namespace bclibc
 
     /**
      * @brief Returns interpolated result.
-     * @throws std::runtime_error if target not found yet.
+     * @return A reference wrapper for the result, or BCLIBC_RuntimeError if not found.
      */
-    const BCLIBC_BaseTrajData &BCLIBC_SinglePointHandler::get_result() const
+    BCLIBC_BaseResult<std::reference_wrapper<const BCLIBC_BaseTrajData>>
+    BCLIBC_SinglePointHandler::get_result() const noexcept
     {
         if (!this->is_found)
         {
-            throw std::runtime_error("Target point not found during integration");
+            return BCLIBC_BaseError{BCLIBC_RuntimeError{"Target point not found during integration"}};
         }
-        return this->result;
+        return std::cref(this->result);
     };
 
-    const BCLIBC_BaseTrajData &BCLIBC_SinglePointHandler::get_last() const
+    BCLIBC_BaseResult<std::reference_wrapper<const BCLIBC_BaseTrajData>>
+    BCLIBC_SinglePointHandler::get_last() const noexcept
     {
         if (this->count == 0)
         {
-            throw std::out_of_range("Cannot get last point: the handler is empty (count = 0).");
+            return BCLIBC_BaseError{BCLIBC_OutOfRangeError{
+                "Cannot get last point: the handler is empty (count = 0).", 0.0, 1.0, 3.0}};
         }
 
         if (this->count >= 3)
         {
-            return this->points[2];
+            return std::cref(this->points[2]);
         }
-        else
-        {
-            return this->points[this->count - 1];
-        }
+        return std::cref(this->points[this->count - 1]);
     }
 
     /**

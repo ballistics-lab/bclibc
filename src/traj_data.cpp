@@ -657,6 +657,7 @@ namespace bclibc
 
         if (this->is_close(this->buffer[idx][key_kind], key_value, epsilon))
         {
+            BCLIBC_DEBUG("Exact match found at index %zd", idx);
             out = this->buffer[static_cast<size_t>(idx)];
             return true;
         }

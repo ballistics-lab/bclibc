@@ -290,12 +290,18 @@ namespace bclibc
         bool found() const;
 
         /**
-         * @brief Returns interpolated result.
-         * @throws std::runtime_error if target not found yet.
-         */
-        const BCLIBC_BaseTrajData &get_result() const;
+        * @brief Returns interpolated result.
+         * @return A reference wrapper for the result, or BCLIBC_RuntimeError if not found.
+        */
+        [[nodiscard]] BCLIBC_BaseResult<std::reference_wrapper<const BCLIBC_BaseTrajData>>
+        get_result() const noexcept;
 
-        const BCLIBC_BaseTrajData &get_last() const;
+        /**
+         * @brief Returns the most recently handled point.
+         * @return A reference wrapper for the point, or BCLIBC_OutOfRangeError if empty.
+         */
+        [[nodiscard]] BCLIBC_BaseResult<std::reference_wrapper<const BCLIBC_BaseTrajData>>
+        get_last() const noexcept;
 
         /**
          * @brief Returns number of points processed.

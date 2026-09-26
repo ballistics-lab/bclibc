@@ -261,6 +261,24 @@ namespace
         assert(error.requested == 1.0 && error.minimum == 0.0 && error.maximum == 0.0);
     }
 
+    void test_single_point_handler_returns_value_results()
+    {
+        BCLIBC_SinglePointHandler handler(BCLIBC_BaseTrajData_InterpKey::TIME, 1.0, nullptr);
+        expect_error<BCLIBC_RuntimeError>(handler.get_result());
+        expect_error<BCLIBC_OutOfRangeError>(handler.get_last());
+
+        handler.handle(BCLIBC_BaseTrajData(0.0, 0.0, 0.0, 0.0, 100.0, 0.0, 0.0, 1.0));
+        const auto first = handler.get_last();
+        const auto *first_ref = std::get_if<std::reference_wrapper<const BCLIBC_BaseTrajData>>(&first);
+        assert(first_ref != nullptr && first_ref->get().time == 0.0);
+
+        handler.handle(BCLIBC_BaseTrajData(1.0, 1.0, 0.0, 0.0, 100.0, 0.0, 0.0, 1.0));
+        handler.handle(BCLIBC_BaseTrajData(2.0, 2.0, 0.0, 0.0, 100.0, 0.0, 0.0, 1.0));
+        const auto result = handler.get_result();
+        const auto *result_ref = std::get_if<std::reference_wrapper<const BCLIBC_BaseTrajData>>(&result);
+        assert(result_ref != nullptr && result_ref->get().time == 1.0);
+    }
+
     void test_streaming_step_coalesces_zero_and_range()
     {
         std::vector<BCLIBC_TrajectoryData> records;
@@ -351,6 +369,7 @@ int main()
     test_base_interpolate_returns_value_error();
     test_trajectory_interpolate_returns_value_result();
     test_filter_get_record_returns_value_result();
+    test_single_point_handler_returns_value_results();
     test_streaming_step_coalesces_zero_and_range();
     test_streaming_step_coalesces_zero_down_and_range();
 
