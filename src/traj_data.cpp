@@ -77,17 +77,17 @@ namespace bclibc
      * @param p2 Third data point (after target).
      * @param out Output parameter - populated with interpolated result.
      *
-     * @throws std::domain_error if any two key values are equal (degenerate segment).
+     * @return std::monostate on success, or BCLIBC_DomainError for a degenerate segment.
      *
      * @note This is equivalent to interpolate3pt_vectorized but with skip_key logic.
      */
-    void BCLIBC_BaseTrajData::interpolate(
+    BCLIBC_BaseResult<std::monostate> BCLIBC_BaseTrajData::interpolate(
         BCLIBC_BaseTrajData_InterpKey key_kind,
         double key_value,
         const BCLIBC_BaseTrajData &p0,
         const BCLIBC_BaseTrajData &p1,
         const BCLIBC_BaseTrajData &p2,
-        BCLIBC_BaseTrajData &out)
+        BCLIBC_BaseTrajData &out) noexcept
     {
         // Cache key values - avoid repeated virtual function calls
         const double x0 = p0[key_kind];
@@ -97,7 +97,8 @@ namespace bclibc
         // Validate non-degenerate segments
         if (x0 == x1 || x0 == x2 || x1 == x2)
         {
-            throw std::domain_error("Degenerate interpolation segment: duplicate key values");
+            return BCLIBC_BaseError{BCLIBC_DomainError{
+                "Degenerate interpolation segment: duplicate key values", x0, x1}};
         }
 
         // Interpolate all fields directly without creating intermediate vectors
@@ -122,6 +123,8 @@ namespace bclibc
         out.mach = (key_kind == BCLIBC_BaseTrajData_InterpKey::MACH)
                        ? key_value
                        : BCLIBC_interpolate3pt(key_value, x0, x1, x2, p0.mach, p1.mach, p2.mach);
+
+        return std::monostate{};
     }
 
     /**
@@ -359,15 +362,18 @@ namespace bclibc
      *
      * Python-style indexing: -1 returns last element, -2 returns second-to-last, etc.
      *
-     * COMPLEXITY: O(1) - direct array access after index normalization.
+    * COMPLEXITY: O(1) - direct array access after index normalization.
+    *
+    * @param idx Index to retrieve (negative indices count from end).
+     * @return A reference wrapper for the trajectory data, or a BCLIBC_OutOfRangeError.
      *
-     * @param idx Index to retrieve (negative indices count from end).
-     * @return Const reference to trajectory data at index.
-     * @throws std::out_of_range if index is out of bounds after normalization.
-     */
-    const BCLIBC_BaseTrajData &BCLIBC_BaseTrajSeq::operator[](ssize_t idx) const
+     * @warning The referenced point is invalidated by operations that reallocate the sequence.
+    */
+    BCLIBC_BaseResult<std::reference_wrapper<const BCLIBC_BaseTrajData>>
+    BCLIBC_BaseTrajSeq::operator[](ssize_t idx) const noexcept
     {
         const ssize_t len = static_cast<ssize_t>(this->buffer.size());
+        const ssize_t requested_idx = idx;
 
         // Handle negative indices
         if (idx < 0)
@@ -378,9 +384,11 @@ namespace bclibc
         // Bounds check
         if (idx < 0 || idx >= len)
         {
-            throw std::out_of_range("Index out of bounds");
+            return BCLIBC_BaseError{BCLIBC_OutOfRangeError{
+                "Index out of bounds", static_cast<double>(requested_idx), 0.0,
+                static_cast<double>(len > 0 ? len - 1 : 0)}};
         }
-        return this->buffer[idx];
+        return std::cref(this->buffer[idx]);
     }
 
     /**
@@ -406,26 +414,23 @@ namespace bclibc
      *                        Use 0.0 or negative to disable time filtering.
      * @param out Output parameter - populated with exact or interpolated trajectory data.
      *
-     * @throws std::domain_error if sequence has fewer than 3 points.
-     * @throws std::out_of_range if key_value falls outside the sequence's key range
-     *         (beyond a small epsilon tolerance), which would otherwise require extrapolation.
-     * @throws std::logic_error if binary search fails.
-     * @throws std::invalid_argument if interpolation encounters duplicate key values.
+     * @return std::monostate on success, or a BCLIBC_BaseError describing the failure.
      *
      * @note For TIME key, start_from_time is ignored (would be circular).
-     * @note Uses try_get_exact internally which throws on no-match (control flow exception pattern).
+     * @note Uses try_get_exact internally; a no-match is a normal false result.
      */
-    void BCLIBC_BaseTrajSeq::get_at(
+    BCLIBC_BaseResult<std::monostate> BCLIBC_BaseTrajSeq::get_at(
         BCLIBC_BaseTrajData_InterpKey key_kind,
         double key_value,
         double start_from_time,
-        BCLIBC_BaseTrajData &out) const
+        BCLIBC_BaseTrajData &out) const noexcept
     {
         const ssize_t n = static_cast<ssize_t>(this->buffer.size());
 
         if (n < 3)
         {
-            throw std::domain_error("Insufficient data points for interpolation (need >= 3)");
+            return BCLIBC_BaseError{BCLIBC_DomainError{
+                "Insufficient data points for interpolation (need >= 3)"}};
         }
 
         // Reject queries outside the sequence's key range before searching. Without this,
@@ -440,7 +445,8 @@ namespace bclibc
             constexpr double range_epsilon = 1e-9;
             if (key_value < range_lo - range_epsilon || key_value > range_hi + range_epsilon)
             {
-                throw std::out_of_range("key_value is outside the trajectory's range");
+                return BCLIBC_BaseError{BCLIBC_OutOfRangeError{
+                    "key_value is outside the trajectory's range", key_value, range_lo, range_hi}};
             }
         }
 
@@ -454,7 +460,7 @@ namespace bclibc
             // Try exact match at start
             if (this->try_get_exact(start_idx, key_kind, key_value, out))
             {
-                return;
+                return std::monostate{};
             }
 
             // Find interpolation target
@@ -467,7 +473,7 @@ namespace bclibc
             const ssize_t center = this->bisect_center_idx_buf(key_kind, key_value);
             if (center < 0)
             {
-                throw std::logic_error("Binary search failed");
+                return BCLIBC_BaseError{BCLIBC_LogicError{"Binary search failed"}};
             }
             target_idx = (center < n - 1) ? center : n - 2;
         }
@@ -475,12 +481,12 @@ namespace bclibc
         // Try exact match at target
         if (this->try_get_exact(target_idx, key_kind, key_value, out))
         {
-            return;
+            return std::monostate{};
         }
 
         // Interpolate at center point
         const ssize_t center_idx = (target_idx < n - 1) ? target_idx : n - 2;
-        this->interpolate_at(center_idx, key_kind, key_value, out);
+        return this->interpolate_at(center_idx, key_kind, key_value, out);
     }
 
     /**
@@ -496,21 +502,19 @@ namespace bclibc
      * 4. Validate non-degenerate (no duplicate slant values)
      * 5. Perform vectorized 3-point PCHIP interpolation
      *
-     * @param look_angle_rad Look angle in radians (angle of line of sight from horizontal).
-     * @param value Target slant height value.
+    * @param look_angle_rad Look angle in radians (angle of line of sight from horizontal).
+    * @param value Target slant height value.
      * @param out Output parameter - populated with interpolated trajectory data.
      *
-     * @throws std::domain_error if sequence has < 3 points or slant values are degenerate.
-     * @throws std::runtime_error if binary search fails to find valid bracket.
-     * @throws std::out_of_range if center index outside safe range [1, n-2].
+     * @return std::monostate on success, or a BCLIBC_BaseError describing the failure.
      *
      * @note Slant height may be non-monotonic, binary search assumes local monotonicity.
      * @note Uses POS_Y as dummy skip_key (not actually relevant for slant interpolation).
      */
-    void BCLIBC_BaseTrajSeq::get_at_slant_height(
+    BCLIBC_BaseResult<std::monostate> BCLIBC_BaseTrajSeq::get_at_slant_height(
         double look_angle_rad,
         double value,
-        BCLIBC_BaseTrajData &out) const
+        BCLIBC_BaseTrajData &out) const noexcept
     {
         const double ca = std::cos(look_angle_rad);
         const double sa = std::sin(look_angle_rad);
@@ -518,18 +522,22 @@ namespace bclibc
 
         if (n < 3)
         {
-            throw std::domain_error("Insufficient data points for interpolation");
+            return BCLIBC_BaseError{BCLIBC_DomainError{
+                "Insufficient data points for interpolation", static_cast<double>(n), 3.0}};
         }
 
         const ssize_t center = this->bisect_center_idx_slant_buf(ca, sa, value);
         if (center < 0)
         {
-            throw std::runtime_error("Failed to locate interpolation center");
+            return BCLIBC_BaseError{BCLIBC_RuntimeError{
+                "Failed to locate interpolation center"}};
         }
 
         if (center < 1 || center >= n - 1)
         {
-            throw std::out_of_range("Center index outside safe interpolation range");
+            return BCLIBC_BaseError{BCLIBC_OutOfRangeError{
+                "Center index outside safe interpolation range",
+                static_cast<double>(center), 1.0, static_cast<double>(n - 2)}};
         }
 
         // Cache data access
@@ -544,13 +552,15 @@ namespace bclibc
 
         if (ox0 == ox1 || ox1 == ox2)
         {
-            throw std::domain_error("Degenerate slant values: cannot interpolate");
+            return BCLIBC_BaseError{BCLIBC_DomainError{
+                "Degenerate slant values: cannot interpolate", ox0, ox1}};
         }
 
         // Perform vectorized interpolation
         BCLIBC_BaseTrajData::interpolate3pt_vectorized(
             value, ox0, ox1, ox2, p0, p1, p2, out,
             BCLIBC_BaseTrajData_InterpKey::POS_Y); // Dummy skip key
+        return std::monostate{};
     }
 
     /**
@@ -566,16 +576,15 @@ namespace bclibc
      * @param key_value Target value of the independent variable.
      * @param out Output parameter - populated with interpolated trajectory data.
      *
-     * @throws std::out_of_range if idx outside valid range [1, n-2] after normalization.
-     * @throws std::invalid_argument if key values at three points are not distinct.
+     * @return std::monostate on success, or a BCLIBC_BaseError describing the failure.
      *
      * @note All fields interpolated except key_kind, which is set directly to key_value.
      */
-    void BCLIBC_BaseTrajSeq::interpolate_at(
+    BCLIBC_BaseResult<std::monostate> BCLIBC_BaseTrajSeq::interpolate_at(
         ssize_t idx,
         BCLIBC_BaseTrajData_InterpKey key_kind,
         double key_value,
-        BCLIBC_BaseTrajData &out) const
+        BCLIBC_BaseTrajData &out) const noexcept
     {
         const ssize_t length = static_cast<ssize_t>(this->buffer.size());
 
@@ -586,7 +595,9 @@ namespace bclibc
         // Validate interpolation range
         if (idx < 1 || idx >= length - 1)
         {
-            throw std::out_of_range("Index outside valid interpolation range [1, n-2]");
+            return BCLIBC_BaseError{BCLIBC_OutOfRangeError{
+                "Index outside valid interpolation range [1, n-2]",
+                static_cast<double>(idx), 1.0, static_cast<double>(length - 2)}};
         }
 
         // Cache point references
@@ -602,12 +613,15 @@ namespace bclibc
         // Validate non-degenerate
         if (ox0 == ox1 || ox0 == ox2 || ox1 == ox2)
         {
-            throw std::invalid_argument("Duplicate key values: cannot interpolate");
+            return BCLIBC_BaseError{BCLIBC_DomainError{
+                "Duplicate key values: cannot interpolate", ox0, ox1}};
         }
 
         // Perform vectorized interpolation
         BCLIBC_BaseTrajData::interpolate3pt_vectorized(
             key_value, ox0, ox1, ox2, p0, p1, p2, out, key_kind);
+
+        return std::monostate{};
     }
 
     /**
@@ -624,18 +638,15 @@ namespace bclibc
      * @param key_value Target key value to match.
      * @param out Output parameter - populated only if exact match found.
      *
-     * @throws std::out_of_range if idx is out of bounds.
-     * @throws std::runtime_error if key value does not match within tolerance.
+     * @return true on an exact match; false for an invalid index or no match.
      *
-     * @note Uses exception for control flow (try_get pattern).
      * @note Primarily used internally by get_at() to optimize exact lookups.
-     * @note Consider refactoring to return bool instead of throwing for cleaner API.
      */
     bool BCLIBC_BaseTrajSeq::try_get_exact(
         ssize_t idx,
         BCLIBC_BaseTrajData_InterpKey key_kind,
         double key_value,
-        BCLIBC_BaseTrajData &out) const
+        BCLIBC_BaseTrajData &out) const noexcept
     {
         if (idx < 0 || idx >= static_cast<ssize_t>(this->buffer.size()))
         {
@@ -646,7 +657,6 @@ namespace bclibc
 
         if (this->is_close(this->buffer[idx][key_kind], key_value, epsilon))
         {
-            BCLIBC_DEBUG("Exact match found at index %zd", idx);
             out = this->buffer[static_cast<size_t>(idx)];
             return true;
         }
@@ -1056,31 +1066,29 @@ namespace bclibc
      * @param p0 First trajectory point.
      * @param p1 Second trajectory point (center).
      * @param p2 Third trajectory point.
-     * @param flag Output trajectory flag.
-     * @param method Interpolation method (PCHIP or LINEAR).
-     * @return Interpolated trajectory data with all fields populated.
-     *
-     * @throws std::logic_error if key is invalid/unsupported.
-     * @throws std::domain_error if linear interpolation encounters zero division.
-     * @throws std::invalid_argument if method is unknown.
-     *
-     * @note All 15 trajectory fields are interpolated independently.
-     * @note For LINEAR method: uses [p0,p1] if value <= x1, else [p1,p2].
-     */
-    BCLIBC_TrajectoryData BCLIBC_TrajectoryData::interpolate(
+    * @param flag Output trajectory flag.
+    * @param method Interpolation method (PCHIP or LINEAR).
+     * @return Interpolated trajectory data on success, or a BCLIBC_BaseError describing the failure.
+    *
+    *
+    * @note All 15 trajectory fields are interpolated independently.
+    * @note For LINEAR method: uses [p0,p1] if value <= x1, else [p1,p2].
+    */
+    BCLIBC_BaseResult<BCLIBC_TrajectoryData> BCLIBC_TrajectoryData::interpolate(
         BCLIBC_TrajectoryData_InterpKey key,
         double value,
         const BCLIBC_TrajectoryData &p0,
         const BCLIBC_TrajectoryData &p1,
         const BCLIBC_TrajectoryData &p2,
         BCLIBC_TrajFlag flag,
-        BCLIBC_InterpMethod method)
+        BCLIBC_InterpMethod method) noexcept
     {
         // Validate key. BCLIBC_TRAJECTORY_DATA_INTERP_KEY_ACTIVE_COUNT == 15 covers keys 0..14.
         // FLAG (= 15) is not interpolatable, so use >= to exclude it.
         if ((int)key < 0 || (int)key >= BCLIBC_TRAJECTORY_DATA_INTERP_KEY_ACTIVE_COUNT)
         {
-            throw std::logic_error("Cannot interpolate by unsupported key");
+            return BCLIBC_BaseError{BCLIBC_LogicError{
+                "Cannot interpolate by unsupported key"}};
         }
 
         // Cache independent variable values
@@ -1131,12 +1139,14 @@ namespace bclibc
 
                     if (interp_status != BCLIBC_InterpStatus::SUCCESS)
                     {
-                        throw std::domain_error("Linear interpolation failed: zero division");
+                        return BCLIBC_BaseError{BCLIBC_DomainError{
+                            "Linear interpolation failed: zero division", x0, x1}};
                     }
                 }
                 else
                 {
-                    throw std::invalid_argument("Invalid interpolation method");
+                    return BCLIBC_BaseError{BCLIBC_InvalidArgumentError{
+                        "Invalid interpolation method"}};
                 }
             }
 

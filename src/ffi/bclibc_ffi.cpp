@@ -314,7 +314,7 @@ static int32_t ffi_call(Func &&fn, BCLIBCFFI_Error *err) noexcept
     {
         return fn();
     }
-    catch (const BCLIBC_OutOfRangeError &e)
+    catch (const BCLIBC_OutOfRangeException &e)
     {
         setError(err, BCLIBCFFI_ERR_OUT_OF_RANGE, e.what());
         if (err)
@@ -325,7 +325,7 @@ static int32_t ffi_call(Func &&fn, BCLIBCFFI_Error *err) noexcept
         }
         return BCLIBCFFI_ERR_OUT_OF_RANGE;
     }
-    catch (const BCLIBC_ZeroFindingError &e)
+    catch (const BCLIBC_ZeroFindingException &e)
     {
         setError(err, BCLIBCFFI_ERR_ZERO_FINDING, e.what());
         if (err)
@@ -336,12 +336,12 @@ static int32_t ffi_call(Func &&fn, BCLIBCFFI_Error *err) noexcept
         }
         return BCLIBCFFI_ERR_ZERO_FINDING;
     }
-    catch (const BCLIBC_InterceptionError &e)
+    catch (const BCLIBC_InterceptionException &e)
     {
         setError(err, BCLIBCFFI_ERR_INTERCEPTION, e.what());
         return BCLIBCFFI_ERR_INTERCEPTION;
     }
-    catch (const BCLIBC_SolverRuntimeError &e)
+    catch (const BCLIBC_SolverRuntimeException &e)
     {
         setError(err, BCLIBCFFI_ERR_SOLVER_RUNTIME, e.what());
         return BCLIBCFFI_ERR_SOLVER_RUNTIME;

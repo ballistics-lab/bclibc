@@ -95,10 +95,12 @@ namespace bclibc
         /**
          * @brief Retrieves a specific trajectory record by index.
          * @param index Positive or negative index (negative counts from end).
-         * @return Reference to the requested trajectory data.
-         * @throws std::out_of_range if index is invalid or records are empty.
+         * @return A reference wrapper for the requested record, or BCLIBC_OutOfRangeError.
+         *
+         * @warning The referenced record is invalidated when the records vector reallocates.
          */
-        const BCLIBC_TrajectoryData &get_record(std::ptrdiff_t index) const;
+        [[nodiscard]] BCLIBC_BaseResult<std::reference_wrapper<const BCLIBC_TrajectoryData>>
+        get_record(std::ptrdiff_t index) const noexcept;
 
     private:
         // constants

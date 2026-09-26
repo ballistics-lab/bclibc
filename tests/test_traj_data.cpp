@@ -11,6 +11,16 @@ using namespace bclibc;
 
 namespace
 {
+    template <typename Error, typename Value>
+    const Error &expect_error(const BCLIBC_BaseResult<Value> &result)
+    {
+        const auto *errors = std::get_if<BCLIBC_BaseError>(&result);
+        assert(errors != nullptr);
+        const auto *error = std::get_if<Error>(errors);
+        assert(error != nullptr);
+        return *error;
+    }
+
     BCLIBC_BaseTrajSeq make_increasing_seq()
     {
         // position.x runs 0..4, matching the repro from GitHub issue #19.
@@ -37,61 +47,52 @@ namespace
         return seq;
     }
 
-    // GitHub issue #19: get_at() must raise instead of silently extrapolating
+    BCLIBC_BaseTrajSeq make_slant_height_seq()
+    {
+        BCLIBC_BaseTrajSeq seq;
+        for (int t = 0; t < 5; ++t)
+        {
+            seq.append(BCLIBC_BaseTrajData(
+                static_cast<double>(t), static_cast<double>(t), static_cast<double>(t), 0.0,
+                100.0, 0.0, 0.0, 1.0));
+        }
+        return seq;
+    }
+
+    // GitHub issue #19: get_at() must report an error instead of silently extrapolating
     // when key_value falls outside the sequence's range.
     void test_get_at_rejects_out_of_range_above_increasing()
     {
         auto seq = make_increasing_seq();
         BCLIBC_BaseTrajData out;
-        bool threw = false;
-        try
-        {
-            seq.get_at(BCLIBC_BaseTrajData_InterpKey::POS_X, 104.0, 0.0, out);
-        }
-        catch (const std::out_of_range &)
-        {
-            threw = true;
-        }
-        assert(threw && "expected std::out_of_range for value above range");
+        const auto result = seq.get_at(BCLIBC_BaseTrajData_InterpKey::POS_X, 104.0, 0.0, out);
+        const auto &error = expect_error<BCLIBC_OutOfRangeError>(result);
+        assert(error.requested == 104.0 && error.minimum == 0.0 && error.maximum == 4.0);
     }
 
     void test_get_at_rejects_out_of_range_below_increasing()
     {
         auto seq = make_increasing_seq();
         BCLIBC_BaseTrajData out;
-        bool threw = false;
-        try
-        {
-            seq.get_at(BCLIBC_BaseTrajData_InterpKey::POS_X, -10.0, 0.0, out);
-        }
-        catch (const std::out_of_range &)
-        {
-            threw = true;
-        }
-        assert(threw && "expected std::out_of_range for value below range");
+        const auto result = seq.get_at(BCLIBC_BaseTrajData_InterpKey::POS_X, -10.0, 0.0, out);
+        const auto &error = expect_error<BCLIBC_OutOfRangeError>(result);
+        assert(error.requested == -10.0 && error.minimum == 0.0 && error.maximum == 4.0);
     }
 
     void test_get_at_rejects_out_of_range_decreasing()
     {
         auto seq = make_decreasing_seq();
         BCLIBC_BaseTrajData out;
-        bool threw = false;
-        try
-        {
-            seq.get_at(BCLIBC_BaseTrajData_InterpKey::POS_X, -1.0, 0.0, out);
-        }
-        catch (const std::out_of_range &)
-        {
-            threw = true;
-        }
-        assert(threw && "expected std::out_of_range for value beyond a decreasing sequence");
+        const auto result = seq.get_at(BCLIBC_BaseTrajData_InterpKey::POS_X, -1.0, 0.0, out);
+        const auto &error = expect_error<BCLIBC_OutOfRangeError>(result);
+        assert(error.requested == -1.0 && error.minimum == 0.0 && error.maximum == 4.0);
     }
 
     void test_get_at_interpolates_in_range()
     {
         auto seq = make_increasing_seq();
         BCLIBC_BaseTrajData out;
-        seq.get_at(BCLIBC_BaseTrajData_InterpKey::POS_X, 2.5, 0.0, out);
+        assert(!has_error(seq.get_at(BCLIBC_BaseTrajData_InterpKey::POS_X, 2.5, 0.0, out)));
         assert(std::fabs(out.px - 2.5) < 1e-9);
     }
 
@@ -100,10 +101,10 @@ namespace
         auto seq = make_increasing_seq();
         BCLIBC_BaseTrajData out;
 
-        seq.get_at(BCLIBC_BaseTrajData_InterpKey::POS_X, 0.0, 0.0, out);
+        assert(!has_error(seq.get_at(BCLIBC_BaseTrajData_InterpKey::POS_X, 0.0, 0.0, out)));
         assert(std::fabs(out.px - 0.0) < 1e-9);
 
-        seq.get_at(BCLIBC_BaseTrajData_InterpKey::POS_X, 4.0, 0.0, out);
+        assert(!has_error(seq.get_at(BCLIBC_BaseTrajData_InterpKey::POS_X, 4.0, 0.0, out)));
         assert(std::fabs(out.px - 4.0) < 1e-9);
     }
 
@@ -114,10 +115,10 @@ namespace
         auto seq = make_increasing_seq();
         BCLIBC_BaseTrajData out;
 
-        seq.get_at(BCLIBC_BaseTrajData_InterpKey::POS_X, 4.0 + 1e-10, 0.0, out);
+        assert(!has_error(seq.get_at(BCLIBC_BaseTrajData_InterpKey::POS_X, 4.0 + 1e-10, 0.0, out)));
         assert(std::fabs(out.px - 4.0) < 1e-6);
 
-        seq.get_at(BCLIBC_BaseTrajData_InterpKey::POS_X, 0.0 - 1e-10, 0.0, out);
+        assert(!has_error(seq.get_at(BCLIBC_BaseTrajData_InterpKey::POS_X, 0.0 - 1e-10, 0.0, out)));
         assert(std::fabs(out.px - 0.0) < 1e-6);
     }
 
@@ -128,16 +129,96 @@ namespace
         seq.append(BCLIBC_BaseTrajData(1.0, 1.0, 0.0, 0.0, 100.0, 0.0, 0.0, 1.0));
 
         BCLIBC_BaseTrajData out;
-        bool threw = false;
-        try
-        {
-            seq.get_at(BCLIBC_BaseTrajData_InterpKey::POS_X, 0.5, 0.0, out);
-        }
-        catch (const std::domain_error &)
-        {
-            threw = true;
-        }
-        assert(threw && "expected std::domain_error for fewer than 3 points");
+        const auto result = seq.get_at(BCLIBC_BaseTrajData_InterpKey::POS_X, 0.5, 0.0, out);
+        expect_error<BCLIBC_DomainError>(result);
+    }
+
+    void test_sequence_index_returns_value_result()
+    {
+        auto seq = make_increasing_seq();
+
+        const auto first = seq[0];
+        const auto *first_ref = std::get_if<std::reference_wrapper<const BCLIBC_BaseTrajData>>(&first);
+        assert(first_ref != nullptr);
+        assert(first_ref->get().time == 0.0);
+
+        const auto last = seq[-1];
+        const auto *last_ref = std::get_if<std::reference_wrapper<const BCLIBC_BaseTrajData>>(&last);
+        assert(last_ref != nullptr);
+        assert(last_ref->get().time == 4.0);
+
+        const auto out_of_range = seq[5];
+        const auto &error = expect_error<BCLIBC_OutOfRangeError>(out_of_range);
+        assert(error.requested == 5.0 && error.minimum == 0.0 && error.maximum == 4.0);
+    }
+
+    void test_get_at_slant_height_returns_value_result()
+    {
+        auto seq = make_slant_height_seq();
+        BCLIBC_BaseTrajData out;
+        assert(!has_error(seq.get_at_slant_height(0.0, 2.5, out)));
+        assert(std::fabs(out.py - 2.5) < 1e-9);
+
+        BCLIBC_BaseTrajSeq short_seq;
+        short_seq.append(BCLIBC_BaseTrajData(0.0, 0.0, 0.0, 0.0, 100.0, 0.0, 0.0, 1.0));
+        short_seq.append(BCLIBC_BaseTrajData(1.0, 1.0, 1.0, 0.0, 100.0, 0.0, 0.0, 1.0));
+        expect_error<BCLIBC_DomainError>(short_seq.get_at_slant_height(0.0, 0.5, out));
+
+        const auto degenerate = make_increasing_seq().get_at_slant_height(0.0, 0.0, out);
+        expect_error<BCLIBC_DomainError>(degenerate);
+    }
+
+    void test_base_interpolate_returns_value_error()
+    {
+        const BCLIBC_BaseTrajData p0(0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 3.0, 1.0);
+        const BCLIBC_BaseTrajData p1(1.0, 1.0, 2.0, 3.0, 2.0, 3.0, 4.0, 2.0);
+        const BCLIBC_BaseTrajData p2(2.0, 2.0, 4.0, 6.0, 3.0, 4.0, 5.0, 3.0);
+        BCLIBC_BaseTrajData out;
+
+        const auto success = BCLIBC_BaseTrajData::interpolate(
+            BCLIBC_BaseTrajData_InterpKey::TIME, 0.5, p0, p1, p2, out);
+        assert(!has_error(success));
+        assert(std::fabs(out.time - 0.5) < 1e-12);
+
+        const auto failure = BCLIBC_BaseTrajData::interpolate(
+            BCLIBC_BaseTrajData_InterpKey::TIME, 0.5, p0, p0, p2, out);
+        assert(has_error(failure));
+
+        const auto *error = std::get_if<BCLIBC_BaseError>(&failure);
+        assert(error != nullptr);
+        const auto *domain = std::get_if<BCLIBC_DomainError>(error);
+        assert(domain != nullptr);
+        assert(domain->lhs == 0.0 && domain->rhs == 0.0);
+    }
+
+    void test_trajectory_interpolate_returns_value_result()
+    {
+        BCLIBC_TrajectoryData p0, p1, p2;
+        p0.time = 0.0;
+        p1.time = 1.0;
+        p2.time = 2.0;
+
+        const auto success = BCLIBC_TrajectoryData::interpolate(
+            BCLIBC_TrajectoryData_InterpKey::TIME, 0.5, p0, p1, p2, BCLIBC_TRAJ_FLAG_MACH);
+        const auto *data = std::get_if<BCLIBC_TrajectoryData>(&success);
+        assert(data != nullptr);
+        assert(std::fabs(data->time - 0.5) < 1e-12);
+        assert(data->flag == BCLIBC_TRAJ_FLAG_MACH);
+
+        const auto bad_key = BCLIBC_TrajectoryData::interpolate(
+            static_cast<BCLIBC_TrajectoryData_InterpKey>(-1), 0.0, p0, p1, p2, BCLIBC_TRAJ_FLAG_NONE);
+        expect_error<BCLIBC_LogicError>(bad_key);
+
+        const auto bad_method = BCLIBC_TrajectoryData::interpolate(
+            BCLIBC_TrajectoryData_InterpKey::TIME, 0.5, p0, p1, p2, BCLIBC_TRAJ_FLAG_NONE,
+            static_cast<BCLIBC_InterpMethod>(-1));
+        expect_error<BCLIBC_InvalidArgumentError>(bad_method);
+
+        p1.time = 0.0;
+        const auto zero_division = BCLIBC_TrajectoryData::interpolate(
+            BCLIBC_TrajectoryData_InterpKey::TIME, 0.0, p0, p1, p2, BCLIBC_TRAJ_FLAG_NONE,
+            BCLIBC_InterpMethod::LINEAR);
+        expect_error<BCLIBC_DomainError>(zero_division);
     }
 
     BCLIBC_ShotProps make_filter_test_props()
@@ -157,6 +238,27 @@ namespace
                 std::numeric_limits<double>::quiet_NaN()),
             BCLIBC_WindSock(),
             BCLIBC_TRAJ_FLAG_NONE);
+    }
+
+    void test_filter_get_record_returns_value_result()
+    {
+        std::vector<BCLIBC_TrajectoryData> records;
+        BCLIBC_TerminationReason reason = BCLIBC_TerminationReason::NO_TERMINATE;
+        const BCLIBC_ShotProps props = make_filter_test_props();
+        BCLIBC_TrajectoryDataFilter filter(
+            records, props, BCLIBC_TRAJ_FLAG_NONE, reason, 100.0, 35.0, 0.0);
+
+        BCLIBC_TrajectoryData record;
+        record.time = 1.0;
+        filter.append(record);
+
+        const auto last = filter.get_record(-1);
+        const auto *last_ref = std::get_if<std::reference_wrapper<const BCLIBC_TrajectoryData>>(&last);
+        assert(last_ref != nullptr && last_ref->get().time == 1.0);
+
+        const auto out_of_range = filter.get_record(1);
+        const auto &error = expect_error<BCLIBC_OutOfRangeError>(out_of_range);
+        assert(error.requested == 1.0 && error.minimum == 0.0 && error.maximum == 0.0);
     }
 
     void test_streaming_step_coalesces_zero_and_range()
@@ -244,6 +346,11 @@ int main()
     test_get_at_matches_exact_endpoints();
     test_get_at_tolerates_epsilon_boundary_jitter();
     test_get_at_requires_at_least_three_points();
+    test_sequence_index_returns_value_result();
+    test_get_at_slant_height_returns_value_result();
+    test_base_interpolate_returns_value_error();
+    test_trajectory_interpolate_returns_value_result();
+    test_filter_get_record_returns_value_result();
     test_streaming_step_coalesces_zero_and_range();
     test_streaming_step_coalesces_zero_down_and_range();
 

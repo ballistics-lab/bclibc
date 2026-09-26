@@ -6,59 +6,59 @@
 
 namespace bclibc
 {
-    class BCLIBC_SolverRuntimeError : public std::runtime_error
+    class BCLIBC_SolverRuntimeException : public std::runtime_error
     {
     public:
-        BCLIBC_SolverRuntimeError(const std::string &message)
+        BCLIBC_SolverRuntimeException(const std::string &message)
             : std::runtime_error(message) {};
     };
 
-    class BCLIBC_OutOfRangeError : public BCLIBC_SolverRuntimeError
+    class BCLIBC_OutOfRangeException : public BCLIBC_SolverRuntimeException
     {
     public:
         double requested_distance_ft;
         double max_range_ft;
         double look_angle_rad;
 
-        BCLIBC_OutOfRangeError(
+        BCLIBC_OutOfRangeException(
             const std::string &message,
             double requested_distance_ft,
             double max_range_ft,
             double look_angle_rad)
-            : BCLIBC_SolverRuntimeError(message),
+            : BCLIBC_SolverRuntimeException(message),
               requested_distance_ft(requested_distance_ft),
               max_range_ft(max_range_ft),
               look_angle_rad(look_angle_rad) {};
     };
 
-    class BCLIBC_ZeroFindingError : public BCLIBC_SolverRuntimeError
+    class BCLIBC_ZeroFindingException : public BCLIBC_SolverRuntimeException
     {
     public:
         double zero_finding_error;
         int iterations_count;
         double last_barrel_elevation_rad;
 
-        BCLIBC_ZeroFindingError(
+        BCLIBC_ZeroFindingException(
             const std::string &message,
             double zero_finding_error,
             int iterations_count,
             double last_barrel_elevation_rad)
-            : BCLIBC_SolverRuntimeError(message),
+            : BCLIBC_SolverRuntimeException(message),
               zero_finding_error(zero_finding_error),
               iterations_count(iterations_count),
               last_barrel_elevation_rad(last_barrel_elevation_rad) {};
     };
 
-    class BCLIBC_InterceptionError : public BCLIBC_SolverRuntimeError
+    class BCLIBC_InterceptionException : public BCLIBC_SolverRuntimeException
     {
     public:
         BCLIBC_BaseTrajData raw_data;
         BCLIBC_TrajectoryData full_data;
-        BCLIBC_InterceptionError(
+        BCLIBC_InterceptionException(
             const std::string &message,
             const BCLIBC_BaseTrajData &raw_data,
             const BCLIBC_TrajectoryData &full_data)
-            : BCLIBC_SolverRuntimeError(message),
+            : BCLIBC_SolverRuntimeException(message),
               raw_data(raw_data),
               full_data(full_data) {};
     };
