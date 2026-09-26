@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <limits>
 #include <vector>
+#include "error.hpp"
 #include "v3d.hpp"
 
 namespace bclibc
@@ -404,7 +405,7 @@ namespace bclibc
          * - $S_g = \text{sd} \cdot \text{fv} \cdot \text{ftp}$
          *
          */
-        void update_stability_coefficient();
+        [[nodiscard]] BCLIBC_BaseResult<std::monostate> update_stability_coefficient() noexcept;
 
         /**
          * @brief Litz spin-drift approximation

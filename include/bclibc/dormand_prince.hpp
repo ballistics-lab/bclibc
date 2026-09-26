@@ -11,7 +11,7 @@ namespace bclibc
 {
     /** Adaptive Dormand--Prince 5(4) trajectory integrator.  Its error scale
      * and controller follow scipy.integrate.RK45. */
-    void BCLIBC_integrateDormandPrince(
+    BCLIBC_BaseResult<std::monostate> BCLIBC_integrateDormandPrince(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason);
@@ -43,7 +43,7 @@ namespace bclibc
         BCLIBC_DormandPrinceIntegrator(const BCLIBC_DormandPrinceIntegrator &other) noexcept;
         BCLIBC_DormandPrinceIntegrator &operator=(const BCLIBC_DormandPrinceIntegrator &other) noexcept;
 
-        void operator()(
+        BCLIBC_BaseResult<std::monostate> operator()(
             BCLIBC_BaseEngine &eng,
             BCLIBC_BaseTrajDataHandlerInterface &handler,
             BCLIBC_TerminationReason &reason);

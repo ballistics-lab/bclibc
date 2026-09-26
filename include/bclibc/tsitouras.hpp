@@ -18,7 +18,7 @@ namespace bclibc
      * same stage count, same FSAL property -- but with coefficients tuned to
      * give a smaller leading error term at each order, so it typically needs
      * fewer rejected/retried steps for the same tolerance. */
-    void BCLIBC_integrateTsitouras(
+    BCLIBC_BaseResult<std::monostate> BCLIBC_integrateTsitouras(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason);
@@ -50,7 +50,7 @@ namespace bclibc
         BCLIBC_TsitourasIntegrator(const BCLIBC_TsitourasIntegrator &other) noexcept;
         BCLIBC_TsitourasIntegrator &operator=(const BCLIBC_TsitourasIntegrator &other) noexcept;
 
-        void operator()(
+        BCLIBC_BaseResult<std::monostate> operator()(
             BCLIBC_BaseEngine &eng,
             BCLIBC_BaseTrajDataHandlerInterface &handler,
             BCLIBC_TerminationReason &reason);

@@ -88,7 +88,7 @@ namespace bclibc
 
     class BCLIBC_BaseEngine;
 
-    using BCLIBC_IntegrateFunc = void(
+    using BCLIBC_IntegrateFunc = BCLIBC_BaseResult<std::monostate>(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason);
@@ -122,7 +122,7 @@ namespace bclibc
          *
          * @throws std::logic_error if integrate_func is null.
          */
-        void integrate(
+        BCLIBC_BaseResult<std::monostate> integrate(
             double range_limit_ft,
             BCLIBC_BaseTrajDataHandlerInterface &handler,
             BCLIBC_TerminationReason &reason);
@@ -171,7 +171,7 @@ namespace bclibc
          *
          * @throws std::logic_error if integrate_func is null.
          */
-        void integrate_filtered(
+        BCLIBC_BaseResult<std::monostate> integrate_filtered(
             double range_limit_ft,
             double range_step_ft,
             double time_step,

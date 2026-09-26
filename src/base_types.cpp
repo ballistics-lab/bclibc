@@ -126,19 +126,12 @@ namespace bclibc
           wind_sock(wind_sock),
           filter_flags(filter_flags)
     {
-        // update_stability_coefficient() can throw std::domain_error when
-        // twist/length/diameter/p0 are zero. Catch it here and set the coefficient
-        // to 0.0 — spin_drift() returns 0 in that case, so the trajectory
-        // calculation proceeds correctly without spin drift.
-        try
+        const auto stability_result = this->update_stability_coefficient();
+        if (has_error(stability_result))
         {
-            this->update_stability_coefficient();
-        }
-        catch (const std::domain_error &e)
-        {
-            BCLIBC_WARN(
-                "Stability coefficient calculation failed (%s); spin drift disabled",
-                e.what());
+            const auto &error = std::get<BCLIBC_BaseError>(stability_result);
+            BCLIBC_WARN("Stability coefficient calculation failed (%s); spin drift disabled",
+                        std::visit([](const auto &value) { return value.what(); }, error));
             this->stability_coefficient = 0.0;
         }
     };
@@ -205,7 +198,7 @@ namespace bclibc
      * - $S_g = \text{sd} \cdot \text{fv} \cdot \text{ftp}$
      *
      */
-    void BCLIBC_ShotProps::update_stability_coefficient()
+    BCLIBC_BaseResult<std::monostate> BCLIBC_ShotProps::update_stability_coefficient() noexcept
     {
         /* Miller stability coefficient */
         double twist_rate, length, sd, fv, ft, pt, ftp;
@@ -233,7 +226,7 @@ namespace bclibc
             else
             {
                 this->stability_coefficient = 0.0;
-                throw std::domain_error("Division by zero in stability coefficient calculation.");
+                return BCLIBC_BaseError{BCLIBC_DomainError{"Division by zero in stability coefficient calculation.", denom_part1, denom_part2}};
             }
 
             fv = std::pow(this->muzzle_velocity / 2800.0, 1.0 / 3.0);
@@ -248,7 +241,7 @@ namespace bclibc
             else
             {
                 this->stability_coefficient = 0.0;
-                throw std::domain_error("Division by zero in ftp calculation.");
+                return BCLIBC_BaseError{BCLIBC_DomainError{"Division by zero in ftp calculation.", pt, 0.0}};
             }
 
             this->stability_coefficient = sd * fv * ftp;
@@ -259,6 +252,7 @@ namespace bclibc
             this->stability_coefficient = 0.0;
         }
         BCLIBC_DEBUG("Updated stability coefficient: %.6f", this->stability_coefficient);
+        return std::monostate{};
     };
 
     /**

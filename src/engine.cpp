@@ -52,7 +52,7 @@ namespace bclibc
      *
      * @throws std::logic_error if integrate_func is null.
      */
-    void BCLIBC_BaseEngine::integrate_filtered(
+    BCLIBC_BaseResult<std::monostate> BCLIBC_BaseEngine::integrate_filtered(
         double range_limit_ft,
         double range_step_ft,
         double time_step,
@@ -92,7 +92,7 @@ namespace bclibc
         }
 
         // 4. Call integration ONCE, passing the composite
-        this->integrate(range_limit_ft, composite_handler, reason);
+        return this->integrate(range_limit_ft, composite_handler, reason);
     };
 
     /**
@@ -103,7 +103,7 @@ namespace bclibc
      *
      * @throws std::logic_error if integrate_func is null.
      */
-    void BCLIBC_BaseEngine::integrate(
+    BCLIBC_BaseResult<std::monostate> BCLIBC_BaseEngine::integrate(
         double range_limit_ft,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason)
@@ -127,7 +127,8 @@ namespace bclibc
             &handler      // Request handler
         );
 
-        this->integrate_func(*this, composite_handler, reason);
+        const auto integration_result = this->integrate_func(*this, composite_handler, reason);
+        if (has_error(integration_result)) return integration_result;
 
         if (reason == BCLIBC_TerminationReason::TARGET_RANGE_REACHED)
         {
@@ -137,6 +138,7 @@ namespace bclibc
         {
             BCLIBC_INFO("Integration completed with acceptable termination reason: (%d).", reason);
         }
+        return std::monostate{};
     };
 
     /**

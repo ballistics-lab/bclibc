@@ -271,15 +271,20 @@ namespace bclibc
      *
      * @param data Trajectory data to distribute.
      */
-    void BCLIBC_BaseTrajDataHandlerCompositor::handle(const BCLIBC_BaseTrajData &data)
+    BCLIBC_BaseResult<std::monostate> BCLIBC_BaseTrajDataHandlerCompositor::handle(const BCLIBC_BaseTrajData &data)
     {
         for (auto *handler : handlers)
         {
-            handler->handle(data);
+            if (handler != nullptr)
+            {
+                const auto result = handler->handle(data);
+                if (has_error(result)) return result;
+            }
         }
+        return std::monostate{};
     }
 
-    void BCLIBC_BaseTrajDataHandlerCompositor::handle_step(
+    BCLIBC_BaseResult<std::monostate> BCLIBC_BaseTrajDataHandlerCompositor::handle_step(
         const BCLIBC_BaseTrajData &start,
         const BCLIBC_BaseTrajData &end)
     {
@@ -287,9 +292,11 @@ namespace bclibc
         {
             if (handler != nullptr)
             {
-                handler->handle_step(start, end);
+                const auto result = handler->handle_step(start, end);
+                if (has_error(result)) return result;
             }
         }
+        return std::monostate{};
     }
 
     // ============================================================================
@@ -315,9 +322,10 @@ namespace bclibc
      *
      * @param data Trajectory data to append.
      */
-    void BCLIBC_BaseTrajSeq::handle(const BCLIBC_BaseTrajData &data)
+    BCLIBC_BaseResult<std::monostate> BCLIBC_BaseTrajSeq::handle(const BCLIBC_BaseTrajData &data)
     {
         this->append(data);
+        return std::monostate{};
     }
 
     /**

@@ -59,7 +59,7 @@ namespace bclibc
      * @param handler Interface receiving trajectory points as they are accepted.
      * @param reason Output parameter describing why the simulation ended.
      */
-    void BCLIBC_integrateCashKarp(
+    BCLIBC_BaseResult<std::monostate> BCLIBC_integrateCashKarp(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason);
@@ -139,7 +139,7 @@ namespace bclibc
         BCLIBC_CashKarpIntegrator(const BCLIBC_CashKarpIntegrator &other) noexcept;
         BCLIBC_CashKarpIntegrator &operator=(const BCLIBC_CashKarpIntegrator &other) noexcept;
 
-        void operator()(
+        BCLIBC_BaseResult<std::monostate> operator()(
             BCLIBC_BaseEngine &eng,
             BCLIBC_BaseTrajDataHandlerInterface &handler,
             BCLIBC_TerminationReason &reason);

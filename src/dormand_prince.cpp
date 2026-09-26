@@ -122,13 +122,13 @@ namespace bclibc
         };
     } // namespace
 
-    void BCLIBC_integrateDormandPrince(
+BCLIBC_BaseResult<std::monostate> BCLIBC_integrateDormandPrince(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason)
     {
         BCLIBC_DormandPrinceIntegrator integrator;
-        integrator(eng, handler, reason);
+        return integrator(eng, handler, reason);
     }
 
     BCLIBC_DormandPrinceIntegrator::BCLIBC_DormandPrinceIntegrator(double relative_tolerance, double absolute_tolerance)
@@ -157,7 +157,7 @@ namespace bclibc
         return *this;
     }
 
-    void BCLIBC_DormandPrinceIntegrator::operator()(
+    BCLIBC_BaseResult<std::monostate> BCLIBC_DormandPrinceIntegrator::operator()(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason)
@@ -165,12 +165,13 @@ namespace bclibc
         const double relative_tolerance = relative_tolerance_.load(std::memory_order_relaxed);
         const double absolute_tolerance = absolute_tolerance_.load(std::memory_order_relaxed);
         int accepted = 0, rejected = 0;
-        embedded_rk45_detail::run<DormandPrince54Tableau, ScipyRKController>(
+        const auto result = embedded_rk45_detail::run<DormandPrince54Tableau, ScipyRKController>(
             eng, handler, reason,
             accepted, rejected,
             relative_tolerance, absolute_tolerance);
         accepted_steps_.store(accepted, std::memory_order_relaxed);
         rejected_steps_.store(rejected, std::memory_order_relaxed);
+        return result;
     }
 
     void BCLIBC_DormandPrinceIntegrator::get_stats(int &out_accepted, int &out_rejected) const noexcept
