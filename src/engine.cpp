@@ -161,7 +161,7 @@ namespace bclibc
      * the actual step size is determined internally by the integrator.
      *
      * @throws std::logic_error if integrate_func is null.
-     * @throws BCLIBC_InterceptionError if the target point is not found within the
+     * @throws BCLIBC_InterceptionException if the target point is not found within the
      * integrated trajectory (e.g., "No apex flagged...").
      */
     void BCLIBC_BaseEngine::integrate_at(
@@ -185,7 +185,7 @@ namespace bclibc
             // Record last valid point
             raw_data = handler.get_last();
             full_data = BCLIBC_TrajectoryData(this->shot, raw_data);
-            throw BCLIBC_InterceptionError(
+            throw BCLIBC_InterceptionException(
                 "Intercept point not found for target key and value",
                 raw_data, full_data);
         }
@@ -200,7 +200,7 @@ namespace bclibc
      * @param apex_out Output variable to store apex trajectory data.
      *
      * @throws std::invalid_argument if barrel elevation is <= 0.
-     * @throws BCLIBC_ZeroFindingError if apex cannot be determined.
+     * @throws BCLIBC_ZeroFindingException if apex cannot be determined.
      *
      * OPTIMIZATION: Uses ~192 bytes instead of ~N*64 bytes for full trajectory.
      */
@@ -234,7 +234,7 @@ namespace bclibc
 
         if (!apex_handler.found())
         {
-            throw BCLIBC_SolverRuntimeError(
+            throw BCLIBC_SolverRuntimeException(
                 "Runtime error (No apex flagged in trajectory data)");
         }
 
@@ -251,7 +251,7 @@ namespace bclibc
      * @return Vertical error in feet, corrected for horizontal offset.
      *
      * @throws std::out_of_range if trajectory data is invalid.
-     * @throws BCLIBC_SolverRuntimeError if trajectory is too short.
+     * @throws BCLIBC_SolverRuntimeException if trajectory is too short.
      *
      * OPTIMIZATION: Uses ~192 bytes instead of full trajectory buffer.
      */
@@ -278,7 +278,7 @@ namespace bclibc
 
         if (!handler.found())
         {
-            throw BCLIBC_SolverRuntimeError(
+            throw BCLIBC_SolverRuntimeException(
                 "Trajectory too short to determine error at distance.");
         }
 
@@ -306,7 +306,7 @@ namespace bclibc
      * @param result Output structure with initial zero-finding data.
      *
      * @throws std::out_of_range if trajectory data is invalid.
-     * @throws BCLIBC_OutOfRangeError if apex_slant_ft < result.slant_range_ft.
+     * @throws BCLIBC_OutOfRangeException if apex_slant_ft < result.slant_range_ft.
      *
      * Handles edge cases like very close or vertical shots.
      */
@@ -351,7 +351,7 @@ namespace bclibc
             apex_slant_ft = apex.px * std::cos(result.look_angle_rad) + apex.py * std::sin(result.look_angle_rad);
             if (apex_slant_ft < result.slant_range_ft)
             {
-                throw BCLIBC_OutOfRangeError(
+                throw BCLIBC_OutOfRangeException(
                     "Out of range",
                     result.slant_range_ft,
                     apex_slant_ft,
@@ -385,7 +385,7 @@ namespace bclibc
         {
             return this->zero_angle_newton(distance, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
         }
-        catch (const BCLIBC_ZeroFindingError &error)
+        catch (const BCLIBC_ZeroFindingException &error)
         {
             BCLIBC_WARN("Primary zero-finding failed, switching to fallback.");
 
@@ -411,7 +411,7 @@ namespace bclibc
                 &result);
             return result;
         }
-        catch (const BCLIBC_ZeroFindingError &error)
+        catch (const BCLIBC_ZeroFindingException &error)
         {
             BCLIBC_WARN("Newton zero-point solve failed, switching to Ridder's fallback.");
             this->find_zero_angle_ridder(
@@ -433,7 +433,7 @@ namespace bclibc
      *
      * @return Zero angle (barrel elevation) in radians.
      *
-     * @throws BCLIBC_ZeroFindingError if zero-finding fails to converge.
+     * @throws BCLIBC_ZeroFindingException if zero-finding fails to converge.
      * OPTIMIZATION: Uses SinglePointHandler instead of full trajectory buffer.
      * Memory: 192 bytes per iteration vs ~N*64 bytes
      * Speed: 50-90% faster with early termination
@@ -523,7 +523,7 @@ namespace bclibc
 
             if (!handler.found())
             {
-                throw BCLIBC_SolverRuntimeError("Failed to interpolate trajectory at target distance");
+                throw BCLIBC_SolverRuntimeException("Failed to interpolate trajectory at target distance");
             }
 
             hit = handler.get_result();
@@ -570,7 +570,7 @@ namespace bclibc
                 {
                     if (range_error_ft > prev_range_error_ft - 1e-6)
                     {
-                        throw BCLIBC_ZeroFindingError(
+                        throw BCLIBC_ZeroFindingException(
                             "Distance non-convergent",
                             range_error_ft,
                             iterations_count,
@@ -582,7 +582,7 @@ namespace bclibc
                     damping_factor *= damping_rate;
                     if (damping_factor < 0.3)
                     {
-                        throw BCLIBC_ZeroFindingError(
+                        throw BCLIBC_ZeroFindingException(
                             "Error non-convergent",
                             height_error_ft,
                             iterations_count,
@@ -614,7 +614,7 @@ namespace bclibc
             }
             else
             {
-                throw BCLIBC_ZeroFindingError(
+                throw BCLIBC_ZeroFindingException(
                     "Correction denominator is zero",
                     height_error_ft,
                     iterations_count,
@@ -626,7 +626,7 @@ namespace bclibc
 
         if (height_error_ft > _cZeroFindingAccuracy || range_error_ft > ALLOWED_ZERO_ERROR_FEET)
         {
-            throw BCLIBC_ZeroFindingError(
+            throw BCLIBC_ZeroFindingException(
                 "Zero finding failed to converge after maximum iterations",
                 height_error_ft,
                 iterations_count,
@@ -778,8 +778,8 @@ namespace bclibc
      *
      * @return Zero angle (barrel elevation) in radians.
      *
-     * @throws BCLIBC_OutOfRangeError if slant_range_ft > max_range_ft.
-     * @throws BCLIBC_ZeroFindingError if zero-finding fails.
+     * @throws BCLIBC_OutOfRangeException if slant_range_ft > max_range_ft.
+     * @throws BCLIBC_ZeroFindingException if zero-finding fails.
      */
     double BCLIBC_BaseEngine::find_zero_angle_ridder(
         double distance,
@@ -842,7 +842,7 @@ namespace bclibc
         // 2. Handle edge cases based on max range.
         if (slant_range_ft > max_range_ft)
         {
-            throw BCLIBC_OutOfRangeError(
+            throw BCLIBC_OutOfRangeException(
                 "Out of range",
                 distance,
                 max_range_ft,
@@ -934,7 +934,7 @@ namespace bclibc
                 high_angle * 57.29577951308232,
                 f_low,
                 f_high);
-            throw BCLIBC_ZeroFindingError(
+            throw BCLIBC_ZeroFindingException(
                 reason,
                 target_y_ft,
                 0,
@@ -1087,7 +1087,7 @@ namespace bclibc
             }
 
             // All fallback strategies failed
-            throw BCLIBC_ZeroFindingError(
+            throw BCLIBC_ZeroFindingException(
                 "Ridder's method failed to converge.",
                 target_y_ft,
                 this->config.cMaxIterations,

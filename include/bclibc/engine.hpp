@@ -149,7 +149,7 @@ namespace bclibc
          * the actual step size is determined internally by the integrator.
          *
          * @throws std::logic_error if integrate_func is null.
-         * @throws BCLIBC_InterceptionError if the target point is not found within the
+         * @throws BCLIBC_InterceptionException if the target point is not found within the
          * integrated trajectory (e.g., "No apex flagged...").
          */
         void integrate_at(
@@ -186,7 +186,7 @@ namespace bclibc
          * @param apex_out Output variable to store apex trajectory data.
          *
          * @throws std::invalid_argument if barrel elevation is <= 0.
-         * @throws BCLIBC_ZeroFindingError if apex cannot be determined.
+         * @throws BCLIBC_ZeroFindingException if apex cannot be determined.
          */
         void find_apex(BCLIBC_BaseTrajData &apex_out);
 
@@ -200,7 +200,7 @@ namespace bclibc
          * @return Vertical error in feet, corrected for horizontal offset.
          *
          * @throws std::out_of_range if trajectory data is invalid.
-         * @throws BCLIBC_SolverRuntimeError if trajectory is too short.
+         * @throws BCLIBC_SolverRuntimeException if trajectory is too short.
          */
         double error_at_distance(
             double angle_rad,
@@ -217,7 +217,7 @@ namespace bclibc
          * @param result Output structure with initial zero-finding data.
          *
          * @throws std::out_of_range if trajectory data is invalid.
-         * @throws BCLIBC_OutOfRangeError if apex_slant_ft < result.slant_range_ft.
+         * @throws BCLIBC_OutOfRangeException if apex_slant_ft < result.slant_range_ft.
          *
          * Handles edge cases like very close or vertical shots.
          */
@@ -264,7 +264,7 @@ namespace bclibc
          *
          * @return Zero angle (barrel elevation) in radians.
          *
-         * @throws BCLIBC_ZeroFindingError if zero-finding fails to converge.
+         * @throws BCLIBC_ZeroFindingException if zero-finding fails to converge.
          */
         double zero_angle_newton(
             double distance,
@@ -308,8 +308,8 @@ namespace bclibc
          *
          * @return Zero angle (barrel elevation) in radians.
          *
-         * @throws BCLIBC_OutOfRangeError if slant_range_ft > max_range_ft.
-         * @throws BCLIBC_ZeroFindingError if zero-finding fails.
+         * @throws BCLIBC_OutOfRangeException if slant_range_ft > max_range_ft.
+         * @throws BCLIBC_ZeroFindingException if zero-finding fails.
          */
         double find_zero_angle_ridder(
             double distance,
