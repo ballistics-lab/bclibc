@@ -478,7 +478,7 @@ namespace bclibc
                         const auto interpolation = BCLIBC_BaseTrajData::interpolate(
                             BCLIBC_BaseTrajData_InterpKey::POS_X, record_distance,
                             this->prev_prev_data, this->prev_data, new_data, result_data);
-                        if (has_error(interpolation)) return interpolation;
+                        if (has_error(interpolation)) break;
                         found_data = true;
                     }
                     if (found_data)
@@ -508,7 +508,7 @@ namespace bclibc
                     const auto interpolation = BCLIBC_BaseTrajData::interpolate(
                         BCLIBC_BaseTrajData_InterpKey::TIME, this->time_of_last_record,
                         this->prev_prev_data, this->prev_data, new_data, result_data);
-                    if (has_error(interpolation)) return interpolation;
+                    if (has_error(interpolation)) break;
                     this->add_row(rows, result_data, BCLIBC_TRAJ_FLAG_RANGE);
                 }
             }
@@ -525,9 +525,11 @@ namespace bclibc
                 const auto interpolation = BCLIBC_BaseTrajData::interpolate(
                     BCLIBC_BaseTrajData_InterpKey::VEL_Y, 0.0,
                     this->prev_prev_data, this->prev_data, new_data, result_data);
-                if (has_error(interpolation)) return interpolation;
-                this->add_row(rows, result_data, BCLIBC_TRAJ_FLAG_APEX);
-                this->filter = (BCLIBC_TrajFlag)(this->filter & ~BCLIBC_TRAJ_FLAG_APEX);
+                if (!has_error(interpolation))
+                {
+                    this->add_row(rows, result_data, BCLIBC_TRAJ_FLAG_APEX);
+                    this->filter = (BCLIBC_TrajFlag)(this->filter & ~BCLIBC_TRAJ_FLAG_APEX);
+                }
             }
         }
 
@@ -824,7 +826,7 @@ namespace bclibc
         if (!crossed) return std::monostate{};
         this->target_passed = true;
         const auto interpolation = BCLIBC_BaseTrajData::interpolate(this->key_kind, this->target_value, this->points[0], this->points[1], this->points[2], this->result);
-        if (has_error(interpolation)) return interpolation;
+        if (has_error(interpolation)) return std::monostate{};
         this->is_found = true;
         if (termination_reason_ptr != nullptr) { *this->termination_reason_ptr = BCLIBC_TerminationReason::HANDLER_REQUESTED_STOP; BCLIBC_INFO("BCLIBC_SinglePointHandler requested early termination"); }
         return std::monostate{};
