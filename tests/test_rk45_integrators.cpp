@@ -65,7 +65,9 @@ namespace
         shot.latitude_deg = std::numeric_limits<double>::quiet_NaN();
         shot.azimuth_deg = std::numeric_limits<double>::quiet_NaN();
         shot.calc_step = 0.0025;
-        return shot.to_shot_props();
+        const auto props_result = shot.to_shot_props();
+        assert(!has_error(props_result));
+        return std::get<BCLIBC_ShotProps>(props_result);
     }
 
     // BCLIBC_BaseEngine is non-copyable/non-moveable; build in place.

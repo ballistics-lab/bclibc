@@ -166,7 +166,9 @@ BCLIBC_BaseResult<std::monostate> BCLIBC_integrateEULER(
 
             // 3. Calculate drag coefficient and drag force magnitude
             //    Drag is proportional to velocity squared (via relative_speed * km)
-            km = density_ratio * eng.shot.drag_by_mach(relative_speed / mach);
+            const auto drag_result = eng.shot.drag_by_mach(relative_speed / mach);
+            if (has_error(drag_result)) return std::get<BCLIBC_BaseError>(drag_result);
+            km = density_ratio * std::get<double>(drag_result);
             drag = km * relative_speed;
 
             // 4. Compute net acceleration: a = g - F_drag + F_coriolis

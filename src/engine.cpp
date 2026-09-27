@@ -92,7 +92,11 @@ namespace bclibc
         }
 
         // 4. Call integration ONCE, passing the composite
-        return this->integrate(range_limit_ft, composite_handler, reason);
+        const auto integration_result = this->integrate(range_limit_ft, composite_handler, reason);
+        const auto finalize_result = data_filter.finalize();
+        if (has_error(integration_result)) return integration_result;
+        if (has_error(finalize_result)) return finalize_result;
+        return std::monostate{};
     };
 
     /**

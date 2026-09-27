@@ -259,11 +259,11 @@ namespace bclibc
      * @brief Universal PCHIP core calculation.
      * Takes vectors X and Y, returns BCLIBC_Curve.
      */
-    BCLIBC_Curve build_pchip_curve_from_arrays(const std::vector<double> &x, const std::vector<double> &y)
+    BCLIBC_BaseResult<BCLIBC_Curve> build_pchip_curve_from_arrays(const std::vector<double> &x, const std::vector<double> &y)
     {
         size_t n = x.size();
         if (n < 2)
-            throw std::invalid_argument("PCHIP requires at least 2 points");
+            return BCLIBC_BaseError{BCLIBC_InvalidArgumentError{"PCHIP requires at least 2 points"}};
 
         size_t nm1 = n - 1;
         std::vector<double> h(nm1), d(nm1), m(n);
@@ -353,7 +353,7 @@ namespace bclibc
      *       - O(log n) for datasets with n > 15 (binary search)
      *       - The threshold of 15 is empirically determined for typical ballistic curves
      */
-    static inline double calculate_by_curve_and_mach_list(
+    static inline BCLIBC_BaseResult<double> calculate_by_curve_and_mach_list(
         const BCLIBC_MachList &mach_list,
         const BCLIBC_Curve &curve,
         double mach)
@@ -368,7 +368,7 @@ namespace bclibc
         if (n_size_t < 2 || n_size_t != nm1_size_t + 1)
         {
             // Insufficient data or size mismatch between breakpoints and segments
-            throw std::invalid_argument("Invalid drag curve data: requires at least 2 points and consistent sizes.");
+            return BCLIBC_InvalidArgumentError("Invalid drag curve data: requires at least 2 points and consistent sizes.");
         }
 
         const int nm1 = (int)nm1_size_t; // Last valid segment index
@@ -478,13 +478,14 @@ namespace bclibc
      * @param mach Mach number at which to evaluate the drag.
      * @return Drag coefficient $C_d$ scaled by $\text{BC}$ and conversion factors, in units suitable for the trajectory calculation.
      */
-    double BCLIBC_ShotProps::drag_by_mach(double mach) const
+    BCLIBC_BaseResult<double> BCLIBC_ShotProps::drag_by_mach(double mach) const noexcept
     {
-        double cd = calculate_by_curve_and_mach_list(
+        const auto cd_result = calculate_by_curve_and_mach_list(
             this->mach_list,
             this->curve,
             mach);
-        return cd * 2.08551e-04 / this->bc;
+        if (has_error(cd_result)) return std::get<BCLIBC_BaseError>(cd_result);
+        return std::get<double>(cd_result) * 2.08551e-04 / this->bc;
     }
 
     size_t BCLIBC_ShotProps::size() const
@@ -502,7 +503,7 @@ namespace bclibc
      * All physics/unit conversions happen here — once, in C++ — eliminating per-wrapper
      * duplication across Python/Cython, Dart FFI, and WASM.
      */
-    BCLIBC_ShotProps BCLIBC_Shot::to_shot_props() const
+    BCLIBC_BaseResult<BCLIBC_ShotProps> BCLIBC_Shot::to_shot_props() const
     {
         // Atmosphere: CIPM-2007 density + Rankine Mach formula
         BCLIBC_Atmosphere atmo = BCLIBC_Atmosphere::from_conditions(
@@ -523,7 +524,9 @@ namespace bclibc
         // Drag curve: build PCHIP from raw Mach/CD arrays
         std::vector<double> mach_v(mach_data, mach_data + drag_table_size);
         std::vector<double> cd_v(cd_data, cd_data + drag_table_size);
-        BCLIBC_Curve curve = build_pchip_curve_from_arrays(mach_v, cd_v);
+        const auto curve_result = build_pchip_curve_from_arrays(mach_v, cd_v);
+        if (has_error(curve_result)) return std::get<BCLIBC_BaseError>(curve_result);
+        BCLIBC_Curve curve = std::get<BCLIBC_Curve>(curve_result);
         BCLIBC_MachList mach_list = BCLIBC_MachList(mach_v.begin(), mach_v.end());
 
         return BCLIBC_ShotProps(

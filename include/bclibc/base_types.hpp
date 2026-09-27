@@ -439,7 +439,7 @@ namespace bclibc
          * @param mach Mach number at which to evaluate the drag.
          * @return Drag coefficient $C_d$ scaled by $\text{BC}$ and conversion factors, in units suitable for the trajectory calculation.
          */
-        double drag_by_mach(double mach) const;
+        [[nodiscard]] BCLIBC_BaseResult<double> drag_by_mach(double mach) const noexcept;
         size_t size() const;
     };
 
@@ -447,7 +447,7 @@ namespace bclibc
      * @brief Universal PCHIP core calculation.
      * Takes vectors X and Y, returns BCLIBC_Curve.
      */
-    BCLIBC_Curve build_pchip_curve_from_arrays(const std::vector<double> &x, const std::vector<double> &y);
+    [[nodiscard]] BCLIBC_BaseResult<BCLIBC_Curve> build_pchip_curve_from_arrays(const std::vector<double> &x, const std::vector<double> &y);
 
     /**
      * @brief User-facing shot descriptor — all fields in natural units, no pre-computation.
@@ -511,7 +511,7 @@ namespace bclibc
          *   - BCLIBC_Curve / MachList  via build_pchip_curve_from_arrays()
          *   - BCLIBC_WindSock          from the winds array
          */
-        BCLIBC_ShotProps to_shot_props() const;
+        [[nodiscard]] BCLIBC_BaseResult<BCLIBC_ShotProps> to_shot_props() const;
     };
 
     /**

@@ -737,7 +737,7 @@ namespace bclibc
          * @param mach_arg Mach number (or 0.0 to compute from altitude).
          * @param flag Trajectory point classification flag.
          */
-        BCLIBC_TrajectoryData(
+        [[nodiscard]] static BCLIBC_BaseResult<BCLIBC_TrajectoryData> from_base(
             const BCLIBC_ShotProps &props,
             double time,
             const BCLIBC_V3dT &range_vector,
@@ -754,7 +754,7 @@ namespace bclibc
          * @param data Base trajectory data (position, velocity, time, Mach).
          * @param flag Trajectory point classification flag.
          */
-        BCLIBC_TrajectoryData(
+        [[nodiscard]] static BCLIBC_BaseResult<BCLIBC_TrajectoryData> from_base(
             const BCLIBC_ShotProps &props,
             const BCLIBC_BaseTrajData &data,
             BCLIBC_TrajFlag flag = BCLIBC_TRAJ_FLAG_NONE);
@@ -767,7 +767,7 @@ namespace bclibc
          * @param props Shot properties.
          * @param data Flagged trajectory data (includes flag field).
          */
-        BCLIBC_TrajectoryData(
+        [[nodiscard]] static BCLIBC_BaseResult<BCLIBC_TrajectoryData> from_base(
             const BCLIBC_ShotProps &props,
             const BCLIBC_FlaggedData &data);
 
