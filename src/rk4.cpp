@@ -203,7 +203,9 @@ BCLIBC_BaseResult<std::monostate> BCLIBC_integrateRK4(
 
             // drag coefficient: use multiplication instead of division inside drag_by_mach if possible
             // note: drag_by_mach expects mach number; pass relative_speed * inv_mach
-            km = density_ratio * eng.shot.drag_by_mach(relative_speed * inv_mach);
+            const auto drag_result = eng.shot.drag_by_mach(relative_speed * inv_mach);
+            if (has_error(drag_result)) return std::get<BCLIBC_BaseError>(drag_result);
+            km = density_ratio * std::get<double>(drag_result);
             BCLIBC_DEBUG("Calculated drag coefficient km=%f\n", km);
 
             // Precompute coriolis acceleration once per step (if enabled)

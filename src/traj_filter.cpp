@@ -236,34 +236,22 @@ namespace bclibc
      *
      * Ensures that the last trajectory point is recorded if needed.
      */
-    BCLIBC_TrajectoryDataFilter::~BCLIBC_TrajectoryDataFilter()
+    BCLIBC_BaseResult<std::monostate> BCLIBC_TrajectoryDataFilter::finalize()
     {
-        if (this->termination_reason_ref != BCLIBC_TerminationReason::TARGET_RANGE_REACHED)
+        if (this->termination_reason_ref != BCLIBC_TerminationReason::TARGET_RANGE_REACHED &&
+            !this->records.empty())
         {
-            BCLIBC_DEBUG(
-                "Trajectory Filter Finalization check: prev_data.time=%.6f",
-                this->prev_data.time);
-            try
+            const auto last_record = this->get_record(-1);
+            const auto *last = std::get_if<std::reference_wrapper<const BCLIBC_TrajectoryData>>(&last_record);
+            if (last != nullptr && this->prev_data.time > last->get().time)
             {
-                // The explicit emptiness check makes the Result error branch unreachable.
-                if (!this->records.empty())
-                {
-                    const auto last_record = this->get_record(-1);
-                    const auto *last = std::get_if<std::reference_wrapper<const BCLIBC_TrajectoryData>>(&last_record);
-                    if (last != nullptr && this->prev_data.time > last->get().time)
-                    {
-                        BCLIBC_TrajectoryData fin(this->props, this->prev_data);
-                        this->append(fin);
-                    }
-                }
-            }
-            catch (...)
-            {
-                BCLIBC_WARN("Exception suppressed in ~BCLIBC_TrajectoryDataFilter");
+                const auto fin_result = BCLIBC_TrajectoryData::from_base(this->props, this->prev_data);
+                if (has_error(fin_result)) return std::get<BCLIBC_BaseError>(fin_result);
+                this->append(std::get<BCLIBC_TrajectoryData>(fin_result));
             }
         }
-    };
-
+        return std::monostate{};
+    }
     /**
      * @brief Initializes the filter state based on the first trajectory point.
      * @param data The initial trajectory data point.
@@ -414,7 +402,9 @@ namespace bclibc
             // Event roots and scheduled samples are separate observations.
             // Do not rewrite either one merely because their timestamps happen
             // to be close (or even equal at a step endpoint).
-            this->records.emplace_back(this->props, row);
+            const auto trajectory_result = BCLIBC_TrajectoryData::from_base(this->props, row);
+            if (has_error(trajectory_result)) return std::get<BCLIBC_BaseError>(trajectory_result);
+            this->records.emplace_back(std::get<BCLIBC_TrajectoryData>(trajectory_result));
         }
 
         this->prev_prev_data = start;
@@ -538,7 +528,9 @@ namespace bclibc
         {
             for (const auto &new_row : rows)
             {
-                this->records.emplace_back(this->props, new_row);
+                const auto trajectory_result = BCLIBC_TrajectoryData::from_base(this->props, new_row);
+                if (has_error(trajectory_result)) return std::get<BCLIBC_BaseError>(trajectory_result);
+                this->records.emplace_back(std::get<BCLIBC_TrajectoryData>(trajectory_result));
             }
         }
 
@@ -581,9 +573,15 @@ namespace bclibc
             if (compute_flags)
             {
                 // Instantiate TrajectoryData and interpolate
-                BCLIBC_TrajectoryData t0(this->props, new_data);
-                BCLIBC_TrajectoryData t1(this->props, this->prev_data);
-                BCLIBC_TrajectoryData t2(this->props, this->prev_prev_data);
+                const auto t0_result = BCLIBC_TrajectoryData::from_base(this->props, new_data);
+                if (has_error(t0_result)) return std::get<BCLIBC_BaseError>(t0_result);
+                const auto t1_result = BCLIBC_TrajectoryData::from_base(this->props, this->prev_data);
+                if (has_error(t1_result)) return std::get<BCLIBC_BaseError>(t1_result);
+                const auto t2_result = BCLIBC_TrajectoryData::from_base(this->props, this->prev_prev_data);
+                if (has_error(t2_result)) return std::get<BCLIBC_BaseError>(t2_result);
+                const auto &t0 = std::get<BCLIBC_TrajectoryData>(t0_result);
+                const auto &t1 = std::get<BCLIBC_TrajectoryData>(t1_result);
+                const auto &t2 = std::get<BCLIBC_TrajectoryData>(t2_result);
                 std::vector<BCLIBC_TrajectoryData> add_td;
                 if (compute_flags & BCLIBC_TRAJ_FLAG_MACH)
                 {

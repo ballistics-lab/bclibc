@@ -50,7 +50,9 @@ namespace bclibc
          *
          * Ensures that the last trajectory point is recorded if needed.
          */
-        ~BCLIBC_TrajectoryDataFilter();
+        ~BCLIBC_TrajectoryDataFilter() = default;
+
+        [[nodiscard]] BCLIBC_BaseResult<std::monostate> finalize();
 
     private:
         /**

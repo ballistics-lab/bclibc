@@ -976,21 +976,24 @@ namespace bclibc
      * @param mach_arg Mach number (or 0.0 to compute from altitude).
      * @param flag Trajectory point classification flag.
      */
-    BCLIBC_TrajectoryData::BCLIBC_TrajectoryData(
+    BCLIBC_BaseResult<BCLIBC_TrajectoryData> BCLIBC_TrajectoryData::from_base(
         const BCLIBC_ShotProps &props,
         double time,
         const BCLIBC_V3dT &range_vector,
         const BCLIBC_V3dT &velocity_vector,
         double mach_arg,
         BCLIBC_TrajFlag flag)
-        : time(time), flag(flag)
+    
     {
+        BCLIBC_TrajectoryData result;
+        result.time = time;
+        result.flag = flag;
         // Compute adjusted range with Coriolis correction
         const BCLIBC_V3dT adjusted_range = props.coriolis.adjust_range(time, range_vector);
         const double spin_drift = props.spin_drift(time);
         const double velocity = velocity_vector.mag();
 
-        this->windage_ft = adjusted_range.z + spin_drift;
+        result.windage_ft = adjusted_range.z + spin_drift;
 
         // Get atmospheric conditions at current altitude
         double density_ratio_out, mach_out;
@@ -1003,53 +1006,45 @@ namespace bclibc
         const double look_angle_sin = std::sin(props.look_angle);
 
         // Populate trajectory fields
-        this->distance_ft = adjusted_range.x;
-        this->velocity_fps = velocity;
-        this->mach = velocity / (mach_arg != 0.0 ? mach_arg : mach_out);
-        this->height_ft = adjusted_range.y;
-        this->slant_height_ft = adjusted_range.y * look_angle_cos - adjusted_range.x * look_angle_sin;
+        result.distance_ft = adjusted_range.x;
+        result.velocity_fps = velocity;
+        result.mach = velocity / (mach_arg != 0.0 ? mach_arg : mach_out);
+        result.height_ft = adjusted_range.y;
+        result.slant_height_ft = adjusted_range.y * look_angle_cos - adjusted_range.x * look_angle_sin;
 
         // Compute angles
-        this->drop_angle_rad = BCLIBC_getCorrection(adjusted_range.x, adjusted_range.y) -
+        result.drop_angle_rad = BCLIBC_getCorrection(adjusted_range.x, adjusted_range.y) -
                                (adjusted_range.x ? props.look_angle : 0.0);
-        this->windage_angle_rad = BCLIBC_getCorrection(adjusted_range.x, this->windage_ft);
-        this->slant_distance_ft = adjusted_range.x * look_angle_cos + adjusted_range.y * look_angle_sin;
-        this->angle_rad = trajectory_angle;
+        result.windage_angle_rad = BCLIBC_getCorrection(adjusted_range.x, result.windage_ft);
+        result.slant_distance_ft = adjusted_range.x * look_angle_cos + adjusted_range.y * look_angle_sin;
+        result.angle_rad = trajectory_angle;
 
         // Physical properties
-        this->density_ratio = density_ratio_out;
-        this->drag = props.drag_by_mach(this->mach);
-        this->energy_ft_lb = BCLIBC_calculateEnergy(props.weight, velocity);
-        this->ogw_lb = BCLIBC_calculateOgw(props.weight, velocity);
+        result.density_ratio = density_ratio_out;
+        const auto drag_result = props.drag_by_mach(result.mach);
+        if (has_error(drag_result)) return std::get<BCLIBC_BaseError>(drag_result);
+        result.drag = std::get<double>(drag_result);
+        result.energy_ft_lb = BCLIBC_calculateEnergy(props.weight, velocity);
+        result.ogw_lb = BCLIBC_calculateOgw(props.weight, velocity);
+        return result;
     }
 
-    /**
-     * @brief Constructs trajectory data from base trajectory data and shot properties.
-     *
-     * Convenience constructor that delegates to main constructor.
-     *
-     * @param props Shot properties.
-     * @param data Base trajectory data (position, velocity, time, Mach).
-     * @param flag Trajectory point classification flag.
-     */
-    BCLIBC_TrajectoryData::BCLIBC_TrajectoryData(
+    /** @brief Builds full trajectory data from base integration data. */
+    BCLIBC_BaseResult<BCLIBC_TrajectoryData> BCLIBC_TrajectoryData::from_base(
         const BCLIBC_ShotProps &props,
         const BCLIBC_BaseTrajData &data,
         BCLIBC_TrajFlag flag)
-        : BCLIBC_TrajectoryData(props, data.time, data.position(), data.velocity(), data.mach, flag) {}
+    {
+        return from_base(props, data.time, data.position(), data.velocity(), data.mach, flag);
+    }
 
-    /**
-     * @brief Constructs trajectory data from flagged data structure.
-     *
-     * Convenience constructor that extracts flag from flagged data.
-     *
-     * @param props Shot properties.
-     * @param data Flagged trajectory data (includes flag field).
-     */
-    BCLIBC_TrajectoryData::BCLIBC_TrajectoryData(
+    /** @brief Builds full trajectory data from flagged integration data. */
+    BCLIBC_BaseResult<BCLIBC_TrajectoryData> BCLIBC_TrajectoryData::from_base(
         const BCLIBC_ShotProps &props,
         const BCLIBC_FlaggedData &data)
-        : BCLIBC_TrajectoryData(props, data.data, data.flag) {}
+    {
+        return from_base(props, data.data, data.flag);
+    }
 
     /**
      * @brief Interpolates full trajectory data using 3-point method.
