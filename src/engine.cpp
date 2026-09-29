@@ -39,6 +39,30 @@ BCLIBC_BaseEngine.zero_angle
 
 namespace bclibc
 {
+    namespace
+    {
+        /** Widens a BCLIBC_BaseError into the broader BCLIBC_EngineError that BCLIBC_BaseEngine returns. */
+        BCLIBC_EngineError widen(const BCLIBC_BaseError &error)
+        {
+            return std::visit([](const auto &value) -> BCLIBC_EngineError { return value; }, error);
+        }
+    }
+
+    /**
+     * @brief Ensures the integration function is valid.
+     *
+     * @return BCLIBC_LogicError if integrate_func is empty.
+     */
+    BCLIBC_BaseResult<std::monostate> BCLIBC_BaseEngine::integrate_func_not_empty()
+    {
+        if (!this->integrate_func)
+        {
+            return BCLIBC_BaseError{BCLIBC_LogicError{
+                "Invalid integrate_func: std::function is empty (no callable object assigned)."}};
+        }
+        return std::monostate{};
+    };
+
     /**
      * @brief Integrates the projectile trajectory using filters and optional dense trajectory storage.
      *
@@ -50,7 +74,7 @@ namespace bclibc
      * @param reason Reference to store the termination reason.
      * @param dense_trajectory Optional pointer to store full dense trajectory data.
      *
-     * @throws std::logic_error if integrate_func is null.
+     * @return BCLIBC_LogicError if integrate_func is null.
      */
     BCLIBC_BaseResult<std::monostate> BCLIBC_BaseEngine::integrate_filtered(
         double range_limit_ft,
@@ -61,7 +85,8 @@ namespace bclibc
         BCLIBC_TerminationReason &reason,
         BCLIBC_BaseTrajSeq *dense_trajectory)
     {
-        this->integrate_func_not_empty();
+        const auto not_empty_result = this->integrate_func_not_empty();
+        if (has_error(not_empty_result)) return not_empty_result;
 
         // Block access to engine if it is needed for integration
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
@@ -105,14 +130,15 @@ namespace bclibc
      * @param handler Reference to a data handler for trajectory recording.
      * @param reason Reference to store termination reason.
      *
-     * @throws std::logic_error if integrate_func is null.
+     * @return BCLIBC_LogicError if integrate_func is null.
      */
     BCLIBC_BaseResult<std::monostate> BCLIBC_BaseEngine::integrate(
         double range_limit_ft,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason)
     {
-        this->integrate_func_not_empty();
+        const auto not_empty_result = this->integrate_func_not_empty();
+        if (has_error(not_empty_result)) return not_empty_result;
 
         // Block access to engine if it is needed for integration
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
@@ -166,17 +192,18 @@ namespace bclibc
      * @note Access to the engine is protected by engine_mutex.
      * the actual step size is determined internally by the integrator.
      *
-     * @throws std::logic_error if integrate_func is null.
-     * @throws BCLIBC_InterceptionException if the target point is not found within the
-     * integrated trajectory (e.g., "No apex flagged...").
+     * @return BCLIBC_LogicError if integrate_func is null; BCLIBC_SolverInterceptionError
+     * if the target point is not found within the integrated trajectory (e.g., "No apex
+     * flagged...").
      */
-    void BCLIBC_BaseEngine::integrate_at(
+    BCLIBC_EngineResult<std::monostate> BCLIBC_BaseEngine::integrate_at(
         BCLIBC_BaseTrajData_InterpKey key,
         double target_value,
         BCLIBC_BaseTrajData &raw_data,
         BCLIBC_TrajectoryData &full_data)
     {
-        integrate_func_not_empty();
+        const auto not_empty_result = this->integrate_func_not_empty();
+        if (has_error(not_empty_result)) return widen(std::get<BCLIBC_BaseError>(not_empty_result));
 
         // Block access to engine if it is needed for integration
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
@@ -192,20 +219,25 @@ namespace bclibc
             const auto last_result = handler.get_last();
             const auto *last = std::get_if<std::reference_wrapper<const BCLIBC_BaseTrajData>>(&last_result);
             if (last == nullptr)
-                throw BCLIBC_SolverRuntimeException("Integration produced no trajectory data");
+                return BCLIBC_EngineError{BCLIBC_RuntimeError{"Integration produced no trajectory data"}};
             raw_data = last->get();
-            full_data = BCLIBC_TrajectoryData(this->shot, raw_data);
-            throw BCLIBC_InterceptionException(
+            auto full_data_result = BCLIBC_TrajectoryData::from_base(this->shot, raw_data);
+            if (has_error(full_data_result)) return widen(std::get<BCLIBC_BaseError>(full_data_result));
+            full_data = std::get<BCLIBC_TrajectoryData>(full_data_result);
+            return BCLIBC_EngineError{BCLIBC_SolverInterceptionError{
                 "Intercept point not found for target key and value",
-                raw_data, full_data);
+                raw_data, full_data}};
         }
 
         const auto result = handler.get_result();
         const auto *intercept = std::get_if<std::reference_wrapper<const BCLIBC_BaseTrajData>>(&result);
         if (intercept == nullptr)
-            throw BCLIBC_SolverRuntimeException("Single-point handler lost its interpolated result");
+            return BCLIBC_EngineError{BCLIBC_RuntimeError{"Single-point handler lost its interpolated result"}};
         raw_data = intercept->get();
-        full_data = BCLIBC_TrajectoryData(this->shot, raw_data);
+        auto full_data_result = BCLIBC_TrajectoryData::from_base(this->shot, raw_data);
+        if (has_error(full_data_result)) return widen(std::get<BCLIBC_BaseError>(full_data_result));
+        full_data = std::get<BCLIBC_TrajectoryData>(full_data_result);
+        return std::monostate{};
     };
 
     /**
@@ -213,20 +245,20 @@ namespace bclibc
      *
      * @param apex_out Output variable to store apex trajectory data.
      *
-     * @throws std::invalid_argument if barrel elevation is <= 0.
-     * @throws BCLIBC_ZeroFindingException if apex cannot be determined.
+     * @return BCLIBC_InvalidArgumentError if barrel elevation is <= 0;
+     * BCLIBC_RuntimeError if apex cannot be determined.
      *
      * OPTIMIZATION: Uses ~192 bytes instead of ~N*64 bytes for full trajectory.
      */
-    void BCLIBC_BaseEngine::find_apex(BCLIBC_BaseTrajData &apex_out)
+    BCLIBC_EngineResult<std::monostate> BCLIBC_BaseEngine::find_apex(BCLIBC_BaseTrajData &apex_out)
     {
         // Block access to engine if it is needed for integration
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
 
         if (this->shot.barrel_elevation <= 0)
         {
-            throw std::invalid_argument(
-                "Value error (Barrel elevation must be greater than 0 to find apex).");
+            return BCLIBC_EngineError{BCLIBC_InvalidArgumentError{
+                "Value error (Barrel elevation must be greater than 0 to find apex)."}};
         }
 
         BCLIBC_TerminationReason reason;
@@ -248,15 +280,16 @@ namespace bclibc
 
         if (!apex_handler.found())
         {
-            throw BCLIBC_SolverRuntimeException(
-                "Runtime error (No apex flagged in trajectory data)");
+            return BCLIBC_EngineError{
+                BCLIBC_RuntimeError{"Runtime error (No apex flagged in trajectory data)"}};
         }
 
         const auto apex_result = apex_handler.get_result();
         const auto *apex = std::get_if<std::reference_wrapper<const BCLIBC_BaseTrajData>>(&apex_result);
         if (apex == nullptr)
-            throw BCLIBC_SolverRuntimeException("Apex handler lost its interpolated result");
+            return BCLIBC_EngineError{BCLIBC_RuntimeError{"Apex handler lost its interpolated result"}};
         apex_out = apex->get();
+        return std::monostate{};
     };
 
     /**
@@ -266,14 +299,12 @@ namespace bclibc
      * @param target_x_ft Horizontal distance to target in feet.
      * @param target_y_ft Target height in feet.
      *
-     * @return Vertical error in feet, corrected for horizontal offset.
-     *
-     * @throws std::out_of_range if trajectory data is invalid.
-     * @throws BCLIBC_SolverRuntimeException if trajectory is too short.
+     * @return Vertical error in feet, corrected for horizontal offset; or a
+     * BCLIBC_RuntimeError if trajectory data is invalid or too short.
      *
      * OPTIMIZATION: Uses ~192 bytes instead of full trajectory buffer.
      */
-    double BCLIBC_BaseEngine::error_at_distance(
+    BCLIBC_EngineResult<double> BCLIBC_BaseEngine::error_at_distance(
         double angle_rad,
         double target_x_ft,
         double target_y_ft,
@@ -296,14 +327,13 @@ namespace bclibc
 
         if (!handler.found())
         {
-            throw BCLIBC_SolverRuntimeException(
-                "Trajectory too short to determine error at distance.");
+            return BCLIBC_EngineError{BCLIBC_RuntimeError{"Trajectory too short to determine error at distance."}};
         }
 
         const auto hit_result = handler.get_result();
         const auto *hit_ref = std::get_if<std::reference_wrapper<const BCLIBC_BaseTrajData>>(&hit_result);
         if (hit_ref == nullptr)
-            throw BCLIBC_SolverRuntimeException("Single-point handler lost its interpolated result");
+            return BCLIBC_EngineError{BCLIBC_RuntimeError{"Single-point handler lost its interpolated result"}};
         const BCLIBC_BaseTrajData &hit = hit_ref->get();
 
         if (hit_out != nullptr)
@@ -313,7 +343,7 @@ namespace bclibc
 
         if (hit.time == 0.0)
         {
-            throw std::out_of_range("Trajectory sequence error");
+            return BCLIBC_EngineError{BCLIBC_RuntimeError{"Trajectory sequence error"}};
         }
 
         return (hit.py - target_y_ft) - std::fabs(hit.px - target_x_ft);
@@ -327,12 +357,11 @@ namespace bclibc
      * @param ALLOWED_ZERO_ERROR_FEET Allowed range error in feet.
      * @param result Output structure with initial zero-finding data.
      *
-     * @throws std::out_of_range if trajectory data is invalid.
-     * @throws BCLIBC_OutOfRangeException if apex_slant_ft < result.slant_range_ft.
+     * @return BCLIBC_SolverOutOfRangeError if apex_slant_ft < result.slant_range_ft.
      *
      * Handles edge cases like very close or vertical shots.
      */
-    void BCLIBC_BaseEngine::init_zero_calculation(
+    BCLIBC_EngineResult<std::monostate> BCLIBC_BaseEngine::init_zero_calculation(
         double distance,
         double APEX_IS_MAX_RANGE_RADIANS,
         double ALLOWED_ZERO_ERROR_FEET,
@@ -354,7 +383,7 @@ namespace bclibc
         // Edge case: Very close shot
         if (std::fabs(result.slant_range_ft) < ALLOWED_ZERO_ERROR_FEET)
         {
-            return;
+            return std::monostate{};
         }
 
         // Edge case: Very close shot; ignore gravity and drag
@@ -362,28 +391,29 @@ namespace bclibc
                                                                this->config.cStepMultiplier))
         {
             result.look_angle_rad = std::atan2(result.target_y_ft + result.start_height_ft, result.target_x_ft);
-            return;
+            return std::monostate{};
         }
 
         // Edge case: Virtually vertical shot; just check if it can reach the target
         if (std::fabs(result.look_angle_rad - 1.5707963267948966) < APEX_IS_MAX_RANGE_RADIANS)
         {
             // Compute slant distance at apex using robust accessor
-            this->find_apex(apex);
+            const auto apex_result = this->find_apex(apex);
+            if (has_error(apex_result)) return apex_result;
             apex_slant_ft = apex.px * std::cos(result.look_angle_rad) + apex.py * std::sin(result.look_angle_rad);
             if (apex_slant_ft < result.slant_range_ft)
             {
-                throw BCLIBC_OutOfRangeException(
+                return BCLIBC_EngineError{BCLIBC_SolverOutOfRangeError{
                     "Out of range",
                     result.slant_range_ft,
                     apex_slant_ft,
-                    result.look_angle_rad);
+                    result.look_angle_rad}};
             }
-            return;
+            return std::monostate{};
         }
 
         result.status = BCLIBC_ZeroInitialStatus::CONTINUE;
-        return;
+        return std::monostate{};
     };
 
     /**
@@ -395,7 +425,7 @@ namespace bclibc
      *
      * @return Zero angle (barrel elevation) in radians.
      */
-    double BCLIBC_BaseEngine::zero_angle_with_fallback(
+    BCLIBC_EngineResult<double> BCLIBC_BaseEngine::zero_angle_with_fallback(
         double distance,
         double APEX_IS_MAX_RANGE_RADIANS,
         double ALLOWED_ZERO_ERROR_FEET)
@@ -403,20 +433,22 @@ namespace bclibc
         // Block access to engine if it is needed for integration
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
 
-        try
-        {
-            return this->zero_angle_newton(distance, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
-        }
-        catch (const BCLIBC_ZeroFindingException &error)
-        {
-            BCLIBC_WARN("Primary zero-finding failed, switching to fallback.");
+        const auto newton_result = this->zero_angle_newton(distance, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
+        if (!has_error(newton_result)) return newton_result;
 
-            // Fallback to guaranteed method
-            return this->find_zero_angle_ridder(distance, 0, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
-        }
+        // Only a failure to converge triggers the fallback; any other error propagates unchanged,
+        // matching the original `catch (const BCLIBC_ZeroFindingException &)` which let anything
+        // else keep unwinding.
+        if (!std::holds_alternative<BCLIBC_SolverZeroFindingError>(std::get<BCLIBC_EngineError>(newton_result)))
+            return newton_result;
+
+        BCLIBC_WARN("Primary zero-finding failed, switching to fallback.");
+
+        // Fallback to guaranteed method
+        return this->find_zero_angle_ridder(distance, 0, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
     };
 
-    BCLIBC_ZeroPointResult BCLIBC_BaseEngine::zero_point_with_fallback(
+    BCLIBC_EngineResult<BCLIBC_ZeroPointResult> BCLIBC_BaseEngine::zero_point_with_fallback(
         double distance,
         double APEX_IS_MAX_RANGE_RADIANS,
         double ALLOWED_ZERO_ERROR_FEET)
@@ -424,26 +456,25 @@ namespace bclibc
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
 
         BCLIBC_ZeroPointResult result;
-        try
-        {
-            this->zero_angle_newton(
-                distance,
-                APEX_IS_MAX_RANGE_RADIANS,
-                ALLOWED_ZERO_ERROR_FEET,
-                &result);
-            return result;
-        }
-        catch (const BCLIBC_ZeroFindingException &error)
-        {
-            BCLIBC_WARN("Newton zero-point solve failed, switching to Ridder's fallback.");
-            this->find_zero_angle_ridder(
-                distance,
-                0,
-                APEX_IS_MAX_RANGE_RADIANS,
-                ALLOWED_ZERO_ERROR_FEET,
-                &result);
-            return result;
-        }
+        const auto newton_result = this->zero_angle_newton(
+            distance,
+            APEX_IS_MAX_RANGE_RADIANS,
+            ALLOWED_ZERO_ERROR_FEET,
+            &result);
+        if (!has_error(newton_result)) return result;
+
+        if (!std::holds_alternative<BCLIBC_SolverZeroFindingError>(std::get<BCLIBC_EngineError>(newton_result)))
+            return std::get<BCLIBC_EngineError>(newton_result);
+
+        BCLIBC_WARN("Newton zero-point solve failed, switching to Ridder's fallback.");
+        const auto ridder_result = this->find_zero_angle_ridder(
+            distance,
+            0,
+            APEX_IS_MAX_RANGE_RADIANS,
+            ALLOWED_ZERO_ERROR_FEET,
+            &result);
+        if (has_error(ridder_result)) return std::get<BCLIBC_EngineError>(ridder_result);
+        return result;
     };
 
     /**
@@ -453,14 +484,13 @@ namespace bclibc
      * @param APEX_IS_MAX_RANGE_RADIANS Threshold for vertical shots in radians.
      * @param ALLOWED_ZERO_ERROR_FEET Maximum allowable error in feet.
      *
-     * @return Zero angle (barrel elevation) in radians.
-     *
-     * @throws BCLIBC_ZeroFindingException if zero-finding fails to converge.
+     * @return Zero angle (barrel elevation) in radians; or a BCLIBC_SolverZeroFindingError
+     * if zero-finding fails to converge.
      * OPTIMIZATION: Uses SinglePointHandler instead of full trajectory buffer.
      * Memory: 192 bytes per iteration vs ~N*64 bytes
      * Speed: 50-90% faster with early termination
      */
-    double BCLIBC_BaseEngine::zero_angle_newton(
+    BCLIBC_EngineResult<double> BCLIBC_BaseEngine::zero_angle_newton(
         double distance,
         double APEX_IS_MAX_RANGE_RADIANS,
         double ALLOWED_ZERO_ERROR_FEET,
@@ -476,11 +506,12 @@ namespace bclibc
 
         BCLIBC_ZeroInitialData init_data;
 
-        this->init_zero_calculation(
+        const auto init_result = this->init_zero_calculation(
             distance,
             APEX_IS_MAX_RANGE_RADIANS,
             ALLOWED_ZERO_ERROR_FEET,
             init_data); // pass pointer directly, not &range_error
+        if (has_error(init_result)) return std::get<BCLIBC_EngineError>(init_result);
 
         double look_angle_rad = init_data.look_angle_rad;
         double slant_range_ft = init_data.slant_range_ft;
@@ -545,13 +576,13 @@ namespace bclibc
 
             if (!handler.found())
             {
-                throw BCLIBC_SolverRuntimeException("Failed to interpolate trajectory at target distance");
+                return BCLIBC_EngineError{BCLIBC_RuntimeError{"Failed to interpolate trajectory at target distance"}};
             }
 
             const auto hit_result = handler.get_result();
             const auto *hit_ref = std::get_if<std::reference_wrapper<const BCLIBC_BaseTrajData>>(&hit_result);
             if (hit_ref == nullptr)
-                throw BCLIBC_SolverRuntimeException("Single-point handler lost its interpolated result");
+                return BCLIBC_EngineError{BCLIBC_RuntimeError{"Single-point handler lost its interpolated result"}};
             hit = hit_ref->get();
 
             if (hit.time == 0.0)
@@ -596,11 +627,11 @@ namespace bclibc
                 {
                     if (range_error_ft > prev_range_error_ft - 1e-6)
                     {
-                        throw BCLIBC_ZeroFindingException(
+                        return BCLIBC_EngineError{BCLIBC_SolverZeroFindingError{
                             "Distance non-convergent",
                             range_error_ft,
                             iterations_count,
-                            this->shot.barrel_elevation);
+                            this->shot.barrel_elevation}};
                     }
                 }
                 else if (height_error_ft > std::fabs(prev_height_error_ft))
@@ -608,11 +639,11 @@ namespace bclibc
                     damping_factor *= damping_rate;
                     if (damping_factor < 0.3)
                     {
-                        throw BCLIBC_ZeroFindingException(
+                        return BCLIBC_EngineError{BCLIBC_SolverZeroFindingError{
                             "Error non-convergent",
                             height_error_ft,
                             iterations_count,
-                            this->shot.barrel_elevation);
+                            this->shot.barrel_elevation}};
                     }
                     // Revert previous adjustment
                     this->shot.barrel_elevation -= last_correction;
@@ -640,11 +671,11 @@ namespace bclibc
             }
             else
             {
-                throw BCLIBC_ZeroFindingException(
+                return BCLIBC_EngineError{BCLIBC_SolverZeroFindingError{
                     "Correction denominator is zero",
                     height_error_ft,
                     iterations_count,
-                    this->shot.barrel_elevation);
+                    this->shot.barrel_elevation}};
             }
 
             iterations_count++;
@@ -652,17 +683,19 @@ namespace bclibc
 
         if (height_error_ft > _cZeroFindingAccuracy || range_error_ft > ALLOWED_ZERO_ERROR_FEET)
         {
-            throw BCLIBC_ZeroFindingException(
+            return BCLIBC_EngineError{BCLIBC_SolverZeroFindingError{
                 "Zero finding failed to converge after maximum iterations",
                 height_error_ft,
                 iterations_count,
-                this->shot.barrel_elevation);
+                this->shot.barrel_elevation}};
         }
 
         if (result_out != nullptr)
         {
             result_out->angle_rad = this->shot.barrel_elevation;
-            result_out->point = BCLIBC_TrajectoryData(this->shot, hit, BCLIBC_TRAJ_FLAG_RANGE);
+            auto point_result = BCLIBC_TrajectoryData::from_base(this->shot, hit, BCLIBC_TRAJ_FLAG_RANGE);
+            if (has_error(point_result)) return widen(std::get<BCLIBC_BaseError>(point_result));
+            result_out->point = std::get<BCLIBC_TrajectoryData>(point_result);
             result_out->has_point = true;
         }
 
@@ -713,7 +746,7 @@ namespace bclibc
      *
      * @return Structure containing maximum range (ft) and angle (rad).
      */
-    BCLIBC_MaxRangeResult BCLIBC_BaseEngine::find_max_range(
+    BCLIBC_EngineResult<BCLIBC_MaxRangeResult> BCLIBC_BaseEngine::find_max_range(
         double low_angle_deg,
         double high_angle_deg,
         double APEX_IS_MAX_RANGE_RADIANS)
@@ -731,7 +764,8 @@ namespace bclibc
         // π/2 radians = 90 degrees
         if (std::fabs(look_angle_rad - 1.5707963267948966) < APEX_IS_MAX_RANGE_RADIANS)
         {
-            this->find_apex(apex);
+            const auto apex_result = this->find_apex(apex);
+            if (has_error(apex_result)) return std::get<BCLIBC_EngineError>(apex_result);
             sdist = apex.px * std::cos(look_angle_rad) + apex.py * std::sin(look_angle_rad);
             return BCLIBC_MaxRangeResult{sdist, look_angle_rad};
         }
@@ -802,12 +836,11 @@ namespace bclibc
      * @param APEX_IS_MAX_RANGE_RADIANS Threshold for vertical shots in radians.
      * @param ALLOWED_ZERO_ERROR_FEET Maximum allowable error in feet.
      *
-     * @return Zero angle (barrel elevation) in radians.
-     *
-     * @throws BCLIBC_OutOfRangeException if slant_range_ft > max_range_ft.
-     * @throws BCLIBC_ZeroFindingException if zero-finding fails.
+     * @return Zero angle (barrel elevation) in radians; or a BCLIBC_SolverOutOfRangeError
+     * if slant_range_ft > max_range_ft, or a BCLIBC_SolverZeroFindingError if zero-finding
+     * fails.
      */
-    double BCLIBC_BaseEngine::find_zero_angle_ridder(
+    BCLIBC_EngineResult<double> BCLIBC_BaseEngine::find_zero_angle_ridder(
         double distance,
         int lofted,
         double APEX_IS_MAX_RANGE_RADIANS,
@@ -822,12 +855,14 @@ namespace bclibc
             result_out->has_point = false;
         }
 
-        auto return_with_point = [this, result_out](double angle_rad, const BCLIBC_BaseTrajData &hit)
+        auto return_with_point = [this, result_out](double angle_rad, const BCLIBC_BaseTrajData &hit) -> BCLIBC_EngineResult<double>
         {
             if (result_out != nullptr)
             {
                 result_out->angle_rad = angle_rad;
-                result_out->point = BCLIBC_TrajectoryData(this->shot, hit, BCLIBC_TRAJ_FLAG_RANGE);
+                auto point_result = BCLIBC_TrajectoryData::from_base(this->shot, hit, BCLIBC_TRAJ_FLAG_RANGE);
+                if (has_error(point_result)) return widen(std::get<BCLIBC_BaseError>(point_result));
+                result_out->point = std::get<BCLIBC_TrajectoryData>(point_result);
                 result_out->has_point = true;
             }
             return angle_rad;
@@ -835,11 +870,12 @@ namespace bclibc
 
         BCLIBC_ZeroInitialData init_data;
 
-        this->init_zero_calculation(
+        const auto init_result = this->init_zero_calculation(
             distance,
             APEX_IS_MAX_RANGE_RADIANS,
             ALLOWED_ZERO_ERROR_FEET,
             init_data);
+        if (has_error(init_result)) return std::get<BCLIBC_EngineError>(init_result);
 
         double look_angle_rad = init_data.look_angle_rad;
         double slant_range_ft = init_data.slant_range_ft;
@@ -857,10 +893,12 @@ namespace bclibc
         }
 
         // 1. Find the maximum possible range to establish a search bracket.
-        BCLIBC_MaxRangeResult max_range_result = this->find_max_range(
+        const auto max_range_wrapped = this->find_max_range(
             0,
             90,
             APEX_IS_MAX_RANGE_RADIANS);
+        if (has_error(max_range_wrapped)) return std::get<BCLIBC_EngineError>(max_range_wrapped);
+        BCLIBC_MaxRangeResult max_range_result = std::get<BCLIBC_MaxRangeResult>(max_range_wrapped);
 
         double max_range_ft = max_range_result.max_range_ft;
         double angle_at_max_rad = max_range_result.angle_at_max_rad;
@@ -868,11 +906,11 @@ namespace bclibc
         // 2. Handle edge cases based on max range.
         if (slant_range_ft > max_range_ft)
         {
-            throw BCLIBC_OutOfRangeException(
+            return BCLIBC_EngineError{BCLIBC_SolverOutOfRangeError{
                 "Out of range",
                 distance,
                 max_range_ft,
-                look_angle_rad);
+                look_angle_rad}};
         }
         if (std::fabs(slant_range_ft - max_range_ft) < ALLOWED_ZERO_ERROR_FEET)
         {
@@ -911,17 +949,17 @@ namespace bclibc
         }
 
         // Prepare variables for Ridder's method
-        double mid_angle, f_mid, s, next_angle, f_next;
+        double mid_angle, s, next_angle, f_mid, f_next;
         BCLIBC_BaseTrajData low_hit, high_hit, mid_hit, next_hit;
         BCLIBC_BaseTrajData *last_hit = nullptr;
         double last_angle = 0.0;
         int converged = 0;
 
-        f_low = this->error_at_distance(
-            low_angle,
-            target_x_ft,
-            target_y_ft,
-            &low_hit);
+        {
+            const auto f_low_result = this->error_at_distance(low_angle, target_x_ft, target_y_ft, &low_hit);
+            if (has_error(f_low_result)) return std::get<BCLIBC_EngineError>(f_low_result);
+            f_low = std::get<double>(f_low_result);
+        }
         last_hit = &low_hit;
         last_angle = low_angle;
 
@@ -929,30 +967,28 @@ namespace bclibc
         if (f_low > 1e8 && std::fabs(low_angle - look_angle_rad) < 1e-9)
         {
             low_angle = look_angle_rad + 1e-3;
-            f_low = this->error_at_distance(
-                low_angle,
-                target_x_ft,
-                target_y_ft,
-                &low_hit);
+            const auto f_low_result = this->error_at_distance(low_angle, target_x_ft, target_y_ft, &low_hit);
+            if (has_error(f_low_result)) return std::get<BCLIBC_EngineError>(f_low_result);
+            f_low = std::get<double>(f_low_result);
             last_hit = &low_hit;
             last_angle = low_angle;
         }
 
-        f_high = this->error_at_distance(
-            high_angle,
-            target_x_ft,
-            target_y_ft,
-            &high_hit);
+        {
+            const auto f_high_result = this->error_at_distance(high_angle, target_x_ft, target_y_ft, &high_hit);
+            if (has_error(f_high_result)) return std::get<BCLIBC_EngineError>(f_high_result);
+            f_high = std::get<double>(f_high_result);
+        }
         last_hit = &high_hit;
         last_angle = high_angle;
 
         if (f_low * f_high >= 0)
         {
-            char reason[256];
             const char *lofted_str = lofted ? "lofted" : "low";
-            snprintf(
-                reason,
-                sizeof(reason),
+            // The formatted diagnostic (angles/f_low/f_high) can only be logged here: unlike a
+            // thrown exception, a returned BCLIBC_SolverZeroFindingError does not own its message,
+            // so it cannot carry a pointer into this stack-local buffer past the return.
+            BCLIBC_WARN(
                 "No %s zero trajectory in elevation range (%.2f, %.2f deg). "
                 "Errors at bracket: f(low)=%.2f, f(high)=%.2f",
                 lofted_str,
@@ -960,11 +996,12 @@ namespace bclibc
                 high_angle * 57.29577951308232,
                 f_low,
                 f_high);
-            throw BCLIBC_ZeroFindingException(
-                reason,
+            return BCLIBC_EngineError{BCLIBC_SolverZeroFindingError{
+                lofted ? "No lofted zero trajectory in elevation search bracket"
+                       : "No low zero trajectory in elevation search bracket",
                 target_y_ft,
                 0,
-                this->shot.barrel_elevation);
+                this->shot.barrel_elevation}};
         }
 
         // 4. Ridder's method implementation
@@ -976,11 +1013,11 @@ namespace bclibc
         {
             mid_angle = (low_angle + high_angle) / 2.0;
 
-            f_mid = this->error_at_distance(
-                mid_angle,
-                target_x_ft,
-                target_y_ft,
-                &mid_hit);
+            {
+                const auto f_mid_result = this->error_at_distance(mid_angle, target_x_ft, target_y_ft, &mid_hit);
+                if (has_error(f_mid_result)) return std::get<BCLIBC_EngineError>(f_mid_result);
+                f_mid = std::get<double>(f_mid_result);
+            }
             last_hit = &mid_hit;
             last_angle = mid_angle;
 
@@ -1019,11 +1056,11 @@ namespace bclibc
 
             next_angle = mid_angle + (mid_angle - low_angle) * (copysign(1.0, f_low - f_high) * f_mid / s);
 
-            f_next = this->error_at_distance(
-                next_angle,
-                target_x_ft,
-                target_y_ft,
-                &next_hit);
+            {
+                const auto f_next_result = this->error_at_distance(next_angle, target_x_ft, target_y_ft, &next_hit);
+                if (has_error(f_next_result)) return std::get<BCLIBC_EngineError>(f_next_result);
+                f_next = std::get<double>(f_next_result);
+            }
             last_hit = &next_hit;
             last_angle = next_angle;
 
@@ -1113,11 +1150,11 @@ namespace bclibc
             }
 
             // All fallback strategies failed
-            throw BCLIBC_ZeroFindingException(
+            return BCLIBC_EngineError{BCLIBC_SolverZeroFindingError{
                 "Ridder's method failed to converge.",
                 target_y_ft,
                 this->config.cMaxIterations,
-                (low_angle + high_angle) / 2.0);
+                (low_angle + high_angle) / 2.0}};
         }
 
         // converged == true but loop exited without an explicit return
@@ -1129,7 +1166,7 @@ namespace bclibc
         return (low_angle + high_angle) / 2.0;
     };
 
-    double BCLIBC_BaseEngine::zero_angle(
+    BCLIBC_EngineResult<double> BCLIBC_BaseEngine::zero_angle(
         double distance,
         double APEX_IS_MAX_RANGE_RADIANS,
         double ALLOWED_ZERO_ERROR_FEET)
@@ -1140,23 +1177,24 @@ namespace bclibc
             ALLOWED_ZERO_ERROR_FEET);
     };
 
-    BCLIBC_ZeroPointResult BCLIBC_BaseEngine::find_zero_point(
+    BCLIBC_EngineResult<BCLIBC_ZeroPointResult> BCLIBC_BaseEngine::find_zero_point(
         double distance,
         int lofted,
         double APEX_IS_MAX_RANGE_RADIANS,
         double ALLOWED_ZERO_ERROR_FEET)
     {
         BCLIBC_ZeroPointResult result;
-        this->find_zero_angle_ridder(
+        const auto ridder_result = this->find_zero_angle_ridder(
             distance,
             lofted,
             APEX_IS_MAX_RANGE_RADIANS,
             ALLOWED_ZERO_ERROR_FEET,
             &result);
+        if (has_error(ridder_result)) return std::get<BCLIBC_EngineError>(ridder_result);
         return result;
     };
 
-    double BCLIBC_BaseEngine::find_zero_angle(
+    BCLIBC_EngineResult<double> BCLIBC_BaseEngine::find_zero_angle(
         double distance,
         int lofted,
         double APEX_IS_MAX_RANGE_RADIANS,
@@ -1167,18 +1205,5 @@ namespace bclibc
             lofted,
             APEX_IS_MAX_RANGE_RADIANS,
             ALLOWED_ZERO_ERROR_FEET);
-    };
-
-    /**
-     * @brief Ensures the integration function is valid.
-     *
-     * @throws std::logic_error if integrate_func is empty.
-     */
-    void BCLIBC_BaseEngine::integrate_func_not_empty()
-    {
-        if (!this->integrate_func)
-        {
-            throw std::logic_error("Invalid integrate_func: std::function is empty (no callable object assigned).");
-        }
     };
 }; // namespace bclibc

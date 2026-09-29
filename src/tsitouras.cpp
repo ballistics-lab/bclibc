@@ -1,9 +1,9 @@
 #include <algorithm>
 #include <cmath>
-#include <stdexcept>
 
 #include "bclibc/tsitouras.hpp"
 #include "bclibc/embedded_rk45.hpp"
+#include "bclibc/log.hpp"
 
 namespace bclibc
 {
@@ -137,8 +137,13 @@ BCLIBC_BaseResult<std::monostate> BCLIBC_integrateTsitouras(
 
     BCLIBC_TsitourasIntegrator::BCLIBC_TsitourasIntegrator(double relative_tolerance, double absolute_tolerance)
     {
-        set_relative_tolerance(relative_tolerance);
-        set_absolute_tolerance(absolute_tolerance);
+        // A constructor cannot report failure without throwing, so an invalid tolerance is
+        // logged and the field keeps its in-class default (embedded_rk45_detail::default_tolerance)
+        // instead of the rejected value.
+        if (has_error(set_relative_tolerance(relative_tolerance)))
+            BCLIBC_WARN("Tsitouras relative tolerance %g invalid; keeping default", relative_tolerance);
+        if (has_error(set_absolute_tolerance(absolute_tolerance)))
+            BCLIBC_WARN("Tsitouras absolute tolerance %g invalid; keeping default", absolute_tolerance);
     }
 
     BCLIBC_TsitourasIntegrator::BCLIBC_TsitourasIntegrator(const BCLIBC_TsitourasIntegrator &other) noexcept
@@ -184,18 +189,22 @@ BCLIBC_BaseResult<std::monostate> BCLIBC_integrateTsitouras(
         out_rejected = rejected_steps_.load(std::memory_order_relaxed);
     }
 
-    void BCLIBC_TsitourasIntegrator::set_relative_tolerance(double tolerance)
+    BCLIBC_BaseResult<std::monostate> BCLIBC_TsitourasIntegrator::set_relative_tolerance(double tolerance)
     {
         if (!std::isfinite(tolerance) || tolerance <= 0.0)
-            throw std::invalid_argument("Tsitouras relative tolerance must be finite and positive");
+            return BCLIBC_BaseError{BCLIBC_InvalidArgumentError{
+                "Tsitouras relative tolerance must be finite and positive"}};
         relative_tolerance_.store(tolerance, std::memory_order_relaxed);
+        return std::monostate{};
     }
 
-    void BCLIBC_TsitourasIntegrator::set_absolute_tolerance(double tolerance)
+    BCLIBC_BaseResult<std::monostate> BCLIBC_TsitourasIntegrator::set_absolute_tolerance(double tolerance)
     {
         if (!std::isfinite(tolerance) || tolerance < 0.0)
-            throw std::invalid_argument("Tsitouras absolute tolerance must be finite and non-negative");
+            return BCLIBC_BaseError{BCLIBC_InvalidArgumentError{
+                "Tsitouras absolute tolerance must be finite and non-negative"}};
         absolute_tolerance_.store(tolerance, std::memory_order_relaxed);
+        return std::monostate{};
     }
 
 }; // namespace bclibc

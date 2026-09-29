@@ -33,8 +33,10 @@ namespace bclibc
     public:
         /**
          * @brief Construct with explicit tolerances (each defaulting to 1e-6).
-         * @throws std::invalid_argument under the same conditions as
-         * @ref set_relative_tolerance / @ref set_absolute_tolerance.
+         *
+         * A constructor cannot report failure without throwing, so an invalid tolerance
+         * (see @ref set_relative_tolerance / @ref set_absolute_tolerance) is logged and
+         * silently keeps that field at its default instead of failing construction.
          */
         explicit BCLIBC_DormandPrinceIntegrator(
             double relative_tolerance = embedded_rk45_detail::default_tolerance,
@@ -53,12 +55,12 @@ namespace bclibc
         void get_stats(int &out_accepted, int &out_rejected) const noexcept;
 
         /** @brief Set this instance's relative local-error tolerance (default 1e-6).
-         * @throws std::invalid_argument if @p tolerance is not finite and positive. */
-        void set_relative_tolerance(double tolerance);
+         * @return BCLIBC_InvalidArgumentError if @p tolerance is not finite and positive. */
+        BCLIBC_BaseResult<std::monostate> set_relative_tolerance(double tolerance);
 
         /** @brief Set this instance's scalar absolute local-error tolerance (default 1e-6).
-         * @throws std::invalid_argument if @p tolerance is not finite or is negative. */
-        void set_absolute_tolerance(double tolerance);
+         * @return BCLIBC_InvalidArgumentError if @p tolerance is not finite or is negative. */
+        BCLIBC_BaseResult<std::monostate> set_absolute_tolerance(double tolerance);
 
     private:
         std::atomic<int> accepted_steps_{0};

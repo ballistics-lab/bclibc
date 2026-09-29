@@ -2,19 +2,15 @@
 # core and its flat C ABI (bclibc_ffi.h) in one module that imports nothing. Included by CMakeLists.txt, which stops
 # after it.
 #
-# Two flavours, by whether the toolchain has a runtime for C++ exceptions (BCLIBC_WASM_EXCEPTIONS):
-#   ON  (wasi-sdk): the core throws and catches as it does natively, the flat C ABI returns its error codes. Built with
-#       the final WebAssembly exception encoding, without LTO: the option that selects the encoding does not reach
-#       the code generator of a link-time build, and a module made that way silently never catches.
-#   OFF (zig): a `throw` is a trap (src/wasm/bare_runtime.cpp); small (-Oz -flto), for hosts that can start over
-#       after a trap.
+# One flavour for both toolchains: the core never throws (every fallible call returns a Result), so the module is
+# built with -fno-exceptions, small (-Oz -flto). Anything below the core that could still call into libc++'s own
+# exception path (an allocation failure, a hardening check) traps instead (src/wasm/bare_runtime.cpp) rather than
+# unwinding -- neither toolchain's runtime for that is linked in.
 
 set(BCLIBC_WASM_STACK_SIZE 1048576 CACHE STRING "Size of the shadow stack of the module, in bytes")
 # The same ceiling as Emscripten's MAXIMUM_MEMORY (2 GiB), so the module grows as far as the Emscripten build did and
 # no further; the memory is the module's own (exported), it needs nothing from the host.
 set(BCLIBC_WASM_MAX_MEMORY 2147483648 CACHE STRING "Largest size the memory of the module may grow to, in bytes")
-
-option(BCLIBC_WASM_EXCEPTIONS "Build with C++ exceptions (needs the exception runtime of wasi-sdk)" ${BCLIBC_WASM_EXCEPTIONS_DEFAULT})
 
 add_executable(bclibc_wasm
     ${BCLIBC_SOURCES}
@@ -26,21 +22,17 @@ target_include_directories(bclibc_wasm PRIVATE
     "${CMAKE_CURRENT_BINARY_DIR}/generated"
 )
 target_compile_definitions(bclibc_wasm PRIVATE BCLIBC_NO_THREADS)  # one thread: the engine's lock does nothing
+if(WASI_SDK_PATH)
+    # wasi-sdk's libc pulls in stdio/clock/the stack protector independently of exceptions (see
+    # src/wasm/bare_runtime.cpp); zig's own libc already defines those symbols itself, so it must not get this macro.
+    target_compile_definitions(bclibc_wasm PRIVATE BCLIBC_WASI_SDK)
+endif()
 target_compile_options(bclibc_wasm PRIVATE
-    -Oz -ffunction-sections -fdata-sections
+    -Oz -ffunction-sections -fdata-sections -flto
+    -fno-exceptions
     -ffp-contract=off  # strict IEEE arithmetic, as in the native build
 )
-if(BCLIBC_WASM_EXCEPTIONS)
-    target_compile_definitions(bclibc_wasm PRIVATE BCLIBC_WASM_EXCEPTIONS)
-    target_compile_options(bclibc_wasm PRIVATE
-        -fwasm-exceptions
-        "SHELL:-mllvm -wasm-use-legacy-eh=false"  # the encoding of wasi-sdk's libc++abi and libunwind; a mix is invalid
-    )
-    target_link_options(bclibc_wasm PRIVATE -fwasm-exceptions -lunwind)
-else()
-    target_compile_options(bclibc_wasm PRIVATE -flto)
-    target_link_options(bclibc_wasm PRIVATE -flto)
-endif()
+target_link_options(bclibc_wasm PRIVATE -flto)
 target_link_options(bclibc_wasm PRIVATE
     -Oz
     -mexec-model=reactor  # no main: the host calls the exports, after `_initialize`
