@@ -15,6 +15,13 @@ on:
       - "tests/wasm_parity/**"
       - ".github/workflows/wasm-bare.yml"
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      retention_days:
+        description: Artifact retention in days
+        required: false
+        type: number
+        default: 7
 
 env:
   WASI_SDK_VERSION: "34"
@@ -27,14 +34,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # C++ exceptions: the module returns the same error codes as the native library.
           - toolchain: wasi-sdk
             target: wasm
-            errors: codes
-          # zig has no exception runtime: a throw is a trap.
           - toolchain: zig
             target: wasm-zig
-            errors: trap
 
     steps:
       - name: Checkout code
@@ -45,7 +48,6 @@ jobs:
         with:
           python-version: "3.13"
 
-      # The module uses WebAssembly's final exception encoding (`try_table`): a Node that has it (25 is what was tried).
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
@@ -99,12 +101,11 @@ jobs:
           python tests/wasm_parity/parity.py \
             --native build/native/libbclibc_ffi.so \
             --wasm "$WASM" \
-            --backend wasmtime --backend node \
-            --errors ${{ matrix.errors }}
+            --backend wasmtime --backend node
 
       - name: Upload the module
         uses: actions/upload-artifact@v7
         with:
           name: bclibc-wasm-${{ matrix.toolchain }}
           path: ${{ env.WASM }}
-          retention-days: 7
+          retention-days: ${{ inputs.retention_days || 7 }}
