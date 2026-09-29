@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `BCLIBC_BaseEngine` no longer throws: `integrate_at`, `find_apex`, `error_at_distance`,
+  `init_zero_calculation`, `zero_angle_newton`, `zero_angle_with_fallback`, `zero_point_with_fallback`,
+  `find_zero_angle_ridder`, `find_max_range`, `zero_angle`, `find_zero_angle` and `find_zero_point` now return
+  `BCLIBC_EngineResult<T>` (`std::variant<BCLIBC_EngineError, T>`), checked with `has_error()`/`is_ok()`, the
+  same pattern already used by the RK4/Euler/Verlet/Cash-Karp/Dormand-Prince/Tsitouras integrators. New error
+  types `BCLIBC_SolverZeroFindingError`, `BCLIBC_SolverOutOfRangeError` and `BCLIBC_SolverInterceptionError`
+  (`include/bclibc/exceptions.hpp`) join `BCLIBC_BaseError`'s alternatives inside `BCLIBC_EngineError`, carrying
+  the same diagnostic fields the old `BCLIBC_*Exception` classes did.
+- `BCLIBC_CashKarpIntegrator`/`BCLIBC_DormandPrinceIntegrator`/`BCLIBC_TsitourasIntegrator`'s
+  `set_relative_tolerance`/`set_absolute_tolerance` return `BCLIBC_BaseResult<std::monostate>` instead of
+  throwing `std::invalid_argument`; their constructors log a warning and keep the field at its default
+  (`embedded_rk45_detail::default_tolerance`) on an invalid value instead of failing to construct.
+- `src/ffi/bclibc_ffi.cpp`: the `try`/`catch` safety net in `ffi_call` is gone — nothing in bclibc throws, so
+  every entry point maps a `BCLIBC_EngineError`/`BCLIBC_BaseError` to a `BCLIBCFFI_ERR_*` code directly via the
+  new `setEngineError()` helper (`std::visit`), the same information the removed per-exception-type `catch`
+  blocks used to fill in.
+- **The bare WebAssembly build (`BCLIBC_WASM_BARE=ON`) is one flavour for both toolchains now.** Because the
+  core never throws, `cmake/wasi-sdk-wasm32.cmake`'s build no longer needs real C++ exceptions: the
+  `BCLIBC_WASM_EXCEPTIONS` option is gone, both `cmake/wasi-sdk-wasm32.cmake` and `cmake/zig-wasm32-wasi.cmake`
+  build with `-fno-exceptions` and `-flto`, and wasi-sdk drops `-fwasm-exceptions`/`-lunwind` entirely (so it no
+  longer needs a host with WebAssembly's final exception encoding — any wasm32 host works). A failed solve now
+  returns the same `BCLIBCFFI_ERR_*` code as the native library **on both toolchains**: zig's build no longer
+  traps on an ordinary failed solve (`ZeroFinding`, `OutOfRange`, ...), only on something that would already be
+  fatal natively. `src/wasm/bare_runtime.cpp`'s stubs are correspondingly trimmed to what each toolchain's libc
+  actually still pulls in without an exception runtime (wasi-sdk needs stdio/stack-protector stand-ins zig's
+  libc already provides itself; verified by building both with the actual toolchains and re-running
+  `tests/wasm_parity/parity.py` — bit-identical to native on both wasmtime and Node, including the error path).
+- `tests/wasm_parity/parity.py`: dropped `--errors codes|trap` — nothing traps on an ordinary failed solve on
+  either toolchain anymore, so a trap during a normal case is always a failure now, not a second accepted outcome.
+
+### Removed
+- `build_wasm.sh` and `.github/workflows/emsdk-update.yml` (the Emscripten-based wasm build and its automated
+  emsdk-bump PRs). CI (`build-lib.yml`, `build-libs.yml`, `pr-check.yml`, `release.yml`) now builds and publishes
+  the bare wasm module(s) via `wasm-bare.yml` (made reusable via `workflow_call`) instead.
+
 ## [2.0.0-rc.3] - 2026-09-25
 
 ### Changed

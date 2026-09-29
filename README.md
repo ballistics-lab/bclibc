@@ -19,7 +19,7 @@ compatibility controller. All three use the compile-time embedded-RK core.
 `bclibc` is the shared C++/C99 physics core behind the [**Ballistics Lab**][ballistics-lab] ecosystem —
 one engine, bound natively into [py-ballisticcalc][py-ballisticcalc] (Python/Cython),
 [js-ballistics][js-ballistics] (TypeScript/WASM via Embind), [dart-bclibc][dart-bclibc]
-(Dart FFI natively, and WASM on web via `build_wasm.sh` — see [WASM build](#wasm-build)), and
+(Dart FFI natively, and the bare WASM module on web — see [WASM build](#wasm-build)), and
 [micropython-bclibc][micropython-bclibc] (MCUs via the bundled `tiny_bclibc` C99 subset).
 
 ---
@@ -269,25 +269,15 @@ cmake --build build --config Release
 
 ## WASM build
 
-`build_wasm.sh` compiles the same `BCLIBCFFI_*` C ABI (`bclibc_ffi.cpp`) to WebAssembly via Emscripten, for platforms without `dart:ffi` (e.g. Flutter/Dart web). It self-installs a pinned Emscripten SDK into `tool/emsdk` on first run if `emcc` isn't already on `PATH`:
+The `BCLIBCFFI_*` C ABI (`bclibc_ffi.cpp`) as one WebAssembly module that imports **nothing** — no Emscripten, no
+embind — built with CMake and either of two toolchains. The core never throws (every fallible call returns a
+`BCLIBC_Result`, checked with `has_error()`/`is_ok()`), so both toolchains build the same exception-free module, and
+a failed solve returns the same `BCLIBCFFI_ERR_*` code as the native library on either one:
 
-```bash
-./build_wasm.sh
-```
-
-Output: `build/web/bclibc_ffi.js` + `build/web/bclibc_ffi.wasm` (Emscripten JS-glue module, `MODULARIZE=1`). Ship both files together — do **not** re-add `-sSINGLE_FILE=1`: as of emsdk 6.0.3 it produces a wasm blob Chrome's `WebAssembly.instantiate` rejects (`invalid value type 0x1`), even though the identical bytes load fine under Node. The two-file layout is the verified-working one.
-
-The module exports the flat `BCLIBCFFI_*` functions directly (no Embind) plus `BCLIBCFFI_get_layout()`, which returns every `BCLIBCFFI_Shot`-family struct's field byte offsets/sizes, computed via `offsetof()`/`sizeof()` by whichever compiler built the module. Callers marshal structs into wasm linear memory (`_malloc`/`HEAPU8`) using those offsets instead of hardcoding them — see `dart-bclibc`'s `lib/ffi/bclibc_ffi_web.dart` for a complete `dart:js_interop` binding built this way.
-
-### Bare WebAssembly build (no Emscripten, no imports)
-
-The same C ABI as one module that imports **nothing**, built with CMake and one of two toolchains, neither of them
-Emscripten:
-
-| toolchain | `-DCMAKE_TOOLCHAIN_FILE=` | C++ exceptions | size |
-|---|---|---|---|
-| [wasi-sdk](https://github.com/WebAssembly/wasi-sdk/releases) (34 tested; `-DWASI_SDK_PATH=` or `$WASI_SDK_PATH`) | `cmake/wasi-sdk-wasm32.cmake` | **yes**: the core throws and the flat C ABI returns the same `BCLIBCFFI_ERR_*` codes as the native library | ~1.6 MB |
-| [zig](https://ziglang.org) (`zig` on `PATH`, `-DZIG=`, or `pip install ziglang`) | `cmake/zig-wasm32-wasi.cmake` | no: a `throw` is a trap | ~78 KB (`-Oz -flto`) |
+| toolchain | `-DCMAKE_TOOLCHAIN_FILE=` | size |
+|---|---|---|
+| [wasi-sdk](https://github.com/WebAssembly/wasi-sdk/releases) (34 tested; `-DWASI_SDK_PATH=` or `$WASI_SDK_PATH`) | `cmake/wasi-sdk-wasm32.cmake` | ~1.0 MB |
+| [zig](https://ziglang.org) (`zig` on `PATH`, `-DZIG=`, or `pip install ziglang`) | `cmake/zig-wasm32-wasi.cmake` | ~90 KB (`-Oz -flto`) |
 
 ```bash
 cmake -S . -B build/wasm -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/wasi-sdk-wasm32.cmake -DWASI_SDK_PATH=/opt/wasi-sdk-34.0 -DBCLIBC_WASM_BARE=ON
@@ -297,12 +287,16 @@ cmake --build build/wasm          # -> build/wasm/bclibc_wasm.wasm; the build fa
 Or `make wasm WASI_SDK_PATH=/opt/wasi-sdk-34.0` (wasi-sdk, `build/wasm/`) and `make wasm-zig` (zig, `build/wasm-zig/`).
 
 `tests/wasm_parity/parity.py` runs the same shots through the native library and the module (wasmhost, on wasmtime and Node) and
-fails on any difference beyond 1 ulp in the angle fields, or on a failed solve that does not return the native status
-(wasi-sdk) or trap (zig); the `WASM (bare module)` workflow builds both flavours and runs it.
+fails on any difference beyond 1 ulp in the angle fields, or on a failed solve that does not return the same
+`BCLIBCFFI_ERR_*` code as the native library; the `WASM (bare module)` workflow builds both flavours and runs it.
 
 It runs with an empty import object in any host that has WebAssembly: Node, browsers, JavaScriptCore, wasmtime, wasm3,
-or Python through [wasmhost](https://github.com/ballistics-lab/py-wasmhost). What a host has to know, since there is
-no Emscripten glue to do it:
+or Python through [wasmhost](https://github.com/ballistics-lab/py-wasmhost). The module exports the flat
+`BCLIBCFFI_*` functions directly plus `BCLIBCFFI_get_layout()`, which returns every `BCLIBCFFI_Shot`-family struct's
+field byte offsets/sizes, computed via `offsetof()`/`sizeof()` by whichever compiler built the module — callers
+marshal structs into wasm linear memory using those offsets instead of hardcoding them (see `dart-bclibc`'s
+`lib/ffi/bclibc_ffi_web.dart` for a complete `dart:js_interop` binding built this way). What a host has to know,
+since there is no Emscripten glue to do it:
 
 - Call `_initialize()` once before the first call (it is a reactor: static initializers).
 - The memory is the module's own (exported as `memory`, 17 pages to start, grows on its own up to 2 GiB,
@@ -311,18 +305,11 @@ no Emscripten glue to do it:
 - `malloc` and `free` are exported: put arguments into the module's memory and free what a call hands back
   (`BCLIBCFFI_free_trajectory` for the records).
 - Pointers and `size_t` are 4 bytes, so read struct fields at the offsets `BCLIBCFFI_get_layout()` reports.
-- **wasi-sdk build: exceptions need the host to have WebAssembly's final exception encoding (`try_table`).** wasi-sdk's
-  libraries use only that one (a module mixing it with the older `try`/`catch` is invalid, so the code is built with
-  `-mllvm -wasm-use-legacy-eh=false`). Measured: wasmtime 49, wasm3 (git, 2026), Node 25 and JavaScriptCore (WebKitGTK)
-  run it; hosts older than the encoding (older Node, Safari/iOS before it) do not, and `wasmhost.selftest` can tell.
-  The build is **not** link-time optimized on purpose: that option does not reach the code generator of an LTO build, and
-  the module then compiles but never catches (the exception escapes the call).
-- **zig build: a `throw` is a trap** (no exception runtime): a solve that fails (`ZeroFinding`, `OutOfRange`, ...) ends
-  the call with `unreachable` instead of returning a `BCLIBCFFI_ERR_*` code, and a trap leaves the shadow stack where it
-  was, so **make a new instance after any trap**.
-- `src/wasm/bare_runtime.cpp` is what keeps WASI out: libc++'s abort, and for wasi-sdk a set of inert stand-ins for the
-  parts of wasi-libc that libunwind and libc++abi call (stderr, the environment, locks, the clock, the stack protector
-  seed). A newer wasi-sdk may find another way in; the post-build check says so.
+- `src/wasm/bare_runtime.cpp` is what keeps WASI out: libc++'s abort, `__cxa_allocate_exception`/`__cxa_throw` as
+  traps (for the rare internal libc++ path that could still reach for them, e.g. an allocation failure — bclibc's
+  own code never does), and, for wasi-sdk specifically, inert stand-ins for the parts of its libc that pull in
+  stdio/the clock/the stack-protector seed independently of exceptions (zig's own libc already provides those
+  itself). A newer toolchain version may find another way to pull in WASI; the post-build check says so.
 
 Numerically it matches the native library: the same inputs through `libbclibc_ffi.so` (x86-64, glibc) and the
 module (both builds), on wasmtime, wasm3, JavaScriptCore and Node, for the six integration methods, `find_zero_*`, `find_apex`,
@@ -415,8 +402,9 @@ dumpbin /exports build\bin\Release\bclibc_ffi.dll
 | Workflow | Trigger | Description |
 |---|---|---|
 | `pr-check.yml` | PR to `main`/`develop` | Builds on Linux, macOS, Windows × Debug/Release |
-| `build-libs.yml` | Manual | Build specific platform and upload artifacts |
-| `release.yml` | Push tag `v*` | Builds all platforms and creates GitHub Release |
+| `wasm-bare.yml` | PR touching `src`/`include`/`cmake`/... | Builds the bare wasm module with both toolchains, runs `parity.py` |
+| `build-libs.yml` | Manual | Build specific platform (including wasm) and upload artifacts |
+| `release.yml` | Push tag `v*` | Builds all platforms (including wasm) and creates GitHub Release |
 
 ---
 

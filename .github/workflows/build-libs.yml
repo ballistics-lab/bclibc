@@ -81,13 +81,9 @@ jobs:
 
   build-wasm:
     if: inputs.platforms == 'all' || inputs.platforms == 'wasm'
-    uses: ./.github/workflows/build-lib.yml
+    uses: ./.github/workflows/wasm-bare.yml
     with:
-      os: ubuntu-latest
-      arch: wasm
-      build_type: ${{ inputs.build_type }}
       retention_days: 7
-      upload_artifact: ${{ inputs.upload_artifacts }}
 
   create-release:
     name: Create Release Package

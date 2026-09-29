@@ -2,18 +2,16 @@
 """The bare WebAssembly module against the native library, through the same flat C ABI (bclibc_ffi.h).
 
     python tests/wasm_parity/parity.py --native build/libbclibc_ffi.so --wasm build/wasm/bclibc_wasm.wasm \\
-        --backend wasmtime --backend node [--errors codes|trap]
+        --backend wasmtime --backend node
 
 The same shots go through `libbclibc_ffi` (ctypes) and through the module (wasmhost: https://pypi.org/project/wasmhost,
-`pip install --pre wasmhost wasmtime`; the `node` backend needs Node with WebAssembly's final exception encoding when the
-module uses exceptions). Every double of every result is compared bit for bit:
+`pip install --pre wasmhost wasmtime`). Every double of every result is compared bit for bit:
 
 - everything computed with `+ - * / sqrt` must be identical (IEEE arithmetic is exact everywhere);
 - the angle fields (`drop_angle_rad`, `windage_angle_rad`, `angle_rad`) come from `atan`/`atan2`, which differ between the
   native libm (glibc) and the module's (musl): up to --max-ulp (default 4) is allowed, 1 ulp is what is seen;
-- a shot whose solve fails (a zero beyond the range) must return the same error status as the native library
-  (`--errors codes`, the module built with exceptions) or must trap (`--errors trap`, zig's build, where a `throw` is a
-  trap: a new instance is made after it).
+- a shot whose solve fails (a zero beyond the range) must return the same `BCLIBCFFI_ERR_*` status as the native
+  library, on both toolchains (bclibc never throws, so neither wasi-sdk's nor zig's build ever traps on this).
 
 Exit status: 0 if all of it holds, 1 otherwise. Layouts of the structs are computed here for both pointer sizes
 (8 native, 4 wasm32) from one field list, and the native side is cross-checked against the C compiler's.
@@ -278,7 +276,6 @@ def main():
     ap.add_argument("--native", required=True, help="libbclibc_ffi.so / .dylib / .dll")
     ap.add_argument("--wasm", required=True, help="bclibc_wasm.wasm")
     ap.add_argument("--backend", action="append", help="wasmhost backend (repeatable; default wasmtime)")
-    ap.add_argument("--errors", choices=("codes", "trap"), default="codes", help="what a failed solve does in the module")
     ap.add_argument("--max-ulp", type=int, default=4, help="allowed difference of the angle fields")
     args = ap.parse_args()
     NATIVE = ctypes.CDLL(args.native); bind_native()
@@ -296,15 +293,10 @@ def main():
             try:
                 wa = call_wasm(wasm, fn, sv, extra)
             except Exception as ex:
-                if expect_error and args.errors == "trap":
-                    print(f"{label:44} ok (native rc={nat[0][0]}, the module trapped as a throw does there)")
-                    wasm = Wasm(backend)  # a trap leaves the shadow stack where it was: start over
-                else:
-                    print(f"{label:44} WASM EXCEPTION {type(ex).__name__}: {str(ex).splitlines()[0][:80]}"); failures += 1
-                    wasm = Wasm(backend)
+                # bclibc never throws, so a trap here is always a bug, expected-error case or not.
+                print(f"{label:44} WASM EXCEPTION {type(ex).__name__}: {str(ex).splitlines()[0][:80]}"); failures += 1
+                wasm = Wasm(backend)
                 continue
-            if expect_error and args.errors == "trap":
-                print(f"{label:44} the module returned {wa[0][0]}, it should have trapped"); failures += 1; continue
             ok, line = compare(label, (nat[0][0], nat[0][1]), (wa[0][0], wa[0][1]), args.max_ulp)
             if expect_error and nat[0][0] == 0:
                 ok, line = False, f"{label:44} the shot was meant to fail natively"
