@@ -12,6 +12,7 @@
 // double arithmetic on the same input, so results should be bitwise
 // identical or differ by at most ±1 ULP from different call ordering.
 
+#include <cassert>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -65,6 +66,16 @@ namespace
         g_g7_init = true;
     }
 
+    // bclibc no longer throws: every fallible call returns a Result (std::variant<Error, T>).
+    // This test's fixtures are known-good, so a failure here is a test bug, not a case to
+    // handle gracefully -- assert and unwrap, rather than threading Result through every helper.
+    template <class Error, class T>
+    T unwrap(const bclibc::Result<Error, T> &result, const char *what)
+    {
+        assert(!bclibc::has_error(result) && what);
+        return std::get<T>(result);
+    }
+
     // Build a bclibc BCLIBC_ShotProps from G7_BASIC fixture (no wind).
     bclibc::BCLIBC_ShotProps make_bclibc_shot_props(double barrel_elevation_rad = G7_BASIC::BARREL_EL_RAD)
     {
@@ -96,7 +107,7 @@ namespace
         shot.azimuth_deg = G7_BASIC::AZ_DEG;
         shot.calc_step = kCalcStep;
 
-        return shot.to_shot_props();
+        return unwrap(shot.to_shot_props(), "make_bclibc_shot_props: to_shot_props() failed");
     }
 
     // Build a bclibc BCLIBC_ShotProps with wind (G7_WIND fixture).
@@ -136,7 +147,7 @@ namespace
         shot.azimuth_deg = G7_BASIC::AZ_DEG;
         shot.calc_step = kCalcStep;
 
-        return shot.to_shot_props();
+        return unwrap(shot.to_shot_props(), "make_bclibc_shot_props_wind: to_shot_props() failed");
     }
 
     // Initialize engine from ShotProps (in-place; BCLIBC_BaseEngine is non-moveable).
@@ -417,7 +428,13 @@ static bool test_g7_basic_zero_angle()
     // bclibc zero_angle
     bclibc::BCLIBC_BaseEngine bc_eng;
     init_bclibc_engine(bc_eng, make_bclibc_shot_props());
-    double bc_angle = bc_eng.zero_angle(ZERO_DIST_FT, APEX_MAX_RAD, ALLOWED_ERR);
+    auto bc_angle_result = bc_eng.zero_angle(ZERO_DIST_FT, APEX_MAX_RAD, ALLOWED_ERR);
+    if (bclibc::has_error(bc_angle_result))
+    {
+        std::printf("FAIL: bclibc zero_angle failed\n");
+        return false;
+    }
+    double bc_angle = std::get<double>(bc_angle_result);
 
     // tbclibc zero_angle
     TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
@@ -449,7 +466,13 @@ static bool test_g7_basic_zero_point()
 
     bclibc::BCLIBC_BaseEngine bc_eng;
     init_bclibc_engine(bc_eng, make_bclibc_shot_props());
-    auto bc_result = bc_eng.zero_point_with_fallback(ZERO_DIST_FT, APEX_MAX_RAD, ALLOWED_ERR);
+    auto bc_result_wrapped = bc_eng.zero_point_with_fallback(ZERO_DIST_FT, APEX_MAX_RAD, ALLOWED_ERR);
+    if (bclibc::has_error(bc_result_wrapped))
+    {
+        std::printf("FAIL: bclibc zero_point_with_fallback failed\n");
+        return false;
+    }
+    bclibc::BCLIBC_ZeroPointResult bc_result = std::get<bclibc::BCLIBC_ZeroPointResult>(bc_result_wrapped);
 
     TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
     TINY_BCLIBC_ShotProps tb_props;
@@ -482,8 +505,18 @@ static bool test_g7_basic_find_apex()
 
     bclibc::BCLIBC_BaseTrajData bc_raw;
     bclibc::BCLIBC_TrajectoryData bc_apex;
-    bc_eng.find_apex(bc_raw);
-    bc_apex = bclibc::BCLIBC_TrajectoryData(bc_eng.shot, bc_raw, bclibc::BCLIBC_TRAJ_FLAG_APEX);
+    if (bclibc::has_error(bc_eng.find_apex(bc_raw)))
+    {
+        std::printf("FAIL: bclibc find_apex failed\n");
+        return false;
+    }
+    auto bc_apex_result = bclibc::BCLIBC_TrajectoryData::from_base(bc_eng.shot, bc_raw, bclibc::BCLIBC_TRAJ_FLAG_APEX);
+    if (bclibc::has_error(bc_apex_result))
+    {
+        std::printf("FAIL: bclibc BCLIBC_TrajectoryData::from_base failed\n");
+        return false;
+    }
+    bc_apex = std::get<bclibc::BCLIBC_TrajectoryData>(bc_apex_result);
 
     // tbclibc find_apex
     TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
