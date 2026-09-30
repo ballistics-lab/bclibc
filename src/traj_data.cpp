@@ -4,9 +4,17 @@
 #include <stdexcept>
 #include "bclibc/traj_data.hpp"
 #include "bclibc/log.hpp"
+#include "bclibc/exceptions.hpp"
 
 namespace bclibc
 {
+    BCLIBC_Result<std::monostate> BCLIBC_BaseTrajDataHandlerInterface::handle_step(const BCLIBC_BaseTrajData &start,
+                                                                                    const BCLIBC_BaseTrajData &end)
+    {
+        (void)start;
+        return this->handle(end);
+    }
+
     /**
      * @brief Constructs trajectory data from individual scalar components.
      *
@@ -81,7 +89,7 @@ namespace bclibc
      *
      * @note This is equivalent to interpolate3pt_vectorized but with skip_key logic.
      */
-    BCLIBC_BaseResult<std::monostate> BCLIBC_BaseTrajData::interpolate(
+    BCLIBC_Result<std::monostate> BCLIBC_BaseTrajData::interpolate(
         BCLIBC_BaseTrajData_InterpKey key_kind,
         double key_value,
         const BCLIBC_BaseTrajData &p0,
@@ -97,7 +105,7 @@ namespace bclibc
         // Validate non-degenerate segments
         if (x0 == x1 || x0 == x2 || x1 == x2)
         {
-            return BCLIBC_BaseError{BCLIBC_DomainError{
+            return BCLIBC_Error{BCLIBC_DomainError{
                 "Degenerate interpolation segment: duplicate key values", x0, x1}};
         }
 
@@ -271,7 +279,7 @@ namespace bclibc
      *
      * @param data Trajectory data to distribute.
      */
-    BCLIBC_BaseResult<std::monostate> BCLIBC_BaseTrajDataHandlerCompositor::handle(const BCLIBC_BaseTrajData &data)
+    BCLIBC_Result<std::monostate> BCLIBC_BaseTrajDataHandlerCompositor::handle(const BCLIBC_BaseTrajData &data)
     {
         for (auto *handler : handlers)
         {
@@ -284,7 +292,7 @@ namespace bclibc
         return std::monostate{};
     }
 
-    BCLIBC_BaseResult<std::monostate> BCLIBC_BaseTrajDataHandlerCompositor::handle_step(
+    BCLIBC_Result<std::monostate> BCLIBC_BaseTrajDataHandlerCompositor::handle_step(
         const BCLIBC_BaseTrajData &start,
         const BCLIBC_BaseTrajData &end)
     {
@@ -322,7 +330,7 @@ namespace bclibc
      *
      * @param data Trajectory data to append.
      */
-    BCLIBC_BaseResult<std::monostate> BCLIBC_BaseTrajSeq::handle(const BCLIBC_BaseTrajData &data)
+    BCLIBC_Result<std::monostate> BCLIBC_BaseTrajSeq::handle(const BCLIBC_BaseTrajData &data)
     {
         this->append(data);
         return std::monostate{};
@@ -377,7 +385,7 @@ namespace bclibc
      *
      * @warning The referenced point is invalidated by operations that reallocate the sequence.
     */
-    BCLIBC_BaseResult<std::reference_wrapper<const BCLIBC_BaseTrajData>>
+    BCLIBC_Result<std::reference_wrapper<const BCLIBC_BaseTrajData>>
     BCLIBC_BaseTrajSeq::operator[](ssize_t idx) const noexcept
     {
         const ssize_t len = static_cast<ssize_t>(this->buffer.size());
@@ -392,7 +400,7 @@ namespace bclibc
         // Bounds check
         if (idx < 0 || idx >= len)
         {
-            return BCLIBC_BaseError{BCLIBC_OutOfRangeError{
+            return BCLIBC_Error{BCLIBC_OutOfRangeError{
                 "Index out of bounds", static_cast<double>(requested_idx), 0.0,
                 static_cast<double>(len > 0 ? len - 1 : 0)}};
         }
@@ -422,12 +430,12 @@ namespace bclibc
      *                        Use 0.0 or negative to disable time filtering.
      * @param out Output parameter - populated with exact or interpolated trajectory data.
      *
-     * @return std::monostate on success, or a BCLIBC_BaseError describing the failure.
+     * @return std::monostate on success, or a BCLIBC_Error describing the failure.
      *
      * @note For TIME key, start_from_time is ignored (would be circular).
      * @note Uses try_get_exact internally; a no-match is a normal false result.
      */
-    BCLIBC_BaseResult<std::monostate> BCLIBC_BaseTrajSeq::get_at(
+    BCLIBC_Result<std::monostate> BCLIBC_BaseTrajSeq::get_at(
         BCLIBC_BaseTrajData_InterpKey key_kind,
         double key_value,
         double start_from_time,
@@ -437,7 +445,7 @@ namespace bclibc
 
         if (n < 3)
         {
-            return BCLIBC_BaseError{BCLIBC_DomainError{
+            return BCLIBC_Error{BCLIBC_DomainError{
                 "Insufficient data points for interpolation (need >= 3)"}};
         }
 
@@ -453,7 +461,7 @@ namespace bclibc
             constexpr double range_epsilon = 1e-9;
             if (key_value < range_lo - range_epsilon || key_value > range_hi + range_epsilon)
             {
-                return BCLIBC_BaseError{BCLIBC_OutOfRangeError{
+                return BCLIBC_Error{BCLIBC_OutOfRangeError{
                     "key_value is outside the trajectory's range", key_value, range_lo, range_hi}};
             }
         }
@@ -481,7 +489,7 @@ namespace bclibc
             const ssize_t center = this->bisect_center_idx_buf(key_kind, key_value);
             if (center < 0)
             {
-                return BCLIBC_BaseError{BCLIBC_LogicError{"Binary search failed"}};
+                return BCLIBC_Error{BCLIBC_LogicError{"Binary search failed"}};
             }
             target_idx = (center < n - 1) ? center : n - 2;
         }
@@ -514,12 +522,12 @@ namespace bclibc
     * @param value Target slant height value.
      * @param out Output parameter - populated with interpolated trajectory data.
      *
-     * @return std::monostate on success, or a BCLIBC_BaseError describing the failure.
+     * @return std::monostate on success, or a BCLIBC_Error describing the failure.
      *
      * @note Slant height may be non-monotonic, binary search assumes local monotonicity.
      * @note Uses POS_Y as dummy skip_key (not actually relevant for slant interpolation).
      */
-    BCLIBC_BaseResult<std::monostate> BCLIBC_BaseTrajSeq::get_at_slant_height(
+    BCLIBC_Result<std::monostate> BCLIBC_BaseTrajSeq::get_at_slant_height(
         double look_angle_rad,
         double value,
         BCLIBC_BaseTrajData &out) const noexcept
@@ -530,20 +538,20 @@ namespace bclibc
 
         if (n < 3)
         {
-            return BCLIBC_BaseError{BCLIBC_DomainError{
+            return BCLIBC_Error{BCLIBC_DomainError{
                 "Insufficient data points for interpolation", static_cast<double>(n), 3.0}};
         }
 
         const ssize_t center = this->bisect_center_idx_slant_buf(ca, sa, value);
         if (center < 0)
         {
-            return BCLIBC_BaseError{BCLIBC_RuntimeError{
+            return BCLIBC_Error{BCLIBC_RuntimeError{
                 "Failed to locate interpolation center"}};
         }
 
         if (center < 1 || center >= n - 1)
         {
-            return BCLIBC_BaseError{BCLIBC_OutOfRangeError{
+            return BCLIBC_Error{BCLIBC_OutOfRangeError{
                 "Center index outside safe interpolation range",
                 static_cast<double>(center), 1.0, static_cast<double>(n - 2)}};
         }
@@ -560,7 +568,7 @@ namespace bclibc
 
         if (ox0 == ox1 || ox1 == ox2)
         {
-            return BCLIBC_BaseError{BCLIBC_DomainError{
+            return BCLIBC_Error{BCLIBC_DomainError{
                 "Degenerate slant values: cannot interpolate", ox0, ox1}};
         }
 
@@ -584,11 +592,11 @@ namespace bclibc
      * @param key_value Target value of the independent variable.
      * @param out Output parameter - populated with interpolated trajectory data.
      *
-     * @return std::monostate on success, or a BCLIBC_BaseError describing the failure.
+     * @return std::monostate on success, or a BCLIBC_Error describing the failure.
      *
      * @note All fields interpolated except key_kind, which is set directly to key_value.
      */
-    BCLIBC_BaseResult<std::monostate> BCLIBC_BaseTrajSeq::interpolate_at(
+    BCLIBC_Result<std::monostate> BCLIBC_BaseTrajSeq::interpolate_at(
         ssize_t idx,
         BCLIBC_BaseTrajData_InterpKey key_kind,
         double key_value,
@@ -603,7 +611,7 @@ namespace bclibc
         // Validate interpolation range
         if (idx < 1 || idx >= length - 1)
         {
-            return BCLIBC_BaseError{BCLIBC_OutOfRangeError{
+            return BCLIBC_Error{BCLIBC_OutOfRangeError{
                 "Index outside valid interpolation range [1, n-2]",
                 static_cast<double>(idx), 1.0, static_cast<double>(length - 2)}};
         }
@@ -621,7 +629,7 @@ namespace bclibc
         // Validate non-degenerate
         if (ox0 == ox1 || ox0 == ox2 || ox1 == ox2)
         {
-            return BCLIBC_BaseError{BCLIBC_DomainError{
+            return BCLIBC_Error{BCLIBC_DomainError{
                 "Duplicate key values: cannot interpolate", ox0, ox1}};
         }
 
@@ -976,7 +984,7 @@ namespace bclibc
      * @param mach_arg Mach number (or 0.0 to compute from altitude).
      * @param flag Trajectory point classification flag.
      */
-    BCLIBC_BaseResult<BCLIBC_TrajectoryData> BCLIBC_TrajectoryData::from_base(
+    BCLIBC_Result<BCLIBC_TrajectoryData> BCLIBC_TrajectoryData::from_base(
         const BCLIBC_ShotProps &props,
         double time,
         const BCLIBC_V3dT &range_vector,
@@ -1022,15 +1030,15 @@ namespace bclibc
         // Physical properties
         result.density_ratio = density_ratio_out;
         const auto drag_result = props.drag_by_mach(result.mach);
-        if (has_error(drag_result)) return std::get<BCLIBC_BaseError>(drag_result);
-        result.drag = std::get<double>(drag_result);
+        if (has_error(drag_result)) return drag_result.error();
+        result.drag = drag_result.value();
         result.energy_ft_lb = BCLIBC_calculateEnergy(props.weight, velocity);
         result.ogw_lb = BCLIBC_calculateOgw(props.weight, velocity);
         return result;
     }
 
     /** @brief Builds full trajectory data from base integration data. */
-    BCLIBC_BaseResult<BCLIBC_TrajectoryData> BCLIBC_TrajectoryData::from_base(
+    BCLIBC_Result<BCLIBC_TrajectoryData> BCLIBC_TrajectoryData::from_base(
         const BCLIBC_ShotProps &props,
         const BCLIBC_BaseTrajData &data,
         BCLIBC_TrajFlag flag)
@@ -1039,7 +1047,7 @@ namespace bclibc
     }
 
     /** @brief Builds full trajectory data from flagged integration data. */
-    BCLIBC_BaseResult<BCLIBC_TrajectoryData> BCLIBC_TrajectoryData::from_base(
+    BCLIBC_Result<BCLIBC_TrajectoryData> BCLIBC_TrajectoryData::from_base(
         const BCLIBC_ShotProps &props,
         const BCLIBC_FlaggedData &data)
     {
@@ -1072,13 +1080,13 @@ namespace bclibc
      * @param p2 Third trajectory point.
     * @param flag Output trajectory flag.
     * @param method Interpolation method (PCHIP or LINEAR).
-     * @return Interpolated trajectory data on success, or a BCLIBC_BaseError describing the failure.
+     * @return Interpolated trajectory data on success, or a BCLIBC_Error describing the failure.
     *
     *
     * @note All 15 trajectory fields are interpolated independently.
     * @note For LINEAR method: uses [p0,p1] if value <= x1, else [p1,p2].
     */
-    BCLIBC_BaseResult<BCLIBC_TrajectoryData> BCLIBC_TrajectoryData::interpolate(
+    BCLIBC_Result<BCLIBC_TrajectoryData> BCLIBC_TrajectoryData::interpolate(
         BCLIBC_TrajectoryData_InterpKey key,
         double value,
         const BCLIBC_TrajectoryData &p0,
@@ -1091,7 +1099,7 @@ namespace bclibc
         // FLAG (= 15) is not interpolatable, so use >= to exclude it.
         if ((int)key < 0 || (int)key >= BCLIBC_TRAJECTORY_DATA_INTERP_KEY_ACTIVE_COUNT)
         {
-            return BCLIBC_BaseError{BCLIBC_LogicError{
+            return BCLIBC_Error{BCLIBC_LogicError{
                 "Cannot interpolate by unsupported key"}};
         }
 
@@ -1143,13 +1151,13 @@ namespace bclibc
 
                     if (interp_status != BCLIBC_InterpStatus::SUCCESS)
                     {
-                        return BCLIBC_BaseError{BCLIBC_DomainError{
+                        return BCLIBC_Error{BCLIBC_DomainError{
                             "Linear interpolation failed: zero division", x0, x1}};
                     }
                 }
                 else
                 {
-                    return BCLIBC_BaseError{BCLIBC_InvalidArgumentError{
+                    return BCLIBC_Error{BCLIBC_InvalidArgumentError{
                         "Invalid interpolation method"}};
                 }
             }

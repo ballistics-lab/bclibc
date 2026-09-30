@@ -89,7 +89,7 @@ namespace bclibc
 
     class BCLIBC_BaseEngine;
 
-    using BCLIBC_IntegrateFunc = BCLIBC_BaseResult<std::monostate>(
+    using BCLIBC_IntegrateFunc = BCLIBC_Result<std::monostate>(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason);
@@ -123,7 +123,7 @@ namespace bclibc
          *
          * @return BCLIBC_LogicError if integrate_func is null.
          */
-        BCLIBC_BaseResult<std::monostate> integrate(
+        BCLIBC_Result<std::monostate> integrate(
             double range_limit_ft,
             BCLIBC_BaseTrajDataHandlerInterface &handler,
             BCLIBC_TerminationReason &reason);
@@ -153,7 +153,7 @@ namespace bclibc
          * if the target point is not found within the integrated trajectory (e.g., "No apex
          * flagged...").
          */
-        BCLIBC_EngineResult<std::monostate> integrate_at(
+        BCLIBC_Result<std::monostate> integrate_at(
             BCLIBC_BaseTrajData_InterpKey key,
             double target_value,
             BCLIBC_BaseTrajData &raw_data,
@@ -172,7 +172,7 @@ namespace bclibc
          *
          * @return BCLIBC_LogicError if integrate_func is null.
          */
-        BCLIBC_BaseResult<std::monostate> integrate_filtered(
+        BCLIBC_Result<std::monostate> integrate_filtered(
             double range_limit_ft,
             double range_step_ft,
             double time_step,
@@ -189,7 +189,7 @@ namespace bclibc
          * @return BCLIBC_InvalidArgumentError if barrel elevation is <= 0;
          * BCLIBC_RuntimeError if apex cannot be determined.
          */
-        BCLIBC_EngineResult<std::monostate> find_apex(BCLIBC_BaseTrajData &apex_out);
+        BCLIBC_Result<std::monostate> find_apex(BCLIBC_BaseTrajData &apex_out);
 
         /**
          * @brief Computes the vertical error at a specific horizontal distance.
@@ -201,7 +201,7 @@ namespace bclibc
          * @return Vertical error in feet, corrected for horizontal offset; or a
          * BCLIBC_RuntimeError if trajectory data is invalid or too short.
          */
-        BCLIBC_EngineResult<double> error_at_distance(
+        BCLIBC_Result<double> error_at_distance(
             double angle_rad,
             double target_x_ft,
             double target_y_ft,
@@ -219,7 +219,7 @@ namespace bclibc
          *
          * Handles edge cases like very close or vertical shots.
          */
-        BCLIBC_EngineResult<std::monostate> init_zero_calculation(
+        BCLIBC_Result<std::monostate> init_zero_calculation(
             double distance,
             double APEX_IS_MAX_RANGE_RADIANS,
             double ALLOWED_ZERO_ERROR_FEET,
@@ -234,7 +234,7 @@ namespace bclibc
          *
          * @return Structure containing maximum range (ft) and angle (rad).
          */
-        BCLIBC_EngineResult<BCLIBC_MaxRangeResult> find_max_range(
+        BCLIBC_Result<BCLIBC_MaxRangeResult> find_max_range(
             double low_angle_deg,
             double high_angle_deg,
             double APEX_IS_MAX_RANGE_RADIANS);
@@ -248,7 +248,7 @@ namespace bclibc
          *
          * @return Zero angle (barrel elevation) in radians.
          */
-        BCLIBC_EngineResult<double> zero_angle_with_fallback(
+        BCLIBC_Result<double> zero_angle_with_fallback(
             double distance,
             double APEX_IS_MAX_RANGE_RADIANS,
             double ALLOWED_ZERO_ERROR_FEET);
@@ -263,7 +263,7 @@ namespace bclibc
          * @return Zero angle (barrel elevation) in radians; or a BCLIBC_SolverZeroFindingError
          * if zero-finding fails to converge.
          */
-        BCLIBC_EngineResult<double> zero_angle_newton(
+        BCLIBC_Result<double> zero_angle_newton(
             double distance,
             double APEX_IS_MAX_RANGE_RADIANS,
             double ALLOWED_ZERO_ERROR_FEET,
@@ -272,7 +272,7 @@ namespace bclibc
         /**
          * @brief Backward-compatible wrapper for :meth:`zero_angle_newton`.
          */
-        BCLIBC_EngineResult<double> zero_angle(
+        BCLIBC_Result<double> zero_angle(
             double distance,
             double APEX_IS_MAX_RANGE_RADIANS,
             double ALLOWED_ZERO_ERROR_FEET);
@@ -281,7 +281,7 @@ namespace bclibc
          * @brief Solve the lower zero with Newton and Ridder fallback, retaining
          * the terminal trajectory point evaluated by the winning solver.
          */
-        BCLIBC_EngineResult<BCLIBC_ZeroPointResult> zero_point_with_fallback(
+        BCLIBC_Result<BCLIBC_ZeroPointResult> zero_point_with_fallback(
             double distance,
             double APEX_IS_MAX_RANGE_RADIANS,
             double ALLOWED_ZERO_ERROR_FEET);
@@ -307,7 +307,7 @@ namespace bclibc
          * if slant_range_ft > max_range_ft, or a BCLIBC_SolverZeroFindingError if zero-finding
          * fails.
          */
-        BCLIBC_EngineResult<double> find_zero_angle_ridder(
+        BCLIBC_Result<double> find_zero_angle_ridder(
             double distance,
             int lofted,
             double APEX_IS_MAX_RANGE_RADIANS,
@@ -317,7 +317,7 @@ namespace bclibc
         /**
          * @brief Backward-compatible wrapper for :meth:`find_zero_angle_ridder`.
          */
-        BCLIBC_EngineResult<double> find_zero_angle(
+        BCLIBC_Result<double> find_zero_angle(
             double distance,
             int lofted,
             double APEX_IS_MAX_RANGE_RADIANS,
@@ -327,7 +327,7 @@ namespace bclibc
          * @brief Solve a lower or lofted zero with Ridder's method, retaining
          * the terminal trajectory point evaluated by the solver.
          */
-        BCLIBC_EngineResult<BCLIBC_ZeroPointResult> find_zero_point(
+        BCLIBC_Result<BCLIBC_ZeroPointResult> find_zero_point(
             double distance,
             int lofted,
             double APEX_IS_MAX_RANGE_RADIANS,
@@ -339,7 +339,7 @@ namespace bclibc
          *
          * @return BCLIBC_LogicError if integrate_func is empty.
          */
-        inline BCLIBC_BaseResult<std::monostate> integrate_func_not_empty();
+        inline BCLIBC_Result<std::monostate> integrate_func_not_empty();
     };
 }; // namespace bclibc
 

@@ -66,14 +66,14 @@ namespace
         g_g7_init = true;
     }
 
-    // bclibc no longer throws: every fallible call returns a Result (std::variant<Error, T>).
+    // bclibc no longer throws: every fallible call returns a BCLIBC_Result<T>.
     // This test's fixtures are known-good, so a failure here is a test bug, not a case to
     // handle gracefully -- assert and unwrap, rather than threading Result through every helper.
-    template <class Error, class T>
-    T unwrap(const bclibc::Result<Error, T> &result, const char *what)
+    template <class T, class E>
+    T unwrap(const bclibc::BCLIBC_Result<T, E> &result, const char *what)
     {
         assert(!bclibc::has_error(result) && what);
-        return std::get<T>(result);
+        return result.value();
     }
 
     // Build a bclibc BCLIBC_ShotProps from G7_BASIC fixture (no wind).
@@ -434,7 +434,7 @@ static bool test_g7_basic_zero_angle()
         std::printf("FAIL: bclibc zero_angle failed\n");
         return false;
     }
-    double bc_angle = std::get<double>(bc_angle_result);
+    double bc_angle = bc_angle_result.value();
 
     // tbclibc zero_angle
     TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
@@ -472,7 +472,7 @@ static bool test_g7_basic_zero_point()
         std::printf("FAIL: bclibc zero_point_with_fallback failed\n");
         return false;
     }
-    bclibc::BCLIBC_ZeroPointResult bc_result = std::get<bclibc::BCLIBC_ZeroPointResult>(bc_result_wrapped);
+    bclibc::BCLIBC_ZeroPointResult bc_result = bc_result_wrapped.value();
 
     TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
     TINY_BCLIBC_ShotProps tb_props;
@@ -516,7 +516,7 @@ static bool test_g7_basic_find_apex()
         std::printf("FAIL: bclibc BCLIBC_TrajectoryData::from_base failed\n");
         return false;
     }
-    bc_apex = std::get<bclibc::BCLIBC_TrajectoryData>(bc_apex_result);
+    bc_apex = bc_apex_result.value();
 
     // tbclibc find_apex
     TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];

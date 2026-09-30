@@ -58,7 +58,7 @@ namespace bclibc
      * @param handler Interface for processing computed trajectory data points.
      * @param reason Output parameter indicating why the simulation terminated.
      */
-BCLIBC_BaseResult<std::monostate> BCLIBC_integrateEULER(
+BCLIBC_Result<std::monostate> BCLIBC_integrateEULER(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason)
@@ -167,8 +167,8 @@ BCLIBC_BaseResult<std::monostate> BCLIBC_integrateEULER(
             // 3. Calculate drag coefficient and drag force magnitude
             //    Drag is proportional to velocity squared (via relative_speed * km)
             const auto drag_result = eng.shot.drag_by_mach(relative_speed / mach);
-            if (has_error(drag_result)) return std::get<BCLIBC_BaseError>(drag_result);
-            km = density_ratio * std::get<double>(drag_result);
+            if (has_error(drag_result)) return drag_result.error();
+            km = density_ratio * drag_result.value();
             drag = km * relative_speed;
 
             // 4. Compute net acceleration: a = g - F_drag + F_coriolis

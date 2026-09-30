@@ -4,6 +4,7 @@
 #include <limits>
 #include <stdexcept>
 #include <vector>
+#include "bclibc/exceptions.hpp"
 #include "bclibc/traj_data.hpp"
 #include "bclibc/traj_filter.hpp"
 
@@ -12,11 +13,10 @@ using namespace bclibc;
 namespace
 {
     template <typename Error, typename Value>
-    const Error &expect_error(const BCLIBC_BaseResult<Value> &result)
+    const Error &expect_error(const BCLIBC_Result<Value> &result)
     {
-        const auto *errors = std::get_if<BCLIBC_BaseError>(&result);
-        assert(errors != nullptr);
-        const auto *error = std::get_if<Error>(errors);
+        assert(has_error(result));
+        const auto *error = result.error().template as<Error>();
         assert(error != nullptr);
         return *error;
     }
@@ -138,12 +138,12 @@ namespace
         auto seq = make_increasing_seq();
 
         const auto first = seq[0];
-        const auto *first_ref = std::get_if<std::reference_wrapper<const BCLIBC_BaseTrajData>>(&first);
+        const auto *first_ref = (first.has_value() ? &first.value() : nullptr);
         assert(first_ref != nullptr);
         assert(first_ref->get().time == 0.0);
 
         const auto last = seq[-1];
-        const auto *last_ref = std::get_if<std::reference_wrapper<const BCLIBC_BaseTrajData>>(&last);
+        const auto *last_ref = (last.has_value() ? &last.value() : nullptr);
         assert(last_ref != nullptr);
         assert(last_ref->get().time == 4.0);
 
@@ -184,9 +184,7 @@ namespace
             BCLIBC_BaseTrajData_InterpKey::TIME, 0.5, p0, p0, p2, out);
         assert(has_error(failure));
 
-        const auto *error = std::get_if<BCLIBC_BaseError>(&failure);
-        assert(error != nullptr);
-        const auto *domain = std::get_if<BCLIBC_DomainError>(error);
+        const auto *domain = failure.error().as<BCLIBC_DomainError>();
         assert(domain != nullptr);
         assert(domain->lhs == 0.0 && domain->rhs == 0.0);
     }
@@ -200,7 +198,7 @@ namespace
 
         const auto success = BCLIBC_TrajectoryData::interpolate(
             BCLIBC_TrajectoryData_InterpKey::TIME, 0.5, p0, p1, p2, BCLIBC_TRAJ_FLAG_MACH);
-        const auto *data = std::get_if<BCLIBC_TrajectoryData>(&success);
+        const auto *data = (success.has_value() ? &success.value() : nullptr);
         assert(data != nullptr);
         assert(std::fabs(data->time - 0.5) < 1e-12);
         assert(data->flag == BCLIBC_TRAJ_FLAG_MACH);
@@ -253,7 +251,7 @@ namespace
         filter.append(record);
 
         const auto last = filter.get_record(-1);
-        const auto *last_ref = std::get_if<std::reference_wrapper<const BCLIBC_TrajectoryData>>(&last);
+        const auto *last_ref = (last.has_value() ? &last.value() : nullptr);
         assert(last_ref != nullptr && last_ref->get().time == 1.0);
 
         const auto out_of_range = filter.get_record(1);
@@ -269,13 +267,13 @@ namespace
 
         handler.handle(BCLIBC_BaseTrajData(0.0, 0.0, 0.0, 0.0, 100.0, 0.0, 0.0, 1.0));
         const auto first = handler.get_last();
-        const auto *first_ref = std::get_if<std::reference_wrapper<const BCLIBC_BaseTrajData>>(&first);
+        const auto *first_ref = (first.has_value() ? &first.value() : nullptr);
         assert(first_ref != nullptr && first_ref->get().time == 0.0);
 
         handler.handle(BCLIBC_BaseTrajData(1.0, 1.0, 0.0, 0.0, 100.0, 0.0, 0.0, 1.0));
         handler.handle(BCLIBC_BaseTrajData(2.0, 2.0, 0.0, 0.0, 100.0, 0.0, 0.0, 1.0));
         const auto result = handler.get_result();
-        const auto *result_ref = std::get_if<std::reference_wrapper<const BCLIBC_BaseTrajData>>(&result);
+        const auto *result_ref = (result.has_value() ? &result.value() : nullptr);
         assert(result_ref != nullptr && result_ref->get().time == 1.0);
     }
 

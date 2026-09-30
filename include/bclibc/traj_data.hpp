@@ -212,7 +212,7 @@ namespace bclibc
          *
          * @note This is equivalent to interpolate3pt_vectorized but with skip_key logic.
          */
-        [[nodiscard]] static BCLIBC_BaseResult<std::monostate> interpolate(
+        [[nodiscard]] static BCLIBC_Result<std::monostate> interpolate(
             BCLIBC_BaseTrajData_InterpKey key_kind,
             double key_value,
             const BCLIBC_BaseTrajData &p0,
@@ -276,7 +276,7 @@ namespace bclibc
          *
          * @param data Trajectory data to distribute.
          */
-        virtual BCLIBC_BaseResult<std::monostate> handle(const BCLIBC_BaseTrajData &data) = 0;
+        virtual BCLIBC_Result<std::monostate> handle(const BCLIBC_BaseTrajData &data) = 0;
 
         /**
          * @brief Receives one accepted integration interval.
@@ -285,12 +285,8 @@ namespace bclibc
          * materialising intermediate raw points.  Existing handlers retain
          * their endpoint-only behaviour through this default implementation.
          */
-        virtual BCLIBC_BaseResult<std::monostate> handle_step(const BCLIBC_BaseTrajData &start,
-                                                                     const BCLIBC_BaseTrajData &end)
-        {
-            (void)start;
-            return this->handle(end);
-        }
+        virtual BCLIBC_Result<std::monostate> handle_step(const BCLIBC_BaseTrajData &start,
+                                                          const BCLIBC_BaseTrajData &end);
     };
 
     using BCLIBC_BaseTrajDataHandlerCompositorIterator = std::vector<BCLIBC_BaseTrajDataHandlerInterface *>::iterator;
@@ -319,9 +315,9 @@ namespace bclibc
          * @brief Distributes data point to all registered handlers.
          * @param data Trajectory data to distribute.
          */
-        BCLIBC_BaseResult<std::monostate> handle(const BCLIBC_BaseTrajData &data) override;
+        BCLIBC_Result<std::monostate> handle(const BCLIBC_BaseTrajData &data) override;
 
-        BCLIBC_BaseResult<std::monostate> handle_step(const BCLIBC_BaseTrajData &start,
+        BCLIBC_Result<std::monostate> handle_step(const BCLIBC_BaseTrajData &start,
                                                              const BCLIBC_BaseTrajData &end) override;
 
         /**
@@ -396,7 +392,7 @@ namespace bclibc
          *
          * @param data Trajectory data to append.
          */
-        BCLIBC_BaseResult<std::monostate> handle(const BCLIBC_BaseTrajData &data) override;
+        BCLIBC_Result<std::monostate> handle(const BCLIBC_BaseTrajData &data) override;
 
         /**
          * @brief Appends trajectory point to sequence.
@@ -438,7 +434,7 @@ namespace bclibc
          *
          * @warning The referenced point is invalidated by operations that reallocate the sequence.
         */
-        [[nodiscard]] BCLIBC_BaseResult<std::reference_wrapper<const BCLIBC_BaseTrajData>>
+        [[nodiscard]] BCLIBC_Result<std::reference_wrapper<const BCLIBC_BaseTrajData>>
         operator[](ssize_t idx) const noexcept;
 
         /**
@@ -464,12 +460,12 @@ namespace bclibc
          *                        Use 0.0 or negative to disable time filtering.
          * @param out Output parameter - populated with exact or interpolated trajectory data.
          *
-         * @return std::monostate on success, or a BCLIBC_BaseError describing the failure.
+         * @return std::monostate on success, or a BCLIBC_Error describing the failure.
          *
          * @note For TIME key, start_from_time is ignored (would be circular).
          * @note Uses try_get_exact internally; a no-match is a normal false result.
          */
-        [[nodiscard]] BCLIBC_BaseResult<std::monostate> get_at(
+        [[nodiscard]] BCLIBC_Result<std::monostate> get_at(
             BCLIBC_BaseTrajData_InterpKey key_kind,
             double key_value,
             double start_from_time,
@@ -492,12 +488,12 @@ namespace bclibc
         * @param value Target slant height value.
          * @param out Output parameter - populated with interpolated trajectory data.
          *
-         * @return std::monostate on success, or a BCLIBC_BaseError describing the failure.
+         * @return std::monostate on success, or a BCLIBC_Error describing the failure.
          *
          * @note Slant height may be non-monotonic, binary search assumes local monotonicity.
          * @note Uses POS_Y as dummy skip_key (not actually relevant for slant interpolation).
          */
-        [[nodiscard]] BCLIBC_BaseResult<std::monostate> get_at_slant_height(
+        [[nodiscard]] BCLIBC_Result<std::monostate> get_at_slant_height(
             double look_angle_rad,
             double value,
             BCLIBC_BaseTrajData &out) const noexcept;
@@ -515,11 +511,11 @@ namespace bclibc
          * @param key_value Target value of the independent variable.
          * @param out Output parameter - populated with interpolated trajectory data.
          *
-         * @return std::monostate on success, or a BCLIBC_BaseError describing the failure.
+         * @return std::monostate on success, or a BCLIBC_Error describing the failure.
          *
          * @note All fields interpolated except key_kind, which is set directly to key_value.
          */
-        [[nodiscard]] BCLIBC_BaseResult<std::monostate> interpolate_at(
+        [[nodiscard]] BCLIBC_Result<std::monostate> interpolate_at(
             ssize_t idx,
             BCLIBC_BaseTrajData_InterpKey key_kind,
             double key_value,
@@ -737,7 +733,7 @@ namespace bclibc
          * @param mach_arg Mach number (or 0.0 to compute from altitude).
          * @param flag Trajectory point classification flag.
          */
-        [[nodiscard]] static BCLIBC_BaseResult<BCLIBC_TrajectoryData> from_base(
+        [[nodiscard]] static BCLIBC_Result<BCLIBC_TrajectoryData> from_base(
             const BCLIBC_ShotProps &props,
             double time,
             const BCLIBC_V3dT &range_vector,
@@ -754,7 +750,7 @@ namespace bclibc
          * @param data Base trajectory data (position, velocity, time, Mach).
          * @param flag Trajectory point classification flag.
          */
-        [[nodiscard]] static BCLIBC_BaseResult<BCLIBC_TrajectoryData> from_base(
+        [[nodiscard]] static BCLIBC_Result<BCLIBC_TrajectoryData> from_base(
             const BCLIBC_ShotProps &props,
             const BCLIBC_BaseTrajData &data,
             BCLIBC_TrajFlag flag = BCLIBC_TRAJ_FLAG_NONE);
@@ -767,7 +763,7 @@ namespace bclibc
          * @param props Shot properties.
          * @param data Flagged trajectory data (includes flag field).
          */
-        [[nodiscard]] static BCLIBC_BaseResult<BCLIBC_TrajectoryData> from_base(
+        [[nodiscard]] static BCLIBC_Result<BCLIBC_TrajectoryData> from_base(
             const BCLIBC_ShotProps &props,
             const BCLIBC_FlaggedData &data);
 
@@ -797,13 +793,13 @@ namespace bclibc
          * @param p2 Third trajectory point.
         * @param flag Output trajectory flag.
         * @param method Interpolation method (PCHIP or LINEAR).
-         * @return Interpolated trajectory data on success, or a BCLIBC_BaseError describing the failure.
+         * @return Interpolated trajectory data on success, or a BCLIBC_Error describing the failure.
         *
         *
         * @note All 15 trajectory fields are interpolated independently.
         * @note For LINEAR method: uses [p0,p1] if value <= x1, else [p1,p2].
         */
-        [[nodiscard]] static BCLIBC_BaseResult<BCLIBC_TrajectoryData> interpolate(
+        [[nodiscard]] static BCLIBC_Result<BCLIBC_TrajectoryData> interpolate(
             BCLIBC_TrajectoryData_InterpKey key,
             double value,
             const BCLIBC_TrajectoryData &t0,

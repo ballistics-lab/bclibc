@@ -94,7 +94,7 @@ namespace bclibc
         };
     } // namespace
 
-BCLIBC_BaseResult<std::monostate> BCLIBC_integrateCashKarp(
+BCLIBC_Result<std::monostate> BCLIBC_integrateCashKarp(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason)
@@ -134,7 +134,7 @@ BCLIBC_BaseResult<std::monostate> BCLIBC_integrateCashKarp(
         return *this;
     }
 
-    BCLIBC_BaseResult<std::monostate> BCLIBC_CashKarpIntegrator::operator()(
+    BCLIBC_Result<std::monostate> BCLIBC_CashKarpIntegrator::operator()(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason)
@@ -161,19 +161,19 @@ BCLIBC_BaseResult<std::monostate> BCLIBC_integrateCashKarp(
         out_rejected = rejected_steps_.load(std::memory_order_relaxed);
     }
 
-    BCLIBC_BaseResult<std::monostate> BCLIBC_CashKarpIntegrator::set_relative_tolerance(double tolerance)
+    BCLIBC_Result<std::monostate> BCLIBC_CashKarpIntegrator::set_relative_tolerance(double tolerance)
     {
         if (!std::isfinite(tolerance) || tolerance <= 0.0)
-            return BCLIBC_BaseError{BCLIBC_InvalidArgumentError{
+            return BCLIBC_Error{BCLIBC_InvalidArgumentError{
                 "Cash-Karp relative tolerance must be finite and positive"}};
         relative_tolerance_.store(tolerance, std::memory_order_relaxed);
         return std::monostate{};
     }
 
-    BCLIBC_BaseResult<std::monostate> BCLIBC_CashKarpIntegrator::set_absolute_tolerance(double tolerance)
+    BCLIBC_Result<std::monostate> BCLIBC_CashKarpIntegrator::set_absolute_tolerance(double tolerance)
     {
         if (!std::isfinite(tolerance) || tolerance < 0.0)
-            return BCLIBC_BaseError{BCLIBC_InvalidArgumentError{
+            return BCLIBC_Error{BCLIBC_InvalidArgumentError{
                 "Cash-Karp absolute tolerance must be finite and non-negative"}};
         absolute_tolerance_.store(tolerance, std::memory_order_relaxed);
         return std::monostate{};
