@@ -10,6 +10,18 @@
 
 namespace bclibc
 {
+    /** Generic solver failure with no more specific payload (the catch-all of the solver errors). */
+    struct BCLIBC_SolverRuntimeError
+    {
+        const char *message = "Solver runtime error";
+
+        constexpr BCLIBC_SolverRuntimeError() noexcept = default;
+        constexpr explicit BCLIBC_SolverRuntimeError(const char *message) noexcept
+            : message(message != nullptr ? message : "Solver runtime error") {}
+
+        constexpr const char *what() const noexcept { return message; }
+    };
+
     /** Zero-finding failed to converge; carries the last iteration's diagnostics. */
     struct BCLIBC_SolverZeroFindingError
     {
@@ -83,7 +95,8 @@ namespace bclibc
             BCLIBC_InvalidArgumentError,
             BCLIBC_SolverZeroFindingError,
             BCLIBC_SolverOutOfRangeError,
-            BCLIBC_SolverInterceptionError>;
+            BCLIBC_SolverInterceptionError,
+            BCLIBC_SolverRuntimeError>;
 
         template <class P, class V>
         struct is_error_payload;
@@ -112,6 +125,7 @@ namespace bclibc
             SolverZeroFinding,
             SolverOutOfRange,
             SolverInterception,
+            SolverRuntime,
         };
 
         template <class P, class = std::enable_if_t<detail::is_error_payload<P, detail::BCLIBC_ErrorVariant>::value>>

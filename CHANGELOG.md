@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (no `std::get`/`std::visit`; a wrong access asserts in debug). `BCLIBC_Error` (`include/bclibc/exceptions.hpp`) is the
   one error type of the library: a tagged sum of the payload structs (`BCLIBC_LogicError`, `BCLIBC_DomainError`,
   `BCLIBC_RuntimeError`, `BCLIBC_OutOfRangeError`, `BCLIBC_InvalidArgumentError`, `BCLIBC_SolverZeroFindingError`,
-  `BCLIBC_SolverOutOfRangeError`, `BCLIBC_SolverInterceptionError`), each keeping the diagnostic fields the old
+  `BCLIBC_SolverOutOfRangeError`, `BCLIBC_SolverInterceptionError`, `BCLIBC_SolverRuntimeError`), each keeping the diagnostic fields the old
   exception classes carried. A failure propagates by returning the callee's error unchanged; consumers switch on
   `kind()` and read the payload with `as<Payload>()` (`nullptr` for any other alternative). This replaces the
   `BCLIBC_BaseResult`/`BCLIBC_EngineResult` pair and `BCLIBC_BaseError`/`BCLIBC_EngineError` (no more `widen()`).
@@ -41,6 +41,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tests/wasm_parity/parity.py` — bit-identical to native on both wasmtime and Node, including the error path).
 - `tests/wasm_parity/parity.py`: dropped `--errors codes|trap` — nothing traps on an ordinary failed solve on
   either toolchain anymore, so a trap during a normal case is always a failure now, not a second accepted outcome.
+
+### Fixed
+- `tests/test_traj_data.cpp`: `test_streaming_step_coalesces_*` asserted that a ZERO_UP/ZERO_DOWN row merges with the RANGE row at the
+  same point, contradicting `BCLIBC_TrajectoryDataFilter::handle_step` (events and scheduled samples are separate rows by
+  design since #30). It only failed with asserts enabled (Debug), which CI's Release build hides. Renamed to
+  `test_streaming_step_keeps_*_separate` and they now assert the real contract.
+- FFI: a non-solver error (`BCLIBC_LogicError`, `BCLIBC_DomainError`, ...) maps to `BCLIBCFFI_ERR_GENERIC` again (as any
+  `std::exception` did on main); only `BCLIBC_SolverRuntimeError` maps to `BCLIBCFFI_ERR_SOLVER_RUNTIME`.
 
 ### Removed
 - `build_wasm.sh` and `.github/workflows/emsdk-update.yml` (the Emscripten-based wasm build and its automated
