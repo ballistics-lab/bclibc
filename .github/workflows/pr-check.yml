@@ -36,6 +36,16 @@ jobs:
       build_type: ${{ matrix.build_type }}
       retention_days: 1
 
+  no-exceptions:
+    name: No exceptions or RTTI in the core
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Build with -fno-exceptions -fno-rtti and check the objects
+        run: cmake/check_no_exceptions.sh
+
   pre-commit:
     name: Pre-commit Check
     runs-on: ubuntu-latest

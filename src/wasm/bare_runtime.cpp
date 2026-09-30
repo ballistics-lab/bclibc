@@ -4,6 +4,10 @@
 #include <cstddef>
 #include <cstdlib>
 
+// The core is built with -fno-exceptions -fno-rtti and never throws: every fallible call returns a Result, so neither
+// toolchain's exception runtime (libunwind, libc++abi's unwinder) is linked in and nothing here stubs `__cxa_throw`.
+// `cmake/check_no_imports.cmake` fails the build if a new version of a toolchain finds a way to pull in WASI anyway.
+//
 // libc++ reports a fatal error (a length_error in -fno-exceptions mode, a failed hardening check) through
 // `__libcpp_verbose_abort`, whose default writes the message to stderr. That links in stdio, and the module then
 // imports WASI's fd_write, fd_seek and fd_close. A trap needs nothing. Defining it here keeps the library's version
@@ -13,18 +17,6 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 [[noreturn]] void __libcpp_verbose_abort(const char *, ...) noexcept { __builtin_trap(); }
 _LIBCPP_END_NAMESPACE_STD
 #endif
-
-// The core is built with -fno-exceptions (cmake/BclibcWasmBare.cmake) and never throws: every fallible call returns
-// a Result instead. Neither toolchain's exception runtime (libunwind, libc++abi's unwinder) is linked in, so if
-// something below the core ever still reaches `__cxa_throw` -- a `new` that libc++ itself throws bad_alloc from, on
-// wasi-sdk, whose libc++abi was built with exceptions available -- it traps instead of unwinding into nothing.
-// `cmake/check_no_imports.cmake` fails the build if a new version of a toolchain finds another way to pull in WASI.
-extern "C"
-{
-    void *__cxa_allocate_exception(std::size_t) noexcept { __builtin_trap(); }
-
-    [[noreturn]] void __cxa_throw(void *, void *, void (*)(void *)) { __builtin_trap(); }
-}
 
 #if defined(BCLIBC_WASI_SDK)
 
