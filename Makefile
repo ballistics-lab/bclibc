@@ -71,7 +71,7 @@ test:
 # The core never throws, so both toolchains build the same exception-free module and return
 # BCLIBCFFI_ERR_* codes for a failed solve, same as the native library.
 #   make wasm WASI_SDK_PATH=/opt/wasi-sdk-34.0   # ~1.0 MB (needs wasi-sdk)
-#   make wasm-zig [ZIG=/path/to/zig]             # ~90 KB (zig on PATH, or pip install ziglang)
+#   make wasm-zig [ZIG=/path/to/zig]             # ~90 KB (zig on PATH, or `uv run --with ziglang make wasm-zig`)
 # ============================================================================
 wasm:
 	@test -n "$(WASI_SDK_PATH)" || { echo "set WASI_SDK_PATH=/path/to/wasi-sdk (https://github.com/WebAssembly/wasi-sdk/releases)"; exit 1; }

@@ -5,7 +5,7 @@
 #   cmake --build build/wasm          # -> build/wasm/bclibc_wasm.wasm
 #
 # zig is taken from, in this order: -DZIG=/path/to/zig, `zig` on PATH, or the `ziglang` package of Python
-# (`pip install ziglang`). The target is wasm32-wasi only to get a static libc, libm and libc++: nothing from WASI is
+# (`uv pip install ziglang`, or `uv run --with ziglang cmake ...`). The target is wasm32-wasi only to get a static libc, libm and libc++: nothing from WASI is
 # called, and the build fails if the module imports anything.
 set(CMAKE_SYSTEM_NAME Generic)
 set(CMAKE_TRY_COMPILE_PLATFORM_VARIABLES ZIG)  # the compiler checks read this file again and need to know where zig is
@@ -31,7 +31,7 @@ if(NOT ZIG)
     endforeach()
 endif()
 if(NOT ZIG)
-    message(FATAL_ERROR "zig not found: put it on PATH, pass -DZIG=/path/to/zig, or `pip install ziglang`")
+    message(FATAL_ERROR "zig not found: put it on PATH, pass -DZIG=/path/to/zig, or `uv pip install ziglang` / `uv run --with ziglang cmake ...`")
 endif()
 
 set(CMAKE_C_COMPILER   "${ZIG}")

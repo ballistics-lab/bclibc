@@ -277,7 +277,7 @@ a failed solve returns the same `BCLIBCFFI_ERR_*` code as the native library on 
 | toolchain | `-DCMAKE_TOOLCHAIN_FILE=` | size |
 |---|---|---|
 | [wasi-sdk](https://github.com/WebAssembly/wasi-sdk/releases) (34 tested; `-DWASI_SDK_PATH=` or `$WASI_SDK_PATH`) | `cmake/wasi-sdk-wasm32.cmake` | ~1.0 MB |
-| [zig](https://ziglang.org) (`zig` on `PATH`, `-DZIG=`, or `pip install ziglang`) | `cmake/zig-wasm32-wasi.cmake` | ~90 KB (`-Oz -flto`) |
+| [zig](https://ziglang.org) (`zig` on `PATH`, `-DZIG=`, or `uv run --with ziglang`) | `cmake/zig-wasm32-wasi.cmake` | ~90 KB (`-Oz -flto`) |
 
 ```bash
 cmake -S . -B build/wasm -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/wasi-sdk-wasm32.cmake -DWASI_SDK_PATH=/opt/wasi-sdk-34.0 -DBCLIBC_WASM_BARE=ON

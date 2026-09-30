@@ -46,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runtime: the `__cxa_allocate_exception`/`__cxa_throw` traps are gone too (neither toolchain's link needs them any
   more). The module is built with `-fno-rtti` as well (zig: 87.5 KB → 82 KB); verified with zig and wasi-sdk 34 by
   `tests/wasm_parity/parity.py` on wasmtime and Node, bit-identical to native including the error path.
+- `wasm-bare.yml` and the docs use `uv` (`uv pip install ziglang`, `uv run --with ziglang make wasm-zig`) instead of `pip`.
 - `tests/wasm_parity/parity.py`: dropped `--errors codes|trap`; a trap during a normal case is always a failure now.
 
 ### Added

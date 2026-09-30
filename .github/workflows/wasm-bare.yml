@@ -43,8 +43,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      - name: Set up Python
-        uses: actions/setup-python@v7
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
         with:
           python-version: "3.13"
 
@@ -57,7 +57,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build
-          python -m pip install --pre wasmhost wasmtime
+          uv venv
+          uv pip install --pre wasmhost wasmtime
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Build the native library
         run: |
@@ -84,7 +86,7 @@ jobs:
       # --- zig ---
       - name: Install zig
         if: matrix.toolchain == 'zig'
-        run: python -m pip install ziglang
+        run: uv pip install ziglang
 
       - name: Build the module
         run: |
