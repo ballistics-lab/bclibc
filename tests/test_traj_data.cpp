@@ -277,7 +277,7 @@ namespace
         assert(result_ref != nullptr && result_ref->get().time == 1.0);
     }
 
-    void test_streaming_step_coalesces_zero_and_range()
+    void test_streaming_step_keeps_zero_and_range_separate()
     {
         std::vector<BCLIBC_TrajectoryData> records;
         BCLIBC_TerminationReason reason = BCLIBC_TerminationReason::NO_TERMINATE;
@@ -290,7 +290,7 @@ namespace
 
         // One deliberately wide accepted step. At t=1, the endpoint-Hermite
         // path is x=35 and y=0; linear x interpolation would not find that
-        // range row at t=1. The ZERO_UP event must merge into the same row.
+        // range row at t=1. The ZERO_UP event stays a separate row from it.
         const BCLIBC_BaseTrajData start(0.0, 0.0, -1.0, 0.0,
                                         20.0, 1.0, 0.0, 1100.0);
         const BCLIBC_BaseTrajData end(2.0, 100.0, 1.0, 0.0,
@@ -299,23 +299,32 @@ namespace
         handler.handle(start);
         handler.handle_step(start, end);
 
-        int coalesced_count = 0;
+        // Event roots and scheduled samples are separate observations
+        // (see BCLIBC_TrajectoryDataFilter::handle_step): the crossing and the
+        // range sample at the same point are two rows, never one merged row.
+        int event_rows = 0;
+        int range_rows_at_event = 0;
         for (const BCLIBC_TrajectoryData &row : records)
         {
-            const bool is_zero_up = (row.flag & BCLIBC_TRAJ_FLAG_ZERO_UP) != 0;
-            const bool is_range = (row.flag & BCLIBC_TRAJ_FLAG_RANGE) != 0;
-            if (is_zero_up && is_range)
+            assert(!((row.flag & BCLIBC_TRAJ_FLAG_ZERO_UP) && (row.flag & BCLIBC_TRAJ_FLAG_RANGE)));
+            if (row.flag == BCLIBC_TRAJ_FLAG_ZERO_UP)
             {
-                ++coalesced_count;
+                ++event_rows;
                 assert(std::fabs(row.distance_ft - 35.0) < 1e-9);
                 assert(std::fabs(row.time - 1.0) < 1e-9);
                 assert(std::fabs(row.height_ft) < 1e-9);
             }
+            else if (row.flag == BCLIBC_TRAJ_FLAG_RANGE && std::fabs(row.time - 1.0) < 1e-9)
+            {
+                ++range_rows_at_event;
+                assert(std::fabs(row.distance_ft - 35.0) < 1e-9);
+            }
         }
-        assert(coalesced_count == 1);
+        assert(event_rows == 1);
+        assert(range_rows_at_event == 1);
     }
 
-    void test_streaming_step_coalesces_zero_down_and_range()
+    void test_streaming_step_keeps_zero_down_and_range_separate()
     {
         std::vector<BCLIBC_TrajectoryData> records;
         BCLIBC_TerminationReason reason = BCLIBC_TerminationReason::NO_TERMINATE;
@@ -336,20 +345,29 @@ namespace
         handler.handle(start);
         handler.handle_step(start, end);
 
-        int coalesced_count = 0;
+        // Event roots and scheduled samples are separate observations
+        // (see BCLIBC_TrajectoryDataFilter::handle_step): the crossing and the
+        // range sample at the same point are two rows, never one merged row.
+        int event_rows = 0;
+        int range_rows_at_event = 0;
         for (const BCLIBC_TrajectoryData &row : records)
         {
-            const bool is_zero_down = (row.flag & BCLIBC_TRAJ_FLAG_ZERO_DOWN) != 0;
-            const bool is_range = (row.flag & BCLIBC_TRAJ_FLAG_RANGE) != 0;
-            if (is_zero_down && is_range)
+            assert(!((row.flag & BCLIBC_TRAJ_FLAG_ZERO_DOWN) && (row.flag & BCLIBC_TRAJ_FLAG_RANGE)));
+            if (row.flag == BCLIBC_TRAJ_FLAG_ZERO_DOWN)
             {
-                ++coalesced_count;
+                ++event_rows;
                 assert(std::fabs(row.distance_ft - 35.0) < 1e-9);
                 assert(std::fabs(row.time - 1.0) < 1e-9);
                 assert(std::fabs(row.height_ft) < 1e-9);
             }
+            else if (row.flag == BCLIBC_TRAJ_FLAG_RANGE && std::fabs(row.time - 1.0) < 1e-9)
+            {
+                ++range_rows_at_event;
+                assert(std::fabs(row.distance_ft - 35.0) < 1e-9);
+            }
         }
-        assert(coalesced_count == 1);
+        assert(event_rows == 1);
+        assert(range_rows_at_event == 1);
     }
 }
 
@@ -368,8 +386,8 @@ int main()
     test_trajectory_interpolate_returns_value_result();
     test_filter_get_record_returns_value_result();
     test_single_point_handler_returns_value_results();
-    test_streaming_step_coalesces_zero_and_range();
-    test_streaming_step_coalesces_zero_down_and_range();
+    test_streaming_step_keeps_zero_and_range_separate();
+    test_streaming_step_keeps_zero_down_and_range_separate();
 
     std::printf("test_traj_data: all tests passed\n");
     return 0;

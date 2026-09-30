@@ -272,7 +272,7 @@ namespace bclibc
         if (!apex_handler.found())
         {
             return BCLIBC_Error{
-                BCLIBC_RuntimeError{"Runtime error (No apex flagged in trajectory data)"}};
+                BCLIBC_SolverRuntimeError{"Runtime error (No apex flagged in trajectory data)"}};
         }
 
         const auto apex_result = apex_handler.get_result();
@@ -318,7 +318,7 @@ namespace bclibc
 
         if (!handler.found())
         {
-            return BCLIBC_Error{BCLIBC_RuntimeError{"Trajectory too short to determine error at distance."}};
+            return BCLIBC_Error{BCLIBC_SolverRuntimeError{"Trajectory too short to determine error at distance."}};
         }
 
         const auto hit_result = handler.get_result();
@@ -567,7 +567,7 @@ namespace bclibc
 
             if (!handler.found())
             {
-                return BCLIBC_Error{BCLIBC_RuntimeError{"Failed to interpolate trajectory at target distance"}};
+                return BCLIBC_Error{BCLIBC_SolverRuntimeError{"Failed to interpolate trajectory at target distance"}};
             }
 
             const auto hit_result = handler.get_result();

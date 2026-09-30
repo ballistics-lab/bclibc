@@ -92,7 +92,7 @@ static void setError(BCLIBCFFI_Error *e, BCLIBCFFI_Status code, const char *msg)
 // exception-class catch blocks used to.
 static int32_t setEngineError(BCLIBCFFI_Error *err, const BCLIBC_Error &error)
 {
-    int32_t code = BCLIBCFFI_ERR_SOLVER_RUNTIME;
+    int32_t code = BCLIBCFFI_ERR_GENERIC;
     switch (error.kind())
     {
     case BCLIBC_Error::Kind::SolverOutOfRange:
@@ -121,6 +121,9 @@ static int32_t setEngineError(BCLIBCFFI_Error *err, const BCLIBC_Error &error)
     }
     case BCLIBC_Error::Kind::SolverInterception:
         code = BCLIBCFFI_ERR_INTERCEPTION;
+        break;
+    case BCLIBC_Error::Kind::SolverRuntime:
+        code = BCLIBCFFI_ERR_SOLVER_RUNTIME;
         break;
     default:
         break;
