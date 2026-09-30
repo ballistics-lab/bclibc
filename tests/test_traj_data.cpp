@@ -16,7 +16,7 @@ namespace
     const Error &expect_error(const BCLIBC_Result<Value> &result)
     {
         assert(has_error(result));
-        const auto *error = result.error().template as<Error>();
+        const auto *error = result.error().template payload<Error>();
         assert(error != nullptr);
         return *error;
     }
@@ -184,7 +184,7 @@ namespace
             BCLIBC_BaseTrajData_InterpKey::TIME, 0.5, p0, p0, p2, out);
         assert(has_error(failure));
 
-        const auto *domain = failure.error().as<BCLIBC_DomainError>();
+        const auto *domain = failure.error().payload<BCLIBC_DomainError>();
         assert(domain != nullptr);
         assert(domain->lhs == 0.0 && domain->rhs == 0.0);
     }

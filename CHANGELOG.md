@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `BCLIBC_RuntimeError`, `BCLIBC_OutOfRangeError`, `BCLIBC_InvalidArgumentError`, `BCLIBC_SolverZeroFindingError`,
   `BCLIBC_SolverOutOfRangeError`, `BCLIBC_SolverInterceptionError`, `BCLIBC_SolverRuntimeError`), each keeping the diagnostic fields the old
   exception classes carried. A failure propagates by returning the callee's error unchanged; consumers switch on
-  `kind()` and read the payload with `as<Payload>()` (`nullptr` for any other alternative). This replaces the
+  `kind()` and read the payload with `payload<Payload>()` (`nullptr` for any other alternative). This replaces the
   `BCLIBC_BaseResult`/`BCLIBC_EngineResult` pair and `BCLIBC_BaseError`/`BCLIBC_EngineError` (no more `widen()`).
   `BCLIBC_BaseEngine::integrate_at`, `find_apex`, `error_at_distance`, `init_zero_calculation`, `zero_angle_newton`,
   `zero_angle_with_fallback`, `zero_point_with_fallback`, `find_zero_angle_ridder`, `find_max_range`, `zero_angle`,

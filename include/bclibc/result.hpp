@@ -24,6 +24,8 @@ namespace bclibc
         using value_type = T;
         using error_type = E;
 
+        /** Holds a default-constructed E ("no result yet"); only so that the type can be declared before it is assigned. */
+        BCLIBC_Result() noexcept : v_(std::in_place_index<1>, E{}) {}
         BCLIBC_Result(T value) noexcept : v_(std::in_place_index<0>, std::move(value)) {}
         BCLIBC_Result(E error) noexcept : v_(std::in_place_index<1>, std::move(error)) {}
 
