@@ -344,6 +344,28 @@ static void toC(const BCLIBC_TrajectoryData &s, BCLIBCFFI_TrajectoryData &d)
     d.flag = static_cast<int32_t>(s.flag);
 }
 
+static BCLIBC_TrajectoryData fromC(const BCLIBCFFI_TrajectoryData &s)
+{
+    BCLIBC_TrajectoryData d;
+    d.time = s.time;
+    d.distance_ft = s.distance_ft;
+    d.velocity_fps = s.velocity_fps;
+    d.mach = s.mach;
+    d.height_ft = s.height_ft;
+    d.slant_height_ft = s.slant_height_ft;
+    d.drop_angle_rad = s.drop_angle_rad;
+    d.windage_ft = s.windage_ft;
+    d.windage_angle_rad = s.windage_angle_rad;
+    d.slant_distance_ft = s.slant_distance_ft;
+    d.angle_rad = s.angle_rad;
+    d.density_ratio = s.density_ratio;
+    d.drag = s.drag;
+    d.energy_ft_lb = s.energy_ft_lb;
+    d.ogw_lb = s.ogw_lb;
+    d.flag = static_cast<BCLIBC_TrajFlag>(s.flag);
+    return d;
+}
+
 static void toC(const BCLIBC_BaseTrajData &s, BCLIBCFFI_BaseTrajData &d)
 {
     d.time = s.time;
@@ -554,6 +576,79 @@ extern "C"
     double BCLIBCFFI_calculate_ogw(double bullet_weight_grain, double velocity_fps)
     {
         return BCLIBC_calculateOgw(bullet_weight_grain, velocity_fps);
+    }
+
+    double BCLIBCFFI_hermite(double x, double xk, double xk1, double yk, double yk1, double mk, double mk1)
+    {
+        return BCLIBC_hermite(x, xk, xk1, yk, yk1, mk, mk1);
+    }
+
+    double BCLIBCFFI_interpolate_3pt(double x, double x0, double x1, double x2, double y0, double y1, double y2)
+    {
+        return BCLIBC_interpolate3pt(x, x0, x1, x2, y0, y1, y2);
+    }
+
+    int32_t BCLIBCFFI_interpolate_2pt(double x, double x0, double y0, double x1, double y1, double *out, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        {
+            if (!out)
+            {
+                setError(err, BCLIBCFFI_ERR_GENERIC, "interpolate_2pt: a null output");
+                return BCLIBCFFI_ERR_GENERIC;
+            }
+            if (BCLIBC_interpolate2pt(x, x0, y0, x1, y1, *out) != BCLIBC_InterpStatus::SUCCESS)
+            {
+                setError(err, BCLIBCFFI_ERR_GENERIC, "Zero division error during interpolation");
+                return BCLIBCFFI_ERR_GENERIC;
+            }
+            return BCLIBCFFI_OK; },
+                        err);
+    }
+
+    int32_t BCLIBCFFI_interpolate_trajectory_data(
+        int32_t key,
+        double value,
+        const BCLIBCFFI_TrajectoryData *t0,
+        const BCLIBCFFI_TrajectoryData *t1,
+        const BCLIBCFFI_TrajectoryData *t2,
+        int32_t flag,
+        int32_t method,
+        BCLIBCFFI_TrajectoryData *out,
+        BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        {
+            if (!t0 || !t1 || !t2 || !out)
+            {
+                setError(err, BCLIBCFFI_ERR_GENERIC, "interpolate_trajectory_data: a null point");
+                return BCLIBCFFI_ERR_GENERIC;
+            }
+            if (key < 0 || key > static_cast<int32_t>(BCLIBC_TrajectoryData_InterpKey::FLAG))
+            {
+                setError(err, BCLIBCFFI_ERR_GENERIC, "interpolate_trajectory_data: unknown key");
+                return BCLIBCFFI_ERR_GENERIC;
+            }
+            if (method != 0 && method != 1)
+            {
+                setError(err, BCLIBCFFI_ERR_GENERIC, "interpolate_trajectory_data: unknown method");
+                return BCLIBCFFI_ERR_GENERIC;
+            }
+            const auto result = BCLIBC_TrajectoryData::interpolate(
+                static_cast<BCLIBC_TrajectoryData_InterpKey>(key),
+                value,
+                fromC(*t0),
+                fromC(*t1),
+                fromC(*t2),
+                static_cast<BCLIBC_TrajFlag>(flag),
+                static_cast<BCLIBC_InterpMethod>(method));
+            if (has_error(result))
+            {
+                return setEngineError(err, result.error());
+            }
+            toC(result.value(), *out);
+            return BCLIBCFFI_OK; },
+                        err);
     }
 
     // ============================================================================

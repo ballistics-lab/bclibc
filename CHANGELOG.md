@@ -49,6 +49,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tests/wasm_parity/parity.py`: dropped `--errors codes|trap`; a trap during a normal case is always a failure now.
 
 ### Added
+- `BCLIBCFFI_interpolate_trajectory_data` (with `BCLIBCFFI_TrajectoryInterpKey` and `BCLIBCFFI_InterpMethod`) in the flat C
+  ABI: the point of a trajectory where a chosen field has a given value, interpolated from the three points around
+  it (`BCLIBC_TrajectoryData::interpolate`, PCHIP or linear). Until now only the Embind bindings of js-ballistics
+  had it, which the bare WebAssembly build has no use for. No struct changes: `BCLIBCFFI_get_layout()` is the same.
+- `BCLIBCFFI_hermite`, `BCLIBCFFI_interpolate_3pt` and `BCLIBCFFI_interpolate_2pt` in the flat C ABI: the scalar interpolation
+  functions of `interp.hpp`, for the same reason.
 - `pr-check.yml` runs the C++ tests (`ctest`, Debug and Release, since the tests are assert-based) and the `tiny_bclibc`
   identity test; neither ran in CI before.
 - `cmake/check_no_exceptions.sh` and a `No exceptions or RTTI in the core` job in `pr-check.yml`: builds the core and
