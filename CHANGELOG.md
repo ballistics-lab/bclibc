@@ -44,8 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no longer traps on an ordinary failed solve, only on something that would already be fatal natively.
   `src/wasm/bare_runtime.cpp`'s stubs are trimmed to what each toolchain's libc still pulls in without an exception
   runtime: the `__cxa_allocate_exception`/`__cxa_throw` traps are gone too (neither toolchain's link needs them any
-  more). The module is built with `-fno-rtti` as well (zig: 87.5 KB → 82 KB); verified with zig and wasi-sdk 34 by
-  `tests/wasm_parity/parity.py` on wasmtime and Node, bit-identical to native including the error path.
+  more). The module is built with `-fno-rtti` as well (zig: ~87 KB → ~84 KB); verified with zig and wasi-sdk 34 by
+  `tests/wasm_parity/parity.py` on wasmtime and Node, bit-identical to native including the error path. The zig module was
+  also run on wasmtime 24/36/49, wasm3, Node 18/20/22/24, bun 1.1/1.4, Deno 1.46/2.9 and Chrome 113/120/132/141, with
+  identical results.
 - `wasm-bare.yml` and the docs use `uv` (`uv pip install ziglang`, `uv run --with ziglang make wasm-zig`) instead of `pip`.
 - `tests/wasm_parity/parity.py`: dropped `--errors codes|trap`; a trap during a normal case is always a failure now.
 
