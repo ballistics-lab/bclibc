@@ -305,11 +305,11 @@ since there is no Emscripten glue to do it:
 - `malloc` and `free` are exported: put arguments into the module's memory and free what a call hands back
   (`BCLIBCFFI_free_trajectory` for the records).
 - Pointers and `size_t` are 4 bytes, so read struct fields at the offsets `BCLIBCFFI_get_layout()` reports.
-- `src/wasm/bare_runtime.cpp` is what keeps WASI out: libc++'s abort, `__cxa_allocate_exception`/`__cxa_throw` as
-  traps (for the rare internal libc++ path that could still reach for them, e.g. an allocation failure — bclibc's
-  own code never does), and, for wasi-sdk specifically, inert stand-ins for the parts of its libc that pull in
-  stdio/the clock/the stack-protector seed independently of exceptions (zig's own libc already provides those
-  itself). A newer toolchain version may find another way to pull in WASI; the post-build check says so.
+- `src/wasm/bare_runtime.cpp` is what keeps WASI out: libc++'s abort as a trap and, for wasi-sdk specifically, inert
+  stand-ins for the parts of its libc that pull in stdio/the clock/the stack-protector seed (zig's own libc already
+  provides those itself). The module is built with `-fno-exceptions -fno-rtti` and bclibc never throws, so no exception
+  runtime is linked in. A newer toolchain version may find another way to pull in WASI; the post-build check
+  (`cmake/check_no_imports.cmake`) fails on an import section of any kind.
 
 Numerically it matches the native library: the same inputs through `libbclibc_ffi.so` (x86-64, glibc) and the
 module (both builds), on wasmtime, wasm3, JavaScriptCore and Node, for the six integration methods, `find_zero_*`, `find_apex`,
