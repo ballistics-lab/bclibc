@@ -8,21 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- `BCLIBC_BaseEngine` no longer throws: `integrate_at`, `find_apex`, `error_at_distance`,
-  `init_zero_calculation`, `zero_angle_newton`, `zero_angle_with_fallback`, `zero_point_with_fallback`,
-  `find_zero_angle_ridder`, `find_max_range`, `zero_angle`, `find_zero_angle` and `find_zero_point` now return
-  `BCLIBC_EngineResult<T>` (`std::variant<BCLIBC_EngineError, T>`), checked with `has_error()`/`is_ok()`, the
-  same pattern already used by the RK4/Euler/Verlet/Cash-Karp/Dormand-Prince/Tsitouras integrators. New error
-  types `BCLIBC_SolverZeroFindingError`, `BCLIBC_SolverOutOfRangeError` and `BCLIBC_SolverInterceptionError`
-  (`include/bclibc/exceptions.hpp`) join `BCLIBC_BaseError`'s alternatives inside `BCLIBC_EngineError`, carrying
-  the same diagnostic fields the old `BCLIBC_*Exception` classes did.
+- bclibc no longer throws. Every fallible function returns `BCLIBC_Result<T>` (`include/bclibc/result.hpp`, the C++17
+  counterpart of `std::expected<T, BCLIBC_Error>`): `has_value()`/`has_error()`, `value()` and `error()` never throw
+  (no `std::get`/`std::visit`; a wrong access asserts in debug). `BCLIBC_Error` (`include/bclibc/exceptions.hpp`) is the
+  one error type of the library: a tagged sum of the payload structs (`BCLIBC_LogicError`, `BCLIBC_DomainError`,
+  `BCLIBC_RuntimeError`, `BCLIBC_OutOfRangeError`, `BCLIBC_InvalidArgumentError`, `BCLIBC_SolverZeroFindingError`,
+  `BCLIBC_SolverOutOfRangeError`, `BCLIBC_SolverInterceptionError`), each keeping the diagnostic fields the old
+  exception classes carried. A failure propagates by returning the callee's error unchanged; consumers switch on
+  `kind()` and read the payload with `as<Payload>()` (`nullptr` for any other alternative). This replaces the
+  `BCLIBC_BaseResult`/`BCLIBC_EngineResult` pair and `BCLIBC_BaseError`/`BCLIBC_EngineError` (no more `widen()`).
+  `BCLIBC_BaseEngine::integrate_at`, `find_apex`, `error_at_distance`, `init_zero_calculation`, `zero_angle_newton`,
+  `zero_angle_with_fallback`, `zero_point_with_fallback`, `find_zero_angle_ridder`, `find_max_range`, `zero_angle`,
+  `find_zero_angle`, `find_zero_point` and the integrators/trajectory containers return it. Numerics are unchanged.
 - `BCLIBC_CashKarpIntegrator`/`BCLIBC_DormandPrinceIntegrator`/`BCLIBC_TsitourasIntegrator`'s
-  `set_relative_tolerance`/`set_absolute_tolerance` return `BCLIBC_BaseResult<std::monostate>` instead of
+  `set_relative_tolerance`/`set_absolute_tolerance` return `BCLIBC_Result<std::monostate>` instead of
   throwing `std::invalid_argument`; their constructors log a warning and keep the field at its default
   (`embedded_rk45_detail::default_tolerance`) on an invalid value instead of failing to construct.
 - `src/ffi/bclibc_ffi.cpp`: the `try`/`catch` safety net in `ffi_call` is gone — nothing in bclibc throws, so
-  every entry point maps a `BCLIBC_EngineError`/`BCLIBC_BaseError` to a `BCLIBCFFI_ERR_*` code directly via the
-  new `setEngineError()` helper (`std::visit`), the same information the removed per-exception-type `catch`
+  every entry point maps a `BCLIBC_Error` to a `BCLIBCFFI_ERR_*` code directly via the
+  new `setEngineError()` helper (`switch (error.kind())`), the same information the removed per-exception-type `catch`
   blocks used to fill in.
 - **The bare WebAssembly build (`BCLIBC_WASM_BARE=ON`) is one flavour for both toolchains now.** Because the
   core never throws, `cmake/wasi-sdk-wasm32.cmake`'s build no longer needs real C++ exceptions: the

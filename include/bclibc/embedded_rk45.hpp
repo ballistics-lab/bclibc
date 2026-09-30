@@ -25,7 +25,7 @@ namespace bclibc
             BCLIBC_V3dT dp;
         };
 
-        inline BCLIBC_BaseResult<Deriv> derivative(const BCLIBC_ShotProps &shot,
+        inline BCLIBC_Result<Deriv> derivative(const BCLIBC_ShotProps &shot,
                                 const BCLIBC_V3dT &wind,
                                 const BCLIBC_V3dT &gravity_plus_coriolis,
                                 const BCLIBC_V3dT &vr,
@@ -37,8 +37,8 @@ namespace bclibc
             const double speed = vr.mag();
             const double mach = speed / (mach_fps != 0.0 ? mach_fps : 1.0);
             const auto drag_result = shot.drag_by_mach(mach);
-            if (has_error(drag_result)) return std::get<BCLIBC_BaseError>(drag_result);
-            const double km = density_ratio * std::get<double>(drag_result);
+            if (has_error(drag_result)) return drag_result.error();
+            const double km = density_ratio * drag_result.value();
             Deriv result;
             result.dvr.linear_combination(gravity_plus_coriolis, 1.0, vr, -km * speed);
             result.dp = vr + wind;
@@ -55,7 +55,7 @@ namespace bclibc
          * thread_local shared by every BCLIBC_BaseEngine on the thread using
          * the same method. */
         template <typename Tableau, typename Controller>
-        BCLIBC_BaseResult<std::monostate> run(BCLIBC_BaseEngine &eng,
+        BCLIBC_Result<std::monostate> run(BCLIBC_BaseEngine &eng,
                 BCLIBC_BaseTrajDataHandlerInterface &handler,
                 BCLIBC_TerminationReason &reason,
                 int &accepted_steps,
@@ -147,8 +147,8 @@ namespace bclibc
                         }
                         const auto derivative_result = derivative(eng.shot, wind, gravity_plus_coriolis,
                                                             vr + dv * dt, pos + dp * dt);
-                        if (has_error(derivative_result)) return std::get<BCLIBC_BaseError>(derivative_result);
-                        k[i] = std::get<Deriv>(derivative_result);
+                        if (has_error(derivative_result)) return derivative_result.error();
+                        k[i] = derivative_result.value();
                     }
                     cached_first = k[0];
                     have_cached_first = true;

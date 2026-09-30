@@ -77,19 +77,6 @@ namespace bclibc
         constexpr BCLIBC_InvalidArgumentError(const BCLIBC_InvalidArgumentError &) noexcept = default;
         constexpr BCLIBC_InvalidArgumentError &operator=(const BCLIBC_InvalidArgumentError &) noexcept = default;
     };
-
-    // This layer deliberately contains only errors independent of trajectory
-    // types. Errors that carry BCLIBC_BaseTrajData or BCLIBC_TrajectoryData
-    // belong in a later header, after those types are fully defined.
-    using BCLIBC_BaseError = std::variant<
-        BCLIBC_LogicError,
-        BCLIBC_DomainError,
-        BCLIBC_RuntimeError,
-        BCLIBC_OutOfRangeError,
-        BCLIBC_InvalidArgumentError>;
-
-    template <class T>
-    using BCLIBC_BaseResult = Result<BCLIBC_BaseError, T>;
 }
 
 #endif // BCLIBC_ERROR_HPP

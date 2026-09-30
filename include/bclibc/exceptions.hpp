@@ -1,6 +1,9 @@
 #ifndef BCLIBC_EXCEPTIONS_HPP
 #define BCLIBC_EXCEPTIONS_HPP
 
+#include <cstddef>
+#include <type_traits>
+#include <utility>
 #include <variant>
 #include "bclibc/error.hpp"
 #include "bclibc/traj_data.hpp"
@@ -70,25 +73,72 @@ namespace bclibc
         const char *what() const noexcept { return message; }
     };
 
-    /**
-     * Every error BCLIBC_BaseEngine can produce: the trajectory/domain-independent
-     * BCLIBC_BaseError alternatives plus the ones specific to zero-finding and
-     * interception. BCLIBC_BaseEngine never throws — every method that can fail
-     * returns a BCLIBC_EngineResult and callers propagate it with has_error(),
-     * exactly like the rest of bclibc.
-     */
-    using BCLIBC_EngineError = std::variant<
-        BCLIBC_LogicError,
-        BCLIBC_DomainError,
-        BCLIBC_RuntimeError,
-        BCLIBC_OutOfRangeError,
-        BCLIBC_InvalidArgumentError,
-        BCLIBC_SolverZeroFindingError,
-        BCLIBC_SolverOutOfRangeError,
-        BCLIBC_SolverInterceptionError>;
+    namespace detail
+    {
+        using BCLIBC_ErrorVariant = std::variant<
+            BCLIBC_LogicError,
+            BCLIBC_DomainError,
+            BCLIBC_RuntimeError,
+            BCLIBC_OutOfRangeError,
+            BCLIBC_InvalidArgumentError,
+            BCLIBC_SolverZeroFindingError,
+            BCLIBC_SolverOutOfRangeError,
+            BCLIBC_SolverInterceptionError>;
 
-    template <class T>
-    using BCLIBC_EngineResult = Result<BCLIBC_EngineError, T>;
+        template <class P, class V>
+        struct is_error_payload;
+        template <class P, class... Ps>
+        struct is_error_payload<P, std::variant<Ps...>> : std::bool_constant<(std::is_same_v<P, Ps> || ...)>
+        {
+        };
+    } // namespace detail
+
+    /**
+     * The one error type of bclibc: a tagged sum of every payload above and in error.hpp, each keeping its own
+     * diagnostic fields. Nothing in bclibc throws: a fallible function returns BCLIBC_Result<T> and propagates
+     * a failure by returning the callee's error unchanged, metadata included. Consumers dispatch on kind() and
+     * read the payload with as<Payload>(), which returns nullptr for any other alternative and never throws.
+     */
+    class BCLIBC_Error
+    {
+    public:
+        enum class Kind
+        {
+            Logic,
+            Domain,
+            Runtime,
+            OutOfRange,
+            InvalidArgument,
+            SolverZeroFinding,
+            SolverOutOfRange,
+            SolverInterception,
+        };
+
+        template <class P, class = std::enable_if_t<detail::is_error_payload<P, detail::BCLIBC_ErrorVariant>::value>>
+        BCLIBC_Error(P payload) noexcept : v_(std::in_place_type<P>, std::move(payload)) {}
+
+        [[nodiscard]] Kind kind() const noexcept { return static_cast<Kind>(v_.index()); }
+
+        template <class P>
+        [[nodiscard]] const P *as() const noexcept { return std::get_if<P>(&v_); }
+
+        [[nodiscard]] const char *what() const noexcept { return what_from<0>(); }
+
+    private:
+        template <std::size_t I>
+        [[nodiscard]] const char *what_from() const noexcept
+        {
+            if constexpr (I == std::variant_size_v<detail::BCLIBC_ErrorVariant>)
+                return "";
+            else if (const auto *p = std::get_if<I>(&v_))
+                return p->what();
+            else
+                return what_from<I + 1>();
+        }
+
+        detail::BCLIBC_ErrorVariant v_;
+    };
+
 } // namespace bclibc
 
 #endif //  BCLIBC_EXCEPTIONS_HPP

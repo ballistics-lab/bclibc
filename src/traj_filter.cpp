@@ -4,6 +4,7 @@
 #include <cstring>
 #include "bclibc/traj_filter.hpp"
 #include "bclibc/log.hpp"
+#include "bclibc/exceptions.hpp"
 
 namespace bclibc
 {
@@ -236,18 +237,18 @@ namespace bclibc
      *
      * Ensures that the last trajectory point is recorded if needed.
      */
-    BCLIBC_BaseResult<std::monostate> BCLIBC_TrajectoryDataFilter::finalize()
+    BCLIBC_Result<std::monostate> BCLIBC_TrajectoryDataFilter::finalize()
     {
         if (this->termination_reason_ref != BCLIBC_TerminationReason::TARGET_RANGE_REACHED &&
             !this->records.empty())
         {
             const auto last_record = this->get_record(-1);
-            const auto *last = std::get_if<std::reference_wrapper<const BCLIBC_TrajectoryData>>(&last_record);
+            const auto *last = last_record.has_value() ? &last_record.value() : nullptr;
             if (last != nullptr && this->prev_data.time > last->get().time)
             {
                 const auto fin_result = BCLIBC_TrajectoryData::from_base(this->props, this->prev_data);
-                if (has_error(fin_result)) return std::get<BCLIBC_BaseError>(fin_result);
-                this->append(std::get<BCLIBC_TrajectoryData>(fin_result));
+                if (has_error(fin_result)) return fin_result.error();
+                this->append(fin_result.value());
             }
         }
         return std::monostate{};
@@ -297,12 +298,12 @@ namespace bclibc
      *
      * Delegates to `record()` for interpolation and filtering.
      */
-    BCLIBC_BaseResult<std::monostate> BCLIBC_TrajectoryDataFilter::handle(const BCLIBC_BaseTrajData &data)
+    BCLIBC_Result<std::monostate> BCLIBC_TrajectoryDataFilter::handle(const BCLIBC_BaseTrajData &data)
     {
         return this->record(data);
     };
 
-    BCLIBC_BaseResult<std::monostate> BCLIBC_TrajectoryDataFilter::handle_step(
+    BCLIBC_Result<std::monostate> BCLIBC_TrajectoryDataFilter::handle_step(
         const BCLIBC_BaseTrajData &start,
         const BCLIBC_BaseTrajData &end)
     {
@@ -403,8 +404,8 @@ namespace bclibc
             // Do not rewrite either one merely because their timestamps happen
             // to be close (or even equal at a step endpoint).
             const auto trajectory_result = BCLIBC_TrajectoryData::from_base(this->props, row);
-            if (has_error(trajectory_result)) return std::get<BCLIBC_BaseError>(trajectory_result);
-            this->records.emplace_back(std::get<BCLIBC_TrajectoryData>(trajectory_result));
+            if (has_error(trajectory_result)) return trajectory_result.error();
+            this->records.emplace_back(trajectory_result.value());
         }
 
         this->prev_prev_data = start;
@@ -430,7 +431,7 @@ namespace bclibc
      *        and applies feature-specific filters (apex, Mach, zero crossings).
      * @param new_data The latest trajectory point from simulation.
      */
-    BCLIBC_BaseResult<std::monostate> BCLIBC_TrajectoryDataFilter::record(const BCLIBC_BaseTrajData &new_data)
+    BCLIBC_Result<std::monostate> BCLIBC_TrajectoryDataFilter::record(const BCLIBC_BaseTrajData &new_data)
     {
         std::vector<BCLIBC_FlaggedData> rows;
         bool is_can_interpolate = this->can_interpolate(new_data);
@@ -529,8 +530,8 @@ namespace bclibc
             for (const auto &new_row : rows)
             {
                 const auto trajectory_result = BCLIBC_TrajectoryData::from_base(this->props, new_row);
-                if (has_error(trajectory_result)) return std::get<BCLIBC_BaseError>(trajectory_result);
-                this->records.emplace_back(std::get<BCLIBC_TrajectoryData>(trajectory_result));
+                if (has_error(trajectory_result)) return trajectory_result.error();
+                this->records.emplace_back(trajectory_result.value());
             }
         }
 
@@ -574,14 +575,14 @@ namespace bclibc
             {
                 // Instantiate TrajectoryData and interpolate
                 const auto t0_result = BCLIBC_TrajectoryData::from_base(this->props, new_data);
-                if (has_error(t0_result)) return std::get<BCLIBC_BaseError>(t0_result);
+                if (has_error(t0_result)) return t0_result.error();
                 const auto t1_result = BCLIBC_TrajectoryData::from_base(this->props, this->prev_data);
-                if (has_error(t1_result)) return std::get<BCLIBC_BaseError>(t1_result);
+                if (has_error(t1_result)) return t1_result.error();
                 const auto t2_result = BCLIBC_TrajectoryData::from_base(this->props, this->prev_prev_data);
-                if (has_error(t2_result)) return std::get<BCLIBC_BaseError>(t2_result);
-                const auto &t0 = std::get<BCLIBC_TrajectoryData>(t0_result);
-                const auto &t1 = std::get<BCLIBC_TrajectoryData>(t1_result);
-                const auto &t2 = std::get<BCLIBC_TrajectoryData>(t2_result);
+                if (has_error(t2_result)) return t2_result.error();
+                const auto &t0 = t0_result.value();
+                const auto &t1 = t1_result.value();
+                const auto &t2 = t2_result.value();
                 std::vector<BCLIBC_TrajectoryData> add_td;
                 if (compute_flags & BCLIBC_TRAJ_FLAG_MACH)
                 {
@@ -590,8 +591,8 @@ namespace bclibc
                             1.0,
                             t0, t1, t2,
                             BCLIBC_TRAJ_FLAG_MACH);
-                    if (has_error(interpolated)) return std::get<BCLIBC_BaseError>(interpolated);
-                    add_td.push_back(std::get<BCLIBC_TrajectoryData>(interpolated));
+                    if (has_error(interpolated)) return interpolated.error();
+                    add_td.push_back(interpolated.value());
                 }
                 if (compute_flags & BCLIBC_TRAJ_FLAG_ZERO)
                 {
@@ -600,8 +601,8 @@ namespace bclibc
                             0.0,
                             t0, t1, t2,
                             compute_flags);
-                    if (has_error(interpolated)) return std::get<BCLIBC_BaseError>(interpolated);
-                    add_td.push_back(std::get<BCLIBC_TrajectoryData>(interpolated));
+                    if (has_error(interpolated)) return interpolated.error();
+                    add_td.push_back(interpolated.value());
                 }
                 // Add TrajectoryData, keeping `results` sorted by time.
                 for (const auto &td : add_td)
@@ -646,20 +647,20 @@ namespace bclibc
      *
      * @warning The referenced record is invalidated when the records vector reallocates.
      */
-    BCLIBC_BaseResult<std::reference_wrapper<const BCLIBC_TrajectoryData>>
+    BCLIBC_Result<std::reference_wrapper<const BCLIBC_TrajectoryData>>
     BCLIBC_TrajectoryDataFilter::get_record(std::ptrdiff_t index) const noexcept
     {
         const size_t size = this->records.size();
         if (size == 0)
         {
-            return BCLIBC_BaseError{BCLIBC_OutOfRangeError{
+            return BCLIBC_Error{BCLIBC_OutOfRangeError{
                 "Cannot get record from empty trajectory data.", static_cast<double>(index), 0.0, 0.0}};
         }
         const std::ptrdiff_t signed_size = static_cast<std::ptrdiff_t>(size);
         const std::ptrdiff_t effective_index = (index >= 0) ? index : signed_size + index;
         if (effective_index < 0 || effective_index >= signed_size)
         {
-            return BCLIBC_BaseError{BCLIBC_OutOfRangeError{
+            return BCLIBC_Error{BCLIBC_OutOfRangeError{
                 "Index is out of bounds.", static_cast<double>(index), 0.0,
                 static_cast<double>(signed_size - 1)}};
         }
@@ -746,7 +747,7 @@ namespace bclibc
           condition(condition),
           debug_name(debug_name) {};
 
-    BCLIBC_BaseResult<std::monostate> BCLIBC_GenericTerminator::handle(const BCLIBC_BaseTrajData &data)
+    BCLIBC_Result<std::monostate> BCLIBC_GenericTerminator::handle(const BCLIBC_BaseTrajData &data)
     {
         if (condition(data))
         {
@@ -775,7 +776,7 @@ namespace bclibc
           initial_altitude_ft(shot.alt0),
           termination_reason_ref(termination_reason_ref) {};
 
-    BCLIBC_BaseResult<std::monostate> BCLIBC_EssentialTerminators::handle(const BCLIBC_BaseTrajData &data)
+    BCLIBC_Result<std::monostate> BCLIBC_EssentialTerminators::handle(const BCLIBC_BaseTrajData &data)
     {
         if (this->termination_reason_ref != BCLIBC_TerminationReason::NO_TERMINATE) return std::monostate{};
         ++this->step_count;
@@ -812,7 +813,7 @@ namespace bclibc
           target_passed(false),
           termination_reason_ptr(termination_reason_ptr) {};
 
-    BCLIBC_BaseResult<std::monostate> BCLIBC_SinglePointHandler::handle(const BCLIBC_BaseTrajData &data)
+    BCLIBC_Result<std::monostate> BCLIBC_SinglePointHandler::handle(const BCLIBC_BaseTrajData &data)
     {
         if (this->is_found) return std::monostate{};
         if (this->count >= 3) { this->points[0] = this->points[1]; this->points[1] = this->points[2]; this->points[2] = data; }
@@ -830,11 +831,11 @@ namespace bclibc
         return std::monostate{};
     };
 
-    BCLIBC_BaseResult<std::monostate> BCLIBC_SinglePointHandler::handle_step(
+    BCLIBC_Result<std::monostate> BCLIBC_SinglePointHandler::handle_step(
         const BCLIBC_BaseTrajData &start,
         const BCLIBC_BaseTrajData &end)
     {
-        if (this->is_found || this->key_kind != BCLIBC_BaseTrajData_InterpKey::POS_X) return this->is_found ? BCLIBC_BaseResult<std::monostate>{std::monostate{}} : this->handle(end);
+        if (this->is_found || this->key_kind != BCLIBC_BaseTrajData_InterpKey::POS_X) return this->is_found ? BCLIBC_Result<std::monostate>{std::monostate{}} : this->handle(end);
         if (!hermite_at_x(start, end, this->target_value, this->result)) return this->handle(end);
         this->is_found = true; this->target_passed = true;
         if (this->termination_reason_ptr != nullptr) { *this->termination_reason_ptr = BCLIBC_TerminationReason::HANDLER_REQUESTED_STOP; BCLIBC_INFO("BCLIBC_SinglePointHandler requested early termination"); }
@@ -850,22 +851,22 @@ namespace bclibc
      * @brief Returns interpolated result.
      * @return A reference wrapper for the result, or BCLIBC_RuntimeError if not found.
      */
-    BCLIBC_BaseResult<std::reference_wrapper<const BCLIBC_BaseTrajData>>
+    BCLIBC_Result<std::reference_wrapper<const BCLIBC_BaseTrajData>>
     BCLIBC_SinglePointHandler::get_result() const noexcept
     {
         if (!this->is_found)
         {
-            return BCLIBC_BaseError{BCLIBC_RuntimeError{"Target point not found during integration"}};
+            return BCLIBC_Error{BCLIBC_RuntimeError{"Target point not found during integration"}};
         }
         return std::cref(this->result);
     };
 
-    BCLIBC_BaseResult<std::reference_wrapper<const BCLIBC_BaseTrajData>>
+    BCLIBC_Result<std::reference_wrapper<const BCLIBC_BaseTrajData>>
     BCLIBC_SinglePointHandler::get_last() const noexcept
     {
         if (this->count == 0)
         {
-            return BCLIBC_BaseError{BCLIBC_OutOfRangeError{
+            return BCLIBC_Error{BCLIBC_OutOfRangeError{
                 "Cannot get last point: the handler is empty (count = 0).", 0.0, 1.0, 3.0}};
         }
 
@@ -899,7 +900,7 @@ namespace bclibc
           has_prev_(false),
           termination_reason_ptr(termination_reason_ptr) {};
 
-    BCLIBC_BaseResult<std::monostate> BCLIBC_ZeroCrossingHandler::handle(const BCLIBC_BaseTrajData &data)
+    BCLIBC_Result<std::monostate> BCLIBC_ZeroCrossingHandler::handle(const BCLIBC_BaseTrajData &data)
     {
         if (this->is_found)
             return std::monostate{}; // Already found crossing

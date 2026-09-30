@@ -38,10 +38,10 @@ using namespace bclibc;
 static constexpr double APEX_IS_MAX_RANGE_RADIANS = 0.0003;
 static constexpr double ALLOWED_ZERO_ERROR_FEET = 1e-2;
 
-static BCLIBC_BaseResult<BCLIBC_Curve> buildCurve(const BCLIBCFFI_DragPoint *dt, int n)
+static BCLIBC_Result<BCLIBC_Curve> buildCurve(const BCLIBCFFI_DragPoint *dt, int n)
 {
     if (n < 2)
-        return BCLIBC_BaseError{BCLIBC_InvalidArgumentError{"Drag table requires at least 2 points"}};
+        return BCLIBC_Error{BCLIBC_InvalidArgumentError{"Drag table requires at least 2 points"}};
 
     // 1. Prepare data (X and Y)
     std::vector<double> x(n), y(n);
@@ -87,47 +87,46 @@ static void setError(BCLIBCFFI_Error *e, BCLIBCFFI_Status code, const char *msg)
     e->message[sizeof(e->message) - 1] = '\0';
 }
 
-// Maps a BCLIBC_EngineError (returned by BCLIBC_BaseEngine instead of thrown) to an FFI
+// Maps a BCLIBC_Error (returned by BCLIBC_BaseEngine instead of thrown) to an FFI
 // status code, filling the per-kind diagnostic fields the same way the old
 // exception-class catch blocks used to.
-static int32_t setEngineError(BCLIBCFFI_Error *err, const BCLIBC_EngineError &error)
+static int32_t setEngineError(BCLIBCFFI_Error *err, const BCLIBC_Error &error)
 {
-    const int32_t code = std::visit(
-        [&](const auto &value) -> int32_t
+    int32_t code = BCLIBCFFI_ERR_SOLVER_RUNTIME;
+    switch (error.kind())
+    {
+    case BCLIBC_Error::Kind::SolverOutOfRange:
+    {
+        const auto *e = error.as<BCLIBC_SolverOutOfRangeError>();
+        if (err)
         {
-            using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, BCLIBC_SolverOutOfRangeError>)
-            {
-                if (err)
-                {
-                    err->f64_0 = value.requested_distance_ft;
-                    err->f64_1 = value.max_range_ft;
-                    err->f64_2 = value.look_angle_rad;
-                }
-                return BCLIBCFFI_ERR_OUT_OF_RANGE;
-            }
-            else if constexpr (std::is_same_v<T, BCLIBC_SolverZeroFindingError>)
-            {
-                if (err)
-                {
-                    err->f64_0 = value.zero_finding_error;
-                    err->f64_1 = value.last_barrel_elevation_rad;
-                    err->i32_0 = value.iterations_count;
-                }
-                return BCLIBCFFI_ERR_ZERO_FINDING;
-            }
-            else if constexpr (std::is_same_v<T, BCLIBC_SolverInterceptionError>)
-            {
-                return BCLIBCFFI_ERR_INTERCEPTION;
-            }
-            else
-            {
-                return BCLIBCFFI_ERR_SOLVER_RUNTIME;
-            }
-        },
-        error);
+            err->f64_0 = e->requested_distance_ft;
+            err->f64_1 = e->max_range_ft;
+            err->f64_2 = e->look_angle_rad;
+        }
+        code = BCLIBCFFI_ERR_OUT_OF_RANGE;
+        break;
+    }
+    case BCLIBC_Error::Kind::SolverZeroFinding:
+    {
+        const auto *e = error.as<BCLIBC_SolverZeroFindingError>();
+        if (err)
+        {
+            err->f64_0 = e->zero_finding_error;
+            err->f64_1 = e->last_barrel_elevation_rad;
+            err->i32_0 = e->iterations_count;
+        }
+        code = BCLIBCFFI_ERR_ZERO_FINDING;
+        break;
+    }
+    case BCLIBC_Error::Kind::SolverInterception:
+        code = BCLIBCFFI_ERR_INTERCEPTION;
+        break;
+    default:
+        break;
+    }
     setError(err, static_cast<BCLIBCFFI_Status>(code),
-              std::visit([](const auto &value) { return value.what(); }, error));
+              error.what());
     return code;
 }
 
@@ -223,8 +222,8 @@ static int32_t initEngine(BCLIBC_BaseEngine &eng, const BCLIBCFFI_ShotProps *p, 
     const auto curve_result = buildCurve(p->drag_table, p->drag_table_count);
     if (has_error(curve_result))
     {
-        const auto &error = std::get<BCLIBC_BaseError>(curve_result);
-        setError(err, BCLIBCFFI_ERR_GENERIC, std::visit([](const auto &value) { return value.what(); }, error));
+        const auto &error = curve_result.error();
+        setError(err, BCLIBCFFI_ERR_GENERIC, error.what());
         return BCLIBCFFI_ERR_GENERIC;
     }
     eng.shot = BCLIBC_ShotProps(
@@ -243,7 +242,7 @@ static int32_t initEngine(BCLIBC_BaseEngine &eng, const BCLIBCFFI_ShotProps *p, 
         calcStep(p->method, p->config.cStepMultiplier),
         p->muzzle_velocity_fps,
         0.0, // stability_coefficient (computed lazily)
-        std::get<BCLIBC_Curve>(curve_result),
+        curve_result.value(),
         buildMachList(p->drag_table, p->drag_table_count),
         atmo,
         coriolis,
@@ -300,11 +299,11 @@ static int32_t initEngineFromShot(BCLIBC_BaseEngine &eng, const BCLIBCFFI_Shot *
     const auto props_result = shot.to_shot_props();
     if (has_error(props_result))
     {
-        const auto &error = std::get<BCLIBC_BaseError>(props_result);
-        setError(err, BCLIBCFFI_ERR_GENERIC, std::visit([](const auto &value) { return value.what(); }, error));
+        const auto &error = props_result.error();
+        setError(err, BCLIBCFFI_ERR_GENERIC, error.what());
         return BCLIBCFFI_ERR_GENERIC;
     }
-    eng.shot = std::get<BCLIBC_ShotProps>(props_result);
+    eng.shot = props_result.value();
     eng.integrate_func = selectIntegrateFunc(s->method);
     eng.config = BCLIBC_Config(
         s->config.cStepMultiplier,
@@ -398,15 +397,15 @@ extern "C"
             if (const auto status = initEngine(eng, props, err); status != BCLIBCFFI_OK) return status;
             BCLIBC_BaseTrajData apex;
             const auto apex_result = eng.find_apex(apex);
-            if (has_error(apex_result)) return setEngineError(err, std::get<BCLIBC_EngineError>(apex_result));
+            if (has_error(apex_result)) return setEngineError(err, apex_result.error());
             auto traj_result = BCLIBC_TrajectoryData::from_base(eng.shot, apex, BCLIBC_TRAJ_FLAG_APEX);
             if (has_error(traj_result))
             {
-                const auto &error = std::get<BCLIBC_BaseError>(traj_result);
-                setError(err, BCLIBCFFI_ERR_GENERIC, std::visit([](const auto &value) { return value.what(); }, error));
+                const auto &error = traj_result.error();
+                setError(err, BCLIBCFFI_ERR_GENERIC, error.what());
                 return BCLIBCFFI_ERR_GENERIC;
             }
-            toC(std::get<BCLIBC_TrajectoryData>(traj_result), *out);
+            toC(traj_result.value(), *out);
             return BCLIBCFFI_OK; }, err);
     }
 
@@ -423,8 +422,8 @@ extern "C"
             if (const auto status = initEngine(eng, props, err); status != BCLIBCFFI_OK) return status;
             const auto max_range_result = eng.find_max_range(
                 low_angle_deg, high_angle_deg, APEX_IS_MAX_RANGE_RADIANS);
-            if (has_error(max_range_result)) return setEngineError(err, std::get<BCLIBC_EngineError>(max_range_result));
-            const auto &r = std::get<BCLIBC_MaxRangeResult>(max_range_result);
+            if (has_error(max_range_result)) return setEngineError(err, max_range_result.error());
+            const auto &r = max_range_result.value();
             out->max_range_ft = r.max_range_ft;
             out->angle_at_max_rad = r.angle_at_max_rad;
             return BCLIBCFFI_OK; }, err);
@@ -442,8 +441,8 @@ extern "C"
             if (const auto status = initEngine(eng, props, err); status != BCLIBCFFI_OK) return status;
             const auto angle_result = eng.zero_angle_with_fallback(
                 distance_ft, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
-            if (has_error(angle_result)) return setEngineError(err, std::get<BCLIBC_EngineError>(angle_result));
-            *out_angle_rad = std::get<double>(angle_result);
+            if (has_error(angle_result)) return setEngineError(err, angle_result.error());
+            *out_angle_rad = angle_result.value();
             return BCLIBCFFI_OK; }, err);
     }
 
@@ -459,8 +458,8 @@ extern "C"
             if (const auto status = initEngine(eng, props, err); status != BCLIBCFFI_OK) return status;
             const auto point_result = eng.zero_point_with_fallback(
                 distance_ft, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
-            if (has_error(point_result)) return setEngineError(err, std::get<BCLIBC_EngineError>(point_result));
-            toC(std::get<BCLIBC_ZeroPointResult>(point_result), *out);
+            if (has_error(point_result)) return setEngineError(err, point_result.error());
+            toC(point_result.value(), *out);
             return BCLIBCFFI_OK; }, err);
     }
 
@@ -532,7 +531,7 @@ extern "C"
             const auto integrate_at_result = eng.integrate_at(
                 static_cast<BCLIBC_BaseTrajData_InterpKey>(key),
                 target_value, raw, full);
-            if (has_error(integrate_at_result)) return setEngineError(err, std::get<BCLIBC_EngineError>(integrate_at_result));
+            if (has_error(integrate_at_result)) return setEngineError(err, integrate_at_result.error());
 
             toC(raw, out->raw_data);
             toC(full, out->full_data);
@@ -569,15 +568,15 @@ extern "C"
             if (const auto status = initEngineFromShot(eng, shot, err); status != BCLIBCFFI_OK) return status;
             BCLIBC_BaseTrajData apex;
             const auto apex_result = eng.find_apex(apex);
-            if (has_error(apex_result)) return setEngineError(err, std::get<BCLIBC_EngineError>(apex_result));
+            if (has_error(apex_result)) return setEngineError(err, apex_result.error());
             auto traj_result = BCLIBC_TrajectoryData::from_base(eng.shot, apex, BCLIBC_TRAJ_FLAG_APEX);
             if (has_error(traj_result))
             {
-                const auto &error = std::get<BCLIBC_BaseError>(traj_result);
-                setError(err, BCLIBCFFI_ERR_GENERIC, std::visit([](const auto &value) { return value.what(); }, error));
+                const auto &error = traj_result.error();
+                setError(err, BCLIBCFFI_ERR_GENERIC, error.what());
                 return BCLIBCFFI_ERR_GENERIC;
             }
-            toC(std::get<BCLIBC_TrajectoryData>(traj_result), *out);
+            toC(traj_result.value(), *out);
             return BCLIBCFFI_OK; }, err);
     }
 
@@ -594,8 +593,8 @@ extern "C"
             if (const auto status = initEngineFromShot(eng, shot, err); status != BCLIBCFFI_OK) return status;
             const auto max_range_result = eng.find_max_range(
                 low_angle_deg, high_angle_deg, APEX_IS_MAX_RANGE_RADIANS);
-            if (has_error(max_range_result)) return setEngineError(err, std::get<BCLIBC_EngineError>(max_range_result));
-            const auto &r = std::get<BCLIBC_MaxRangeResult>(max_range_result);
+            if (has_error(max_range_result)) return setEngineError(err, max_range_result.error());
+            const auto &r = max_range_result.value();
             out->max_range_ft = r.max_range_ft;
             out->angle_at_max_rad = r.angle_at_max_rad;
             return BCLIBCFFI_OK; }, err);
@@ -613,8 +612,8 @@ extern "C"
             if (const auto status = initEngineFromShot(eng, shot, err); status != BCLIBCFFI_OK) return status;
             const auto angle_result = eng.zero_angle_with_fallback(
                 distance_ft, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
-            if (has_error(angle_result)) return setEngineError(err, std::get<BCLIBC_EngineError>(angle_result));
-            *out_angle_rad = std::get<double>(angle_result);
+            if (has_error(angle_result)) return setEngineError(err, angle_result.error());
+            *out_angle_rad = angle_result.value();
             return BCLIBCFFI_OK; }, err);
     }
 
@@ -630,8 +629,8 @@ extern "C"
             if (const auto status = initEngineFromShot(eng, shot, err); status != BCLIBCFFI_OK) return status;
             const auto point_result = eng.zero_point_with_fallback(
                 distance_ft, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
-            if (has_error(point_result)) return setEngineError(err, std::get<BCLIBC_EngineError>(point_result));
-            toC(std::get<BCLIBC_ZeroPointResult>(point_result), *out);
+            if (has_error(point_result)) return setEngineError(err, point_result.error());
+            toC(point_result.value(), *out);
             return BCLIBCFFI_OK; }, err);
     }
 
@@ -698,7 +697,7 @@ extern "C"
             const auto integrate_at_result = eng.integrate_at(
                 static_cast<BCLIBC_BaseTrajData_InterpKey>(key),
                 target_value, raw, full);
-            if (has_error(integrate_at_result)) return setEngineError(err, std::get<BCLIBC_EngineError>(integrate_at_result));
+            if (has_error(integrate_at_result)) return setEngineError(err, integrate_at_result.error());
 
             toC(raw, out->raw_data);
             toC(full, out->full_data);

@@ -67,7 +67,7 @@ namespace
         shot.calc_step = 0.0025;
         const auto props_result = shot.to_shot_props();
         assert(!has_error(props_result));
-        return std::get<BCLIBC_ShotProps>(props_result);
+        return props_result.value();
     }
 
     // BCLIBC_BaseEngine is non-copyable/non-moveable; build in place.

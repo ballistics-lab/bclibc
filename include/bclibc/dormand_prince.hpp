@@ -11,7 +11,7 @@ namespace bclibc
 {
     /** Adaptive Dormand--Prince 5(4) trajectory integrator.  Its error scale
      * and controller follow scipy.integrate.RK45. */
-    BCLIBC_BaseResult<std::monostate> BCLIBC_integrateDormandPrince(
+    BCLIBC_Result<std::monostate> BCLIBC_integrateDormandPrince(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason);
@@ -45,7 +45,7 @@ namespace bclibc
         BCLIBC_DormandPrinceIntegrator(const BCLIBC_DormandPrinceIntegrator &other) noexcept;
         BCLIBC_DormandPrinceIntegrator &operator=(const BCLIBC_DormandPrinceIntegrator &other) noexcept;
 
-        BCLIBC_BaseResult<std::monostate> operator()(
+        BCLIBC_Result<std::monostate> operator()(
             BCLIBC_BaseEngine &eng,
             BCLIBC_BaseTrajDataHandlerInterface &handler,
             BCLIBC_TerminationReason &reason);
@@ -56,11 +56,11 @@ namespace bclibc
 
         /** @brief Set this instance's relative local-error tolerance (default 1e-6).
          * @return BCLIBC_InvalidArgumentError if @p tolerance is not finite and positive. */
-        BCLIBC_BaseResult<std::monostate> set_relative_tolerance(double tolerance);
+        BCLIBC_Result<std::monostate> set_relative_tolerance(double tolerance);
 
         /** @brief Set this instance's scalar absolute local-error tolerance (default 1e-6).
          * @return BCLIBC_InvalidArgumentError if @p tolerance is not finite or is negative. */
-        BCLIBC_BaseResult<std::monostate> set_absolute_tolerance(double tolerance);
+        BCLIBC_Result<std::monostate> set_absolute_tolerance(double tolerance);
 
     private:
         std::atomic<int> accepted_steps_{0};

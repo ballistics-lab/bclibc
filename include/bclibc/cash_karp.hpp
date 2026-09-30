@@ -59,7 +59,7 @@ namespace bclibc
      * @param handler Interface receiving trajectory points as they are accepted.
      * @param reason Output parameter describing why the simulation ended.
      */
-    BCLIBC_BaseResult<std::monostate> BCLIBC_integrateCashKarp(
+    BCLIBC_Result<std::monostate> BCLIBC_integrateCashKarp(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason);
@@ -141,7 +141,7 @@ namespace bclibc
         BCLIBC_CashKarpIntegrator(const BCLIBC_CashKarpIntegrator &other) noexcept;
         BCLIBC_CashKarpIntegrator &operator=(const BCLIBC_CashKarpIntegrator &other) noexcept;
 
-        BCLIBC_BaseResult<std::monostate> operator()(
+        BCLIBC_Result<std::monostate> operator()(
             BCLIBC_BaseEngine &eng,
             BCLIBC_BaseTrajDataHandlerInterface &handler,
             BCLIBC_TerminationReason &reason);
@@ -189,7 +189,7 @@ namespace bclibc
          *
          * @return BCLIBC_InvalidArgumentError if @p tolerance is not finite and positive.
          */
-        BCLIBC_BaseResult<std::monostate> set_relative_tolerance(double tolerance);
+        BCLIBC_Result<std::monostate> set_relative_tolerance(double tolerance);
 
         /**
          * @brief Set this instance's scalar absolute local-error tolerance.
@@ -201,7 +201,7 @@ namespace bclibc
          *
          * @return BCLIBC_InvalidArgumentError if @p tolerance is not finite or is negative.
          */
-        BCLIBC_BaseResult<std::monostate> set_absolute_tolerance(double tolerance);
+        BCLIBC_Result<std::monostate> set_absolute_tolerance(double tolerance);
 
     private:
         std::atomic<int> accepted_steps_{0};
