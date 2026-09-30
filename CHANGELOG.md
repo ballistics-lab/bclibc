@@ -49,6 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tests/wasm_parity/parity.py`: dropped `--errors codes|trap`; a trap during a normal case is always a failure now.
 
 ### Added
+- `pr-check.yml` runs the C++ tests (`ctest`, Debug and Release, since the tests are assert-based) and the `tiny_bclibc`
+  identity test; neither ran in CI before.
 - `cmake/check_no_exceptions.sh` and a `No exceptions or RTTI in the core` job in `pr-check.yml`: builds the core and
   the C ABI natively with `-fno-exceptions -fno-rtti` (a `throw`, `try` or `catch` is a compile error) and fails if an
   object still references the C++ exception runtime or RTTI, so a regression shows up in the regular PR check and not
