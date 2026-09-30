@@ -8,47 +8,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- bclibc no longer throws. Every fallible function returns `BCLIBC_Result<T>` (`include/bclibc/result.hpp`, the C++17
-  counterpart of `std::expected<T, BCLIBC_Error>`): `has_value()`/`has_error()`, `value()` and `error()` never throw
-  (no `std::get`/`std::visit`; a wrong access asserts in debug). `BCLIBC_Error` (`include/bclibc/exceptions.hpp`) is the
-  one error type of the library: a tagged sum of the payload structs (`BCLIBC_LogicError`, `BCLIBC_DomainError`,
-  `BCLIBC_RuntimeError`, `BCLIBC_OutOfRangeError`, `BCLIBC_InvalidArgumentError`, `BCLIBC_SolverZeroFindingError`,
-  `BCLIBC_SolverOutOfRangeError`, `BCLIBC_SolverInterceptionError`, `BCLIBC_SolverRuntimeError`), each keeping the diagnostic fields the old
-  exception classes carried. A failure propagates by returning the callee's error unchanged; consumers switch on
-  `kind()` and read the payload with `payload<Payload>()` (`nullptr` for any other alternative). This replaces the
-  `BCLIBC_BaseResult`/`BCLIBC_EngineResult` pair and `BCLIBC_BaseError`/`BCLIBC_EngineError` (no more `widen()`).
-  `BCLIBC_BaseEngine::integrate_at`, `find_apex`, `error_at_distance`, `init_zero_calculation`, `zero_angle_newton`,
-  `zero_angle_with_fallback`, `zero_point_with_fallback`, `find_zero_angle_ridder`, `find_max_range`, `zero_angle`,
-  `find_zero_angle`, `find_zero_point` and the integrators/trajectory containers return it. Numerics are unchanged.
+- **bclibc no longer throws.** Every fallible function returns `BCLIBC_Result<T>` (`include/bclibc/result.hpp`), the
+  C++17 counterpart of `std::expected<T, BCLIBC_Error>` with no third-party dependency: `has_value()`/`has_error()`,
+  `value()` and `error()` never throw (no `std::get`/`std::visit`; a wrong access asserts in debug). A
+  default-constructed result holds a placeholder error, so one can be declared before it is assigned (Cython needs that).
+- **One error type.** `BCLIBC_Error` (`include/bclibc/exceptions.hpp`) is a tagged sum of the payload structs
+  `BCLIBC_LogicError`, `BCLIBC_DomainError`, `BCLIBC_RuntimeError`, `BCLIBC_OutOfRangeError`,
+  `BCLIBC_InvalidArgumentError`, `BCLIBC_SolverZeroFindingError`, `BCLIBC_SolverOutOfRangeError`,
+  `BCLIBC_SolverInterceptionError` and `BCLIBC_SolverRuntimeError`, each keeping the diagnostic fields the old exception
+  classes carried. A failure propagates by returning the callee's error unchanged; consumers switch on `kind()` and read
+  the payload with `payload<Payload>()` (`nullptr` for any other alternative). It replaces the
+  `BCLIBC_BaseResult`/`BCLIBC_EngineResult` pair and `BCLIBC_BaseError`/`BCLIBC_EngineError` (and `widen()`).
+  `BCLIBC_Error` needs the trajectory types its payloads carry, so a translation unit that reads a result includes
+  `bclibc/exceptions.hpp`; the headers only declare `BCLIBC_Result`-returning functions (the default body of
+  `BCLIBC_BaseTrajDataHandlerInterface::handle_step` moved to `src/traj_data.cpp` for that reason).
+- Returning a result: `BCLIBC_BaseEngine::integrate`, `integrate_at`, `integrate_filtered`, `find_apex`,
+  `error_at_distance`, `init_zero_calculation`, `zero_angle_newton`, `zero_angle_with_fallback`,
+  `zero_point_with_fallback`, `find_zero_angle_ridder`, `find_max_range`, `zero_angle`, `find_zero_angle` and
+  `find_zero_point`; the integrators; `BCLIBC_BaseTrajSeq`, `BCLIBC_TrajectoryData` and `BCLIBC_TrajectoryDataFilter`;
+  `BCLIBC_ShotProps::drag_by_mach`/`update_stability_coefficient`, `BCLIBC_Shot::to_shot_props` and
+  `build_pchip_curve_from_arrays`. Numerics are unchanged: only error propagation and handling moved.
 - `BCLIBC_CashKarpIntegrator`/`BCLIBC_DormandPrinceIntegrator`/`BCLIBC_TsitourasIntegrator`'s
   `set_relative_tolerance`/`set_absolute_tolerance` return `BCLIBC_Result<std::monostate>` instead of
   throwing `std::invalid_argument`; their constructors log a warning and keep the field at its default
   (`embedded_rk45_detail::default_tolerance`) on an invalid value instead of failing to construct.
-- `src/ffi/bclibc_ffi.cpp`: the `try`/`catch` safety net in `ffi_call` is gone — nothing in bclibc throws, so
-  every entry point maps a `BCLIBC_Error` to a `BCLIBCFFI_ERR_*` code directly via the
-  new `setEngineError()` helper (`switch (error.kind())`), the same information the removed per-exception-type `catch`
-  blocks used to fill in.
+- `src/ffi/bclibc_ffi.cpp`: the `try`/`catch` safety net in `ffi_call` is gone, since nothing throws; every entry
+  point maps a `BCLIBC_Error` to a `BCLIBCFFI_ERR_*` code through `setEngineError()` (`switch (error.kind())`),
+  filling the same per-kind diagnostic fields as before. `BCLIBC_SolverRuntimeError` maps to
+  `BCLIBCFFI_ERR_SOLVER_RUNTIME`, every other non-solver error to `BCLIBCFFI_ERR_GENERIC`, as on the previous release.
 - **The bare WebAssembly build (`BCLIBC_WASM_BARE=ON`) is one flavour for both toolchains now.** Because the
-  core never throws, `cmake/wasi-sdk-wasm32.cmake`'s build no longer needs real C++ exceptions: the
-  `BCLIBC_WASM_EXCEPTIONS` option is gone, both `cmake/wasi-sdk-wasm32.cmake` and `cmake/zig-wasm32-wasi.cmake`
-  build with `-fno-exceptions` and `-flto`, and wasi-sdk drops `-fwasm-exceptions`/`-lunwind` entirely (so it no
-  longer needs a host with WebAssembly's final exception encoding — any wasm32 host works). A failed solve now
-  returns the same `BCLIBCFFI_ERR_*` code as the native library **on both toolchains**: zig's build no longer
-  traps on an ordinary failed solve (`ZeroFinding`, `OutOfRange`, ...), only on something that would already be
-  fatal natively. `src/wasm/bare_runtime.cpp`'s stubs are correspondingly trimmed to what each toolchain's libc
-  actually still pulls in without an exception runtime (wasi-sdk needs stdio/stack-protector stand-ins zig's
-  libc already provides itself; verified by building both with the actual toolchains and re-running
-  `tests/wasm_parity/parity.py` — bit-identical to native on both wasmtime and Node, including the error path).
-- `tests/wasm_parity/parity.py`: dropped `--errors codes|trap` — nothing traps on an ordinary failed solve on
-  either toolchain anymore, so a trap during a normal case is always a failure now, not a second accepted outcome.
+  core never throws, it no longer needs real C++ exceptions: the `BCLIBC_WASM_EXCEPTIONS` option is gone, both
+  `cmake/wasi-sdk-wasm32.cmake` and `cmake/zig-wasm32-wasi.cmake` build with `-fno-exceptions` and `-flto`, and wasi-sdk
+  drops `-fwasm-exceptions`/`-lunwind` (so any wasm32 host works, not only one with WebAssembly's final exception
+  encoding). A failed solve returns the same `BCLIBCFFI_ERR_*` code as the native library on both toolchains; zig's build
+  no longer traps on an ordinary failed solve, only on something that would already be fatal natively.
+  `src/wasm/bare_runtime.cpp`'s stubs are trimmed to what each toolchain's libc still pulls in without an exception
+  runtime.
+- `tests/wasm_parity/parity.py`: dropped `--errors codes|trap`; a trap during a normal case is always a failure now.
 
 ### Fixed
-- `tests/test_traj_data.cpp`: `test_streaming_step_coalesces_*` asserted that a ZERO_UP/ZERO_DOWN row merges with the RANGE row at the
-  same point, contradicting `BCLIBC_TrajectoryDataFilter::handle_step` (events and scheduled samples are separate rows by
-  design since #30). It only failed with asserts enabled (Debug), which CI's Release build hides. Renamed to
-  `test_streaming_step_keeps_*_separate` and they now assert the real contract.
-- FFI: a non-solver error (`BCLIBC_LogicError`, `BCLIBC_DomainError`, ...) maps to `BCLIBCFFI_ERR_GENERIC` again (as any
-  `std::exception` did on main); only `BCLIBC_SolverRuntimeError` maps to `BCLIBCFFI_ERR_SOLVER_RUNTIME`.
+- `tests/test_traj_data.cpp`: `test_streaming_step_coalesces_*` asserted that a ZERO_UP/ZERO_DOWN row merges with the
+  RANGE row at the same point, which contradicts `BCLIBC_TrajectoryDataFilter::handle_step` (events and scheduled
+  samples are separate rows by design since #30). They failed only with asserts enabled (Debug); CI's Release build
+  compiles `assert` out. Renamed to `test_streaming_step_keeps_*_separate`, they now assert the real contract.
 
 ### Removed
 - `build_wasm.sh` and `.github/workflows/emsdk-update.yml` (the Emscripten-based wasm build and its automated
