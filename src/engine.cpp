@@ -430,7 +430,7 @@ namespace bclibc
         // Only a failure to converge triggers the fallback; any other error propagates unchanged,
         // matching the original `catch (const BCLIBC_ZeroFindingException &)` which let anything
         // else keep unwinding.
-        if (newton_result.error().as<BCLIBC_SolverZeroFindingError>() == nullptr)
+        if (newton_result.error().payload<BCLIBC_SolverZeroFindingError>() == nullptr)
             return newton_result;
 
         BCLIBC_WARN("Primary zero-finding failed, switching to fallback.");
@@ -454,7 +454,7 @@ namespace bclibc
             &result);
         if (!has_error(newton_result)) return result;
 
-        if (newton_result.error().as<BCLIBC_SolverZeroFindingError>() == nullptr)
+        if (newton_result.error().payload<BCLIBC_SolverZeroFindingError>() == nullptr)
             return newton_result.error();
 
         BCLIBC_WARN("Newton zero-point solve failed, switching to Ridder's fallback.");

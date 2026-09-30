@@ -110,7 +110,7 @@ namespace bclibc
      * The one error type of bclibc: a tagged sum of every payload above and in error.hpp, each keeping its own
      * diagnostic fields. Nothing in bclibc throws: a fallible function returns BCLIBC_Result<T> and propagates
      * a failure by returning the callee's error unchanged, metadata included. Consumers dispatch on kind() and
-     * read the payload with as<Payload>(), which returns nullptr for any other alternative and never throws.
+     * read the payload with payload<Payload>(), which returns nullptr for any other alternative and never throws.
      */
     class BCLIBC_Error
     {
@@ -128,13 +128,16 @@ namespace bclibc
             SolverRuntime,
         };
 
+        /** A placeholder, not a real failure: lets a BCLIBC_Result (and Cython's stack-allocated one) be default-constructed. */
+        BCLIBC_Error() noexcept : v_(std::in_place_type<BCLIBC_LogicError>, BCLIBC_LogicError{"Uninitialized result"}) {}
+
         template <class P, class = std::enable_if_t<detail::is_error_payload<P, detail::BCLIBC_ErrorVariant>::value>>
         BCLIBC_Error(P payload) noexcept : v_(std::in_place_type<P>, std::move(payload)) {}
 
         [[nodiscard]] Kind kind() const noexcept { return static_cast<Kind>(v_.index()); }
 
         template <class P>
-        [[nodiscard]] const P *as() const noexcept { return std::get_if<P>(&v_); }
+        [[nodiscard]] const P *payload() const noexcept { return std::get_if<P>(&v_); }
 
         [[nodiscard]] const char *what() const noexcept { return what_from<0>(); }
 

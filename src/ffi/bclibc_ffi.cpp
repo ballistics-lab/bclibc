@@ -97,7 +97,7 @@ static int32_t setEngineError(BCLIBCFFI_Error *err, const BCLIBC_Error &error)
     {
     case BCLIBC_Error::Kind::SolverOutOfRange:
     {
-        const auto *e = error.as<BCLIBC_SolverOutOfRangeError>();
+        const auto *e = error.payload<BCLIBC_SolverOutOfRangeError>();
         if (err)
         {
             err->f64_0 = e->requested_distance_ft;
@@ -109,7 +109,7 @@ static int32_t setEngineError(BCLIBCFFI_Error *err, const BCLIBC_Error &error)
     }
     case BCLIBC_Error::Kind::SolverZeroFinding:
     {
-        const auto *e = error.as<BCLIBC_SolverZeroFindingError>();
+        const auto *e = error.payload<BCLIBC_SolverZeroFindingError>();
         if (err)
         {
             err->f64_0 = e->zero_finding_error;
