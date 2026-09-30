@@ -3,9 +3,9 @@
 # after it.
 #
 # One flavour for both toolchains: the core never throws (every fallible call returns a Result), so the module is
-# built with -fno-exceptions, small (-Oz -flto). Anything below the core that could still call into libc++'s own
-# exception path (an allocation failure, a hardening check) traps instead (src/wasm/bare_runtime.cpp) rather than
-# unwinding -- neither toolchain's runtime for that is linked in.
+# built with -fno-exceptions -fno-rtti, small (-Oz -flto). Anything below the core that could still fail inside libc++
+# (an allocation failure, a hardening check) traps instead (src/wasm/bare_runtime.cpp) rather than unwinding -- neither
+# toolchain's exception runtime is linked in.
 
 set(BCLIBC_WASM_STACK_SIZE 1048576 CACHE STRING "Size of the shadow stack of the module, in bytes")
 # The same ceiling as Emscripten's MAXIMUM_MEMORY (2 GiB), so the module grows as far as the Emscripten build did and
@@ -30,6 +30,7 @@ endif()
 target_compile_options(bclibc_wasm PRIVATE
     -Oz -ffunction-sections -fdata-sections -flto
     -fno-exceptions
+    -fno-rtti
     -ffp-contract=off  # strict IEEE arithmetic, as in the native build
 )
 target_link_options(bclibc_wasm PRIVATE -flto)

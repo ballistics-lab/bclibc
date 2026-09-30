@@ -43,10 +43,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   encoding). A failed solve returns the same `BCLIBCFFI_ERR_*` code as the native library on both toolchains; zig's build
   no longer traps on an ordinary failed solve, only on something that would already be fatal natively.
   `src/wasm/bare_runtime.cpp`'s stubs are trimmed to what each toolchain's libc still pulls in without an exception
-  runtime.
+  runtime: the `__cxa_allocate_exception`/`__cxa_throw` traps are gone too (neither toolchain's link needs them any
+  more). The module is built with `-fno-rtti` as well (zig: 87.5 KB → 82 KB); verified with zig and wasi-sdk 34 by
+  `tests/wasm_parity/parity.py` on wasmtime and Node, bit-identical to native including the error path.
 - `tests/wasm_parity/parity.py`: dropped `--errors codes|trap`; a trap during a normal case is always a failure now.
 
+### Added
+- `cmake/check_no_exceptions.sh` and a `No exceptions or RTTI in the core` job in `pr-check.yml`: builds the core and
+  the C ABI natively with `-fno-exceptions -fno-rtti` (a `throw`, `try` or `catch` is a compile error) and fails if an
+  object still references the C++ exception runtime or RTTI, so a regression shows up in the regular PR check and not
+  only in the wasm one.
+
 ### Fixed
+- `cmake/check_no_imports.cmake` now fails on an import section of any kind, by walking the module's sections, not only on
+  a `wasi_snapshot_preview1` string.
 - `tests/test_traj_data.cpp`: `test_streaming_step_coalesces_*` asserted that a ZERO_UP/ZERO_DOWN row merges with the
   RANGE row at the same point, which contradicts `BCLIBC_TrajectoryDataFilter::handle_step` (events and scheduled
   samples are separate rows by design since #30). They failed only with asserts enabled (Debug); CI's Release build
