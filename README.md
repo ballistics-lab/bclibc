@@ -18,7 +18,7 @@ compatibility controller. All three use the compile-time embedded-RK core.
 
 `bclibc` is the shared C++/C99 physics core behind the [**Ballistics Lab**][ballistics-lab] ecosystem —
 one engine, bound natively into [py-ballisticcalc][py-ballisticcalc] (Python/Cython),
-[js-ballistics][js-ballistics] (TypeScript/WASM via Embind), [dart-bclibc][dart-bclibc]
+[js-ballistics][js-ballistics] (TypeScript, on the bare WASM module), [dart-bclibc][dart-bclibc]
 (Dart FFI natively, and the bare WASM module on web — see [WASM build](#wasm-build)), and
 [micropython-bclibc][micropython-bclibc] (MCUs via the bundled `tiny_bclibc` C99 subset).
 
@@ -277,7 +277,7 @@ a failed solve returns the same `BCLIBCFFI_ERR_*` code as the native library on 
 | toolchain | `-DCMAKE_TOOLCHAIN_FILE=` | size |
 |---|---|---|
 | [wasi-sdk](https://github.com/WebAssembly/wasi-sdk/releases) (34 tested; `-DWASI_SDK_PATH=` or `$WASI_SDK_PATH`) | `cmake/wasi-sdk-wasm32.cmake` | ~1.0 MB |
-| [zig](https://ziglang.org) (`zig` on `PATH`, `-DZIG=`, or `uv run --with ziglang`) | `cmake/zig-wasm32-wasi.cmake` | ~90 KB (`-Oz -flto`) |
+| [zig](https://ziglang.org) (`zig` on `PATH`, `-DZIG=`, or `uv run --with ziglang`) | `cmake/zig-wasm32-wasi.cmake` | ~85 KB (`-Oz -flto`) |
 
 ```bash
 cmake -S . -B build/wasm -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/wasi-sdk-wasm32.cmake -DWASI_SDK_PATH=/opt/wasi-sdk-34.0 -DBCLIBC_WASM_BARE=ON
@@ -320,6 +320,12 @@ glibc and the module's musl; `+ - * / sqrt` are exact everywhere). 1 ulp is the 
 `double`s, about 2.2e-16 relative: for a 0.01 rad angle 1.7e-18 rad, some 10^12 times finer than the solver's own
 zero-finding accuracy. So compare results across platforms with a tolerance (say relative 1e-12), not with `==`. The
 engines agree with each other exactly; on arm64 (FMA) it has not been measured.
+
+The zig-built module also runs, with the same results, on the older but still maintained runtimes it was checked on:
+wasmtime 24, 36 and 49; wasm3 (pywasm3); Node 18, 20, 22 and 24; bun 1.1 and 1.4; Deno 1.46 and 2.9; and Chrome 113,
+120, 132 and 141. It needs sign-extension, saturating float-to-int, bulk memory and reference types (the encoding of
+`call_indirect`) and nothing newer: no SIMD, multi-value, tail calls or exception handling, so the floor is roughly
+Chrome 96+, Firefox 79+, Safari 15+ and Node 18+ (Firefox and Safari were not run here).
 
 ---
 
