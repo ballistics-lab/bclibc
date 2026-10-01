@@ -16,7 +16,7 @@ namespace bclibc
      * @param mach Local speed of sound at the current altitude.
      * @param out Output acceleration vector.
      */
-    static inline void BCLIBC_velocity_verlet_acceleration(
+    static inline BCLIBC_Result<std::monostate> BCLIBC_velocity_verlet_acceleration(
         BCLIBC_BaseEngine &eng,
         const BCLIBC_V3dT &velocity_for_coriolis,
         const BCLIBC_V3dT &relative_velocity,
@@ -27,7 +27,9 @@ namespace bclibc
         BCLIBC_V3dT &out)
     {
         const double inv_mach = (mach != 0.0) ? (1.0 / mach) : 1.0;
-        const double km = density_ratio * eng.shot.drag_by_mach(relative_speed * inv_mach);
+        const auto drag_result = eng.shot.drag_by_mach(relative_speed * inv_mach);
+        if (has_error(drag_result)) return drag_result.error();
+        const double km = density_ratio * drag_result.value();
 
         out = gravity_vector;
         if (!eng.shot.coriolis.flat_fire_only)
@@ -38,6 +40,7 @@ namespace bclibc
         }
         // out -= km * relative_speed * relative_velocity  (i.e. -drag*relative_velocity)
         out.fused_multiply_subtract(relative_velocity, km * relative_speed);
+        return std::monostate{};
     }
 
     /**
@@ -51,7 +54,7 @@ namespace bclibc
      * @param handler Interface for processing computed trajectory data points.
      * @param reason Output parameter indicating why the simulation terminated.
      */
-    void BCLIBC_integrateVELOCITY_VERLET(
+BCLIBC_Result<std::monostate> BCLIBC_integrateVELOCITY_VERLET(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason)
@@ -83,7 +86,7 @@ namespace bclibc
             BCLIBC_ERROR(
                 "Invalid calc_step=%.9f (must be > 0); integration aborted", delta_time);
             reason = BCLIBC_TerminationReason::MINIMUM_VELOCITY_REACHED;
-            return;
+            return std::monostate{};
         }
 
         // Initialize gravity vector (pointing downward in y-axis)
@@ -118,11 +121,13 @@ namespace bclibc
             density_ratio,
             mach);
         relative_velocity = velocity_vector - wind_vector;
-        BCLIBC_velocity_verlet_acceleration(
+        const auto initial_acceleration_result = BCLIBC_velocity_verlet_acceleration(
             eng, velocity_vector, relative_velocity, relative_velocity.mag(),
             gravity_vector, density_ratio, mach, acceleration_vector);
+        if (has_error(initial_acceleration_result)) return initial_acceleration_result.error();
         BCLIBC_BaseTrajData step_start(time, range_vector, velocity_vector, mach);
-        handler.handle(step_start);
+        const auto start_result = handler.handle(step_start);
+        if (has_error(start_result)) return start_result;
 
         // Main trajectory integration loop
         // Continue until range limit is reached or termination condition is met
@@ -154,9 +159,10 @@ namespace bclibc
 
             // 3. Evaluate acceleration at the predicted end-of-step state: a(t+dt)
             relative_velocity = predicted_velocity - wind_vector;
-            BCLIBC_velocity_verlet_acceleration(
+            const auto acceleration_result = BCLIBC_velocity_verlet_acceleration(
                 eng, predicted_velocity, relative_velocity, relative_velocity.mag(),
                 gravity_vector, density_ratio, mach, new_acceleration_vector);
+            if (has_error(acceleration_result)) return acceleration_result.error();
 
             // 4. Update velocity using the average of a(t) and a(t+dt):
             //    v(t+dt) = v(t) + 0.5*[a(t) + a(t+dt)]*dt
@@ -174,11 +180,13 @@ namespace bclibc
                 density_ratio,
                 mach);
             BCLIBC_BaseTrajData step_end(time, range_vector, velocity_vector, mach);
-            handler.handle_step(step_start, step_end);
+            const auto step_result = handler.handle_step(step_start, step_end);
+            if (has_error(step_result)) return step_result;
             step_start = step_end;
         }
 
         BCLIBC_DEBUG("Function exit, reason=%d\n", reason);
+        return std::monostate{};
     }
 
 }; // namespace bclibc

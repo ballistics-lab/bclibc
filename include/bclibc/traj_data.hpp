@@ -2,6 +2,8 @@
 #define BCLIBC_BASE_TRAJ_SEQ_HPP
 
 #include <cstddef> // Required for std::ptrdiff_t
+#include <functional>
+#include "bclibc/error.hpp"
 #include "bclibc/base_types.hpp"
 #include "bclibc/interp.hpp"
 
@@ -206,17 +208,17 @@ namespace bclibc
          * @param p2 Third data point (after target).
          * @param out Output parameter - populated with interpolated result.
          *
-         * @throws std::domain_error if any two key values are equal (degenerate segment).
+         * @return std::monostate on success, or BCLIBC_DomainError for a degenerate segment.
          *
          * @note This is equivalent to interpolate3pt_vectorized but with skip_key logic.
          */
-        static void interpolate(
+        [[nodiscard]] static BCLIBC_Result<std::monostate> interpolate(
             BCLIBC_BaseTrajData_InterpKey key_kind,
             double key_value,
             const BCLIBC_BaseTrajData &p0,
             const BCLIBC_BaseTrajData &p1,
             const BCLIBC_BaseTrajData &p2,
-            BCLIBC_BaseTrajData &out);
+            BCLIBC_BaseTrajData &out) noexcept;
 
         /**
          * @brief Vectorized 3-point interpolation for all trajectory fields.
@@ -274,7 +276,7 @@ namespace bclibc
          *
          * @param data Trajectory data to distribute.
          */
-        virtual void handle(const BCLIBC_BaseTrajData &data) = 0;
+        virtual BCLIBC_Result<std::monostate> handle(const BCLIBC_BaseTrajData &data) = 0;
 
         /**
          * @brief Receives one accepted integration interval.
@@ -283,12 +285,8 @@ namespace bclibc
          * materialising intermediate raw points.  Existing handlers retain
          * their endpoint-only behaviour through this default implementation.
          */
-        virtual void handle_step(const BCLIBC_BaseTrajData &start,
-                                 const BCLIBC_BaseTrajData &end)
-        {
-            (void)start;
-            this->handle(end);
-        }
+        virtual BCLIBC_Result<std::monostate> handle_step(const BCLIBC_BaseTrajData &start,
+                                                          const BCLIBC_BaseTrajData &end);
     };
 
     using BCLIBC_BaseTrajDataHandlerCompositorIterator = std::vector<BCLIBC_BaseTrajDataHandlerInterface *>::iterator;
@@ -317,10 +315,10 @@ namespace bclibc
          * @brief Distributes data point to all registered handlers.
          * @param data Trajectory data to distribute.
          */
-        void handle(const BCLIBC_BaseTrajData &data) override;
+        BCLIBC_Result<std::monostate> handle(const BCLIBC_BaseTrajData &data) override;
 
-        void handle_step(const BCLIBC_BaseTrajData &start,
-                         const BCLIBC_BaseTrajData &end) override;
+        BCLIBC_Result<std::monostate> handle_step(const BCLIBC_BaseTrajData &start,
+                                                             const BCLIBC_BaseTrajData &end) override;
 
         /**
          * @brief Adds a handler to the distribution list.
@@ -394,7 +392,7 @@ namespace bclibc
          *
          * @param data Trajectory data to append.
          */
-        void handle(const BCLIBC_BaseTrajData &data) override;
+        BCLIBC_Result<std::monostate> handle(const BCLIBC_BaseTrajData &data) override;
 
         /**
          * @brief Appends trajectory point to sequence.
@@ -429,13 +427,15 @@ namespace bclibc
          *
          * Python-style indexing: -1 returns last element, -2 returns second-to-last, etc.
          *
-         * COMPLEXITY: O(1) - direct array access after index normalization.
+        * COMPLEXITY: O(1) - direct array access after index normalization.
+        *
+        * @param idx Index to retrieve (negative indices count from end).
+         * @return A reference wrapper for the trajectory data, or a BCLIBC_OutOfRangeError.
          *
-         * @param idx Index to retrieve (negative indices count from end).
-         * @return Const reference to trajectory data at index.
-         * @throws std::out_of_range if index is out of bounds after normalization.
-         */
-        const BCLIBC_BaseTrajData &operator[](ssize_t idx) const;
+         * @warning The referenced point is invalidated by operations that reallocate the sequence.
+        */
+        [[nodiscard]] BCLIBC_Result<std::reference_wrapper<const BCLIBC_BaseTrajData>>
+        operator[](ssize_t idx) const noexcept;
 
         /**
          * @brief Retrieves trajectory data at specified key value with optional time filtering.
@@ -460,20 +460,16 @@ namespace bclibc
          *                        Use 0.0 or negative to disable time filtering.
          * @param out Output parameter - populated with exact or interpolated trajectory data.
          *
-         * @throws std::domain_error if sequence has fewer than 3 points.
-         * @throws std::out_of_range if key_value falls outside the sequence's key range
-         *         (beyond a small epsilon tolerance), which would otherwise require extrapolation.
-         * @throws std::logic_error if binary search fails.
-         * @throws std::invalid_argument if interpolation encounters duplicate key values.
+         * @return std::monostate on success, or a BCLIBC_Error describing the failure.
          *
          * @note For TIME key, start_from_time is ignored (would be circular).
-         * @note Uses try_get_exact internally which throws on no-match (control flow exception pattern).
+         * @note Uses try_get_exact internally; a no-match is a normal false result.
          */
-        void get_at(
+        [[nodiscard]] BCLIBC_Result<std::monostate> get_at(
             BCLIBC_BaseTrajData_InterpKey key_kind,
             double key_value,
             double start_from_time,
-            BCLIBC_BaseTrajData &out) const;
+            BCLIBC_BaseTrajData &out) const noexcept;
 
         /**
          * @brief Interpolates trajectory at specified slant height.
@@ -488,21 +484,19 @@ namespace bclibc
          * 4. Validate non-degenerate (no duplicate slant values)
          * 5. Perform vectorized 3-point PCHIP interpolation
          *
-         * @param look_angle_rad Look angle in radians (angle of line of sight from horizontal).
-         * @param value Target slant height value.
+        * @param look_angle_rad Look angle in radians (angle of line of sight from horizontal).
+        * @param value Target slant height value.
          * @param out Output parameter - populated with interpolated trajectory data.
          *
-         * @throws std::domain_error if sequence has < 3 points or slant values are degenerate.
-         * @throws std::runtime_error if binary search fails to find valid bracket.
-         * @throws std::out_of_range if center index outside safe range [1, n-2].
+         * @return std::monostate on success, or a BCLIBC_Error describing the failure.
          *
          * @note Slant height may be non-monotonic, binary search assumes local monotonicity.
          * @note Uses POS_Y as dummy skip_key (not actually relevant for slant interpolation).
          */
-        void get_at_slant_height(
+        [[nodiscard]] BCLIBC_Result<std::monostate> get_at_slant_height(
             double look_angle_rad,
             double value,
-            BCLIBC_BaseTrajData &out) const;
+            BCLIBC_BaseTrajData &out) const noexcept;
 
         /**
          * @brief Performs 3-point PCHIP interpolation at specified index.
@@ -517,16 +511,15 @@ namespace bclibc
          * @param key_value Target value of the independent variable.
          * @param out Output parameter - populated with interpolated trajectory data.
          *
-         * @throws std::out_of_range if idx outside valid range [1, n-2] after normalization.
-         * @throws std::invalid_argument if key values at three points are not distinct.
+         * @return std::monostate on success, or a BCLIBC_Error describing the failure.
          *
          * @note All fields interpolated except key_kind, which is set directly to key_value.
          */
-        void interpolate_at(
+        [[nodiscard]] BCLIBC_Result<std::monostate> interpolate_at(
             ssize_t idx,
             BCLIBC_BaseTrajData_InterpKey key_kind,
             double key_value,
-            BCLIBC_BaseTrajData &out) const;
+            BCLIBC_BaseTrajData &out) const noexcept;
 
     private:
         /**
@@ -543,18 +536,15 @@ namespace bclibc
          * @param key_value Target key value to match.
          * @param out Output parameter - populated only if exact match found.
          *
-         * @throws std::out_of_range if idx is out of bounds.
-         * @throws std::runtime_error if key value does not match within tolerance.
+         * @return true on an exact match; false for an invalid index or no match.
          *
-         * @note Uses exception for control flow (try_get pattern).
          * @note Primarily used internally by get_at() to optimize exact lookups.
-         * @note Consider refactoring to return bool instead of throwing for cleaner API.
          */
         bool try_get_exact(
             ssize_t idx,
             BCLIBC_BaseTrajData_InterpKey key_kind,
             double key_value,
-            BCLIBC_BaseTrajData &out) const;
+            BCLIBC_BaseTrajData &out) const noexcept;
 
         /**
          * @brief Binary search for 3-point interpolation bracket.
@@ -743,7 +733,7 @@ namespace bclibc
          * @param mach_arg Mach number (or 0.0 to compute from altitude).
          * @param flag Trajectory point classification flag.
          */
-        BCLIBC_TrajectoryData(
+        [[nodiscard]] static BCLIBC_Result<BCLIBC_TrajectoryData> from_base(
             const BCLIBC_ShotProps &props,
             double time,
             const BCLIBC_V3dT &range_vector,
@@ -760,7 +750,7 @@ namespace bclibc
          * @param data Base trajectory data (position, velocity, time, Mach).
          * @param flag Trajectory point classification flag.
          */
-        BCLIBC_TrajectoryData(
+        [[nodiscard]] static BCLIBC_Result<BCLIBC_TrajectoryData> from_base(
             const BCLIBC_ShotProps &props,
             const BCLIBC_BaseTrajData &data,
             BCLIBC_TrajFlag flag = BCLIBC_TRAJ_FLAG_NONE);
@@ -773,7 +763,7 @@ namespace bclibc
          * @param props Shot properties.
          * @param data Flagged trajectory data (includes flag field).
          */
-        BCLIBC_TrajectoryData(
+        [[nodiscard]] static BCLIBC_Result<BCLIBC_TrajectoryData> from_base(
             const BCLIBC_ShotProps &props,
             const BCLIBC_FlaggedData &data);
 
@@ -801,25 +791,22 @@ namespace bclibc
          * @param p0 First trajectory point.
          * @param p1 Second trajectory point (center).
          * @param p2 Third trajectory point.
-         * @param flag Output trajectory flag.
-         * @param method Interpolation method (PCHIP or LINEAR).
-         * @return Interpolated trajectory data with all fields populated.
-         *
-         * @throws std::logic_error if key is invalid/unsupported.
-         * @throws std::domain_error if linear interpolation encounters zero division.
-         * @throws std::invalid_argument if method is unknown.
-         *
-         * @note All 15 trajectory fields are interpolated independently.
-         * @note For LINEAR method: uses [p0,p1] if value <= x1, else [p1,p2].
-         */
-        static BCLIBC_TrajectoryData interpolate(
+        * @param flag Output trajectory flag.
+        * @param method Interpolation method (PCHIP or LINEAR).
+         * @return Interpolated trajectory data on success, or a BCLIBC_Error describing the failure.
+        *
+        *
+        * @note All 15 trajectory fields are interpolated independently.
+        * @note For LINEAR method: uses [p0,p1] if value <= x1, else [p1,p2].
+        */
+        [[nodiscard]] static BCLIBC_Result<BCLIBC_TrajectoryData> interpolate(
             BCLIBC_TrajectoryData_InterpKey key,
             double value,
             const BCLIBC_TrajectoryData &t0,
             const BCLIBC_TrajectoryData &t1,
             const BCLIBC_TrajectoryData &t2,
             BCLIBC_TrajFlag flag,
-            BCLIBC_InterpMethod method = BCLIBC_InterpMethod::PCHIP);
+            BCLIBC_InterpMethod method = BCLIBC_InterpMethod::PCHIP) noexcept;
 
         /**
          * @brief Retrieves field value by key.

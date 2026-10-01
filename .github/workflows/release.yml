@@ -43,10 +43,8 @@ jobs:
       retention_days: 1
 
   build-wasm:
-    uses: ./.github/workflows/build-lib.yml
+    uses: ./.github/workflows/wasm-bare.yml
     with:
-      os: ubuntu-latest
-      arch: wasm
       retention_days: 1
 
   update-flatpak-module:

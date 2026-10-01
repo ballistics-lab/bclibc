@@ -59,7 +59,7 @@ namespace bclibc
      * @param handler Interface receiving trajectory points as they are accepted.
      * @param reason Output parameter describing why the simulation ended.
      */
-    void BCLIBC_integrateCashKarp(
+    BCLIBC_Result<std::monostate> BCLIBC_integrateCashKarp(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason);
@@ -124,8 +124,10 @@ namespace bclibc
     public:
         /**
          * @brief Construct with explicit tolerances (each defaulting to 1e-6).
-         * @throws std::invalid_argument under the same conditions as
-         * @ref set_relative_tolerance / @ref set_absolute_tolerance.
+         *
+         * A constructor cannot report failure without throwing, so an invalid tolerance
+         * (see @ref set_relative_tolerance / @ref set_absolute_tolerance) is logged and
+         * silently keeps that field at its default instead of failing construction.
          */
         explicit BCLIBC_CashKarpIntegrator(
             double relative_tolerance = embedded_rk45_detail::default_tolerance,
@@ -139,7 +141,7 @@ namespace bclibc
         BCLIBC_CashKarpIntegrator(const BCLIBC_CashKarpIntegrator &other) noexcept;
         BCLIBC_CashKarpIntegrator &operator=(const BCLIBC_CashKarpIntegrator &other) noexcept;
 
-        void operator()(
+        BCLIBC_Result<std::monostate> operator()(
             BCLIBC_BaseEngine &eng,
             BCLIBC_BaseTrajDataHandlerInterface &handler,
             BCLIBC_TerminationReason &reason);
@@ -185,9 +187,9 @@ namespace bclibc
          * if this default is ever revisited, re-run the same sweep on at least
          * 2-3 different calibers/BCs/ranges first, not just trust this one.
          *
-         * @throws std::invalid_argument if @p tolerance is not finite and positive.
+         * @return BCLIBC_InvalidArgumentError if @p tolerance is not finite and positive.
          */
-        void set_relative_tolerance(double tolerance);
+        BCLIBC_Result<std::monostate> set_relative_tolerance(double tolerance);
 
         /**
          * @brief Set this instance's scalar absolute local-error tolerance.
@@ -197,9 +199,9 @@ namespace bclibc
          * is independently scaled by `atol + rtol * max(abs(y), abs(y_new))`.
          * The default is 1e-6.
          *
-         * @throws std::invalid_argument if @p tolerance is not finite or is negative.
+         * @return BCLIBC_InvalidArgumentError if @p tolerance is not finite or is negative.
          */
-        void set_absolute_tolerance(double tolerance);
+        BCLIBC_Result<std::monostate> set_absolute_tolerance(double tolerance);
 
     private:
         std::atomic<int> accepted_steps_{0};

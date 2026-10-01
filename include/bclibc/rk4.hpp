@@ -19,7 +19,7 @@ namespace bclibc
      * @param handler Interface for processing computed trajectory data points.
      * @param reason Output parameter indicating why the simulation terminated.
      */
-    void BCLIBC_integrateRK4(
+    BCLIBC_Result<std::monostate> BCLIBC_integrateRK4(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason);

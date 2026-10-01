@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include "bclibc/base_types.hpp"
 #include "bclibc/log.hpp"
+#include "bclibc/exceptions.hpp"
 
 namespace bclibc
 {
@@ -126,19 +127,12 @@ namespace bclibc
           wind_sock(wind_sock),
           filter_flags(filter_flags)
     {
-        // update_stability_coefficient() can throw std::domain_error when
-        // twist/length/diameter/p0 are zero. Catch it here and set the coefficient
-        // to 0.0 — spin_drift() returns 0 in that case, so the trajectory
-        // calculation proceeds correctly without spin drift.
-        try
+        const auto stability_result = this->update_stability_coefficient();
+        if (has_error(stability_result))
         {
-            this->update_stability_coefficient();
-        }
-        catch (const std::domain_error &e)
-        {
-            BCLIBC_WARN(
-                "Stability coefficient calculation failed (%s); spin drift disabled",
-                e.what());
+            const auto &error = stability_result.error();
+            BCLIBC_WARN("Stability coefficient calculation failed (%s); spin drift disabled",
+                        error.what());
             this->stability_coefficient = 0.0;
         }
     };
@@ -205,7 +199,7 @@ namespace bclibc
      * - $S_g = \text{sd} \cdot \text{fv} \cdot \text{ftp}$
      *
      */
-    void BCLIBC_ShotProps::update_stability_coefficient()
+    BCLIBC_Result<std::monostate> BCLIBC_ShotProps::update_stability_coefficient() noexcept
     {
         /* Miller stability coefficient */
         double twist_rate, length, sd, fv, ft, pt, ftp;
@@ -233,7 +227,7 @@ namespace bclibc
             else
             {
                 this->stability_coefficient = 0.0;
-                throw std::domain_error("Division by zero in stability coefficient calculation.");
+                return BCLIBC_Error{BCLIBC_DomainError{"Division by zero in stability coefficient calculation.", denom_part1, denom_part2}};
             }
 
             fv = std::pow(this->muzzle_velocity / 2800.0, 1.0 / 3.0);
@@ -248,7 +242,7 @@ namespace bclibc
             else
             {
                 this->stability_coefficient = 0.0;
-                throw std::domain_error("Division by zero in ftp calculation.");
+                return BCLIBC_Error{BCLIBC_DomainError{"Division by zero in ftp calculation.", pt, 0.0}};
             }
 
             this->stability_coefficient = sd * fv * ftp;
@@ -259,17 +253,18 @@ namespace bclibc
             this->stability_coefficient = 0.0;
         }
         BCLIBC_DEBUG("Updated stability coefficient: %.6f", this->stability_coefficient);
+        return std::monostate{};
     };
 
     /**
      * @brief Universal PCHIP core calculation.
      * Takes vectors X and Y, returns BCLIBC_Curve.
      */
-    BCLIBC_Curve build_pchip_curve_from_arrays(const std::vector<double> &x, const std::vector<double> &y)
+    BCLIBC_Result<BCLIBC_Curve> build_pchip_curve_from_arrays(const std::vector<double> &x, const std::vector<double> &y)
     {
         size_t n = x.size();
         if (n < 2)
-            throw std::invalid_argument("PCHIP requires at least 2 points");
+            return BCLIBC_Error{BCLIBC_InvalidArgumentError{"PCHIP requires at least 2 points"}};
 
         size_t nm1 = n - 1;
         std::vector<double> h(nm1), d(nm1), m(n);
@@ -359,7 +354,7 @@ namespace bclibc
      *       - O(log n) for datasets with n > 15 (binary search)
      *       - The threshold of 15 is empirically determined for typical ballistic curves
      */
-    static inline double calculate_by_curve_and_mach_list(
+    static inline BCLIBC_Result<double> calculate_by_curve_and_mach_list(
         const BCLIBC_MachList &mach_list,
         const BCLIBC_Curve &curve,
         double mach)
@@ -374,7 +369,7 @@ namespace bclibc
         if (n_size_t < 2 || n_size_t != nm1_size_t + 1)
         {
             // Insufficient data or size mismatch between breakpoints and segments
-            throw std::invalid_argument("Invalid drag curve data: requires at least 2 points and consistent sizes.");
+            return BCLIBC_InvalidArgumentError("Invalid drag curve data: requires at least 2 points and consistent sizes.");
         }
 
         const int nm1 = (int)nm1_size_t; // Last valid segment index
@@ -484,13 +479,14 @@ namespace bclibc
      * @param mach Mach number at which to evaluate the drag.
      * @return Drag coefficient $C_d$ scaled by $\text{BC}$ and conversion factors, in units suitable for the trajectory calculation.
      */
-    double BCLIBC_ShotProps::drag_by_mach(double mach) const
+    BCLIBC_Result<double> BCLIBC_ShotProps::drag_by_mach(double mach) const noexcept
     {
-        double cd = calculate_by_curve_and_mach_list(
+        const auto cd_result = calculate_by_curve_and_mach_list(
             this->mach_list,
             this->curve,
             mach);
-        return cd * 2.08551e-04 / this->bc;
+        if (has_error(cd_result)) return cd_result.error();
+        return cd_result.value() * 2.08551e-04 / this->bc;
     }
 
     size_t BCLIBC_ShotProps::size() const
@@ -508,7 +504,7 @@ namespace bclibc
      * All physics/unit conversions happen here — once, in C++ — eliminating per-wrapper
      * duplication across Python/Cython, Dart FFI, and WASM.
      */
-    BCLIBC_ShotProps BCLIBC_Shot::to_shot_props() const
+    BCLIBC_Result<BCLIBC_ShotProps> BCLIBC_Shot::to_shot_props() const
     {
         // Atmosphere: CIPM-2007 density + Rankine Mach formula
         BCLIBC_Atmosphere atmo = BCLIBC_Atmosphere::from_conditions(
@@ -529,7 +525,9 @@ namespace bclibc
         // Drag curve: build PCHIP from raw Mach/CD arrays
         std::vector<double> mach_v(mach_data, mach_data + drag_table_size);
         std::vector<double> cd_v(cd_data, cd_data + drag_table_size);
-        BCLIBC_Curve curve = build_pchip_curve_from_arrays(mach_v, cd_v);
+        const auto curve_result = build_pchip_curve_from_arrays(mach_v, cd_v);
+        if (has_error(curve_result)) return curve_result.error();
+        BCLIBC_Curve curve = curve_result.value();
         BCLIBC_MachList mach_list = BCLIBC_MachList(mach_v.begin(), mach_v.end());
 
         return BCLIBC_ShotProps(

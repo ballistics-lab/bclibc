@@ -65,7 +65,9 @@ namespace
         shot.latitude_deg = std::numeric_limits<double>::quiet_NaN();
         shot.azimuth_deg = std::numeric_limits<double>::quiet_NaN();
         shot.calc_step = 0.0025;
-        return shot.to_shot_props();
+        const auto props_result = shot.to_shot_props();
+        assert(!has_error(props_result));
+        return props_result.value();
     }
 
     // BCLIBC_BaseEngine is non-copyable/non-moveable; build in place.
@@ -129,30 +131,13 @@ namespace
         assert(tight_accepted + tight_rejected >= loose_accepted + loose_rejected);
     }
 
-    void test_invalid_tolerance_throws()
+    void test_invalid_tolerance_returns_error()
     {
         BCLIBC_CashKarpIntegrator integrator;
-        bool threw = false;
-        try
-        {
-            integrator.set_relative_tolerance(-1.0);
-        }
-        catch (const std::invalid_argument &)
-        {
-            threw = true;
-        }
-        assert(threw && "expected std::invalid_argument for negative relative tolerance");
-
-        threw = false;
-        try
-        {
-            integrator.set_absolute_tolerance(std::numeric_limits<double>::quiet_NaN());
-        }
-        catch (const std::invalid_argument &)
-        {
-            threw = true;
-        }
-        assert(threw && "expected std::invalid_argument for NaN absolute tolerance");
+        assert(has_error(integrator.set_relative_tolerance(-1.0)) &&
+               "expected BCLIBC_InvalidArgumentError for negative relative tolerance");
+        assert(has_error(integrator.set_absolute_tolerance(std::numeric_limits<double>::quiet_NaN())) &&
+               "expected BCLIBC_InvalidArgumentError for NaN absolute tolerance");
     }
 
     void test_copy_duplicates_tolerances_not_shared_stats()
@@ -270,7 +255,7 @@ int main()
 {
     test_default_tolerances_are_1e_minus_6();
     test_constructor_tolerances_are_applied();
-    test_invalid_tolerance_throws();
+    test_invalid_tolerance_returns_error();
     test_copy_duplicates_tolerances_not_shared_stats();
     test_concurrent_tolerance_stats_access_is_race_free();
 

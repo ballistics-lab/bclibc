@@ -29,15 +29,46 @@ jobs:
           - os: windows-latest
             arch: x86_64
             build_type: Release
-          - os: ubuntu-latest
-            arch: wasm
-            build_type: Release
     uses: ./.github/workflows/build-lib.yml
     with:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
       build_type: ${{ matrix.build_type }}
       retention_days: 1
+
+  tests:
+    name: Tests (${{ matrix.build_type }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Debug keeps assert() alive (the tests are assert-based); Release is what ships.
+        build_type: [Debug, Release]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Build and run the C++ tests
+        run: |
+          cmake -S . -B build/tests -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DBCLIBC_BUILD_TESTS=ON
+          cmake --build build/tests -j"$(nproc)"
+          ctest --test-dir build/tests --output-on-failure
+
+      - name: tiny_bclibc identity test (same results as bclibc)
+        run: |
+          cmake -S tiny_bclibc -B build/identity -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DTINY_BCLIBC_BUILD_IDENTITY_TEST=ON
+          cmake --build build/identity -j"$(nproc)"
+          build/identity/tests/test_identity
+
+  no-exceptions:
+    name: No exceptions or RTTI in the core
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Build with -fno-exceptions -fno-rtti and check the objects
+        run: cmake/check_no_exceptions.sh
 
   pre-commit:
     name: Pre-commit Check
@@ -70,6 +101,5 @@ jobs:
           echo "| macOS    | arm64  | Release | ${{ needs.build.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Windows  | x86_64 | Debug   | ${{ needs.build.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Windows  | x86_64 | Release | ${{ needs.build.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| wasm     | -      | Release | ${{ needs.build.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Artifacts available for 24 hours." >> $GITHUB_STEP_SUMMARY
+          echo "Artifacts available for 24 hours. The bare wasm module is checked separately by the \"WASM (bare module)\" workflow." >> $GITHUB_STEP_SUMMARY

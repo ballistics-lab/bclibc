@@ -18,7 +18,7 @@ namespace bclibc
      * same stage count, same FSAL property -- but with coefficients tuned to
      * give a smaller leading error term at each order, so it typically needs
      * fewer rejected/retried steps for the same tolerance. */
-    void BCLIBC_integrateTsitouras(
+    BCLIBC_Result<std::monostate> BCLIBC_integrateTsitouras(
         BCLIBC_BaseEngine &eng,
         BCLIBC_BaseTrajDataHandlerInterface &handler,
         BCLIBC_TerminationReason &reason);
@@ -40,8 +40,10 @@ namespace bclibc
     public:
         /**
          * @brief Construct with explicit tolerances (each defaulting to 1e-6).
-         * @throws std::invalid_argument under the same conditions as
-         * @ref set_relative_tolerance / @ref set_absolute_tolerance.
+         *
+         * A constructor cannot report failure without throwing, so an invalid tolerance
+         * (see @ref set_relative_tolerance / @ref set_absolute_tolerance) is logged and
+         * silently keeps that field at its default instead of failing construction.
          */
         explicit BCLIBC_TsitourasIntegrator(
             double relative_tolerance = embedded_rk45_detail::default_tolerance,
@@ -50,7 +52,7 @@ namespace bclibc
         BCLIBC_TsitourasIntegrator(const BCLIBC_TsitourasIntegrator &other) noexcept;
         BCLIBC_TsitourasIntegrator &operator=(const BCLIBC_TsitourasIntegrator &other) noexcept;
 
-        void operator()(
+        BCLIBC_Result<std::monostate> operator()(
             BCLIBC_BaseEngine &eng,
             BCLIBC_BaseTrajDataHandlerInterface &handler,
             BCLIBC_TerminationReason &reason);
@@ -60,12 +62,12 @@ namespace bclibc
         void get_stats(int &out_accepted, int &out_rejected) const noexcept;
 
         /** @brief Set this instance's relative local-error tolerance (default 1e-6).
-         * @throws std::invalid_argument if @p tolerance is not finite and positive. */
-        void set_relative_tolerance(double tolerance);
+         * @return BCLIBC_InvalidArgumentError if @p tolerance is not finite and positive. */
+        BCLIBC_Result<std::monostate> set_relative_tolerance(double tolerance);
 
         /** @brief Set this instance's scalar absolute local-error tolerance (default 1e-6).
-         * @throws std::invalid_argument if @p tolerance is not finite or is negative. */
-        void set_absolute_tolerance(double tolerance);
+         * @return BCLIBC_InvalidArgumentError if @p tolerance is not finite or is negative. */
+        BCLIBC_Result<std::monostate> set_absolute_tolerance(double tolerance);
 
     private:
         std::atomic<int> accepted_steps_{0};

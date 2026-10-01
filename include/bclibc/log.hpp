@@ -129,30 +129,43 @@ namespace bclibc
         (void)func;
         (void)format;
         (void)args;
-#else
-        // --- 1. Format the user message into a std::string ---
-
-        // Copy va_list to safely determine size (required for portable vsnprintf use)
-        va_list args_copy;
-        va_copy(args_copy, args);
-        // Determine required buffer size (not including null terminator)
-        int size = std::vsnprintf(nullptr, 0, format, args_copy);
-        va_end(args_copy);
-
-        if (size < 0)
+#elif !defined(__cpp_exceptions) && !defined(_CPPUNWIND)
+        // -fno-exceptions must not enter a path that allocates std::string.
+        // Keep the logging API, but bound message formatting to stack storage.
+        constexpr std::size_t message_capacity = 1024;
+        char message_buffer[message_capacity];
+        const int written = std::vsnprintf(message_buffer, message_capacity, format, args);
+        if (written < 0)
         {
-            // Error in formatting
             std::fputs("Log formatting error.\n", stderr);
             return;
         }
-
-        // Create buffer for the formatted message
-        std::string message_buffer(size, 0);
-        // Write the formatted message into the buffer
-        std::vsnprintf(&message_buffer[0], size + 1, format, args);
-
-        // --- 2. Construct and output the final log line, on the standard error stream ---
-
+        const bool truncated = static_cast<std::size_t>(written) >= message_capacity;
+        std::fprintf(
+            stderr,
+            "%s%s%s: %s:%d in %s: %s%s\n",
+            level_to_color(level),
+            level_to_string(level),
+            BCLIBC_ANSI_COLOR_RESET,
+            file,
+            line,
+            func,
+            message_buffer,
+            truncated ? " [truncated]" : "");
+        std::fflush(stderr);
+#else
+        // Exceptions are enabled: preserve the unbounded std::string formatting path.
+        va_list args_copy;
+        va_copy(args_copy, args);
+        const int size = std::vsnprintf(nullptr, 0, format, args_copy);
+        va_end(args_copy);
+        if (size < 0)
+        {
+            std::fputs("Log formatting error.\n", stderr);
+            return;
+        }
+        std::string message_buffer(static_cast<std::size_t>(size), 0);
+        std::vsnprintf(&message_buffer[0], static_cast<std::size_t>(size) + 1, format, args);
         std::fprintf(
             stderr,
             "%s%s%s: %s:%d in %s: %s\n",
@@ -163,7 +176,7 @@ namespace bclibc
             line,
             func,
             message_buffer.c_str());
-        std::fflush(stderr); // to make sure it is out at once
+        std::fflush(stderr);
 #endif
     }
 

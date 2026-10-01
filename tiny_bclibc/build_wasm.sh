@@ -7,7 +7,7 @@
 # Usage:
 #   tiny_bclibc/build_wasm.sh              # OUT_DIR=/some/dir to write elsewhere
 #
-# Unlike ../build_wasm.sh (full bclibc + Emscripten JS glue, for Dart web), these modules need
+# Unlike the full bclibc bare module (../Makefile: `make wasm-zig`, the core and its whole C ABI), these modules need
 # no JS runtime at all: `new WebAssembly.Instance(module, {})` is enough, so any bare
 # WebAssembly host can run them (JavaScriptCore's JSContext on iOS/Pythonista, a browser,
 # Node). The exported API is documented at the top of wasm/tiny_bclibc_wasm.c.

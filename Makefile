@@ -68,21 +68,23 @@ test:
 
 # ============================================================================
 # Bare WebAssembly module (no Emscripten, imports nothing): build/wasm*/bclibc_wasm.wasm
-#   make wasm WASI_SDK_PATH=/opt/wasi-sdk-34.0   # C++ exceptions, ~1.6 MB (needs wasi-sdk)
-#   make wasm-zig [ZIG=/path/to/zig]             # a throw is a trap, ~78 KB (zig on PATH, or pip install ziglang)
+# The core never throws, so both toolchains build the same exception-free module and return
+# BCLIBCFFI_ERR_* codes for a failed solve, same as the native library.
+#   make wasm WASI_SDK_PATH=/opt/wasi-sdk-34.0   # ~1.0 MB (needs wasi-sdk)
+#   make wasm-zig [ZIG=/path/to/zig]             # ~85 KB (zig on PATH, or `uv run --with ziglang make wasm-zig`)
 # ============================================================================
 wasm:
 	@test -n "$(WASI_SDK_PATH)" || { echo "set WASI_SDK_PATH=/path/to/wasi-sdk (https://github.com/WebAssembly/wasi-sdk/releases)"; exit 1; }
 	cmake -S . -B build/wasm $(CMAKE_GENERATOR_FLAG) -DCMAKE_TOOLCHAIN_FILE=cmake/wasi-sdk-wasm32.cmake \
 		-DWASI_SDK_PATH=$(WASI_SDK_PATH) -DBCLIBC_WASM_BARE=ON -DCMAKE_BUILD_TYPE=Release
 	cmake --build build/wasm
-	@echo "WASM module (with exceptions): build/wasm/bclibc_wasm.wasm"
+	@echo "WASM module: build/wasm/bclibc_wasm.wasm"
 
 wasm-zig:
 	cmake -S . -B build/wasm-zig $(CMAKE_GENERATOR_FLAG) -DCMAKE_TOOLCHAIN_FILE=cmake/zig-wasm32-wasi.cmake \
 		$(if $(ZIG),-DZIG=$(ZIG)) -DBCLIBC_WASM_BARE=ON -DCMAKE_BUILD_TYPE=Release
 	cmake --build build/wasm-zig
-	@echo "WASM module (a throw is a trap): build/wasm-zig/bclibc_wasm.wasm"
+	@echo "WASM module: build/wasm-zig/bclibc_wasm.wasm"
 
 # ============================================================================
 # Windows Specific Targets

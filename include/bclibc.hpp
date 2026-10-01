@@ -1,6 +1,8 @@
 #ifndef BCLIBC_HPP
 #define BCLIBC_HPP
 
+#include "bclibc/result.hpp"
+#include "bclibc/error.hpp"
 #include "bclibc/v3d.hpp"
 #include "bclibc/log.hpp"
 #include "bclibc/scope_guard.hpp"

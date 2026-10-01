@@ -7,6 +7,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.4] - 2026-10-01
+
+### Changed
+- **bclibc no longer throws.** Every fallible function returns `BCLIBC_Result<T>` (`include/bclibc/result.hpp`), the
+  C++17 counterpart of `std::expected<T, BCLIBC_Error>` with no third-party dependency: `has_value()`/`has_error()`,
+  `value()` and `error()` never throw (no `std::get`/`std::visit`; a wrong access asserts in debug). A
+  default-constructed result holds a placeholder error, so one can be declared before it is assigned (Cython needs that).
+- **One error type.** `BCLIBC_Error` (`include/bclibc/exceptions.hpp`) is a tagged sum of the payload structs
+  `BCLIBC_LogicError`, `BCLIBC_DomainError`, `BCLIBC_RuntimeError`, `BCLIBC_OutOfRangeError`,
+  `BCLIBC_InvalidArgumentError`, `BCLIBC_SolverZeroFindingError`, `BCLIBC_SolverOutOfRangeError`,
+  `BCLIBC_SolverInterceptionError` and `BCLIBC_SolverRuntimeError`, each keeping the diagnostic fields the old exception
+  classes carried. A failure propagates by returning the callee's error unchanged; consumers switch on `kind()` and read
+  the payload with `payload<Payload>()` (`nullptr` for any other alternative). It replaces the
+  `BCLIBC_BaseResult`/`BCLIBC_EngineResult` pair and `BCLIBC_BaseError`/`BCLIBC_EngineError` (and `widen()`).
+  `BCLIBC_Error` needs the trajectory types its payloads carry, so a translation unit that reads a result includes
+  `bclibc/exceptions.hpp`; the headers only declare `BCLIBC_Result`-returning functions (the default body of
+  `BCLIBC_BaseTrajDataHandlerInterface::handle_step` moved to `src/traj_data.cpp` for that reason).
+- Returning a result: `BCLIBC_BaseEngine::integrate`, `integrate_at`, `integrate_filtered`, `find_apex`,
+  `error_at_distance`, `init_zero_calculation`, `zero_angle_newton`, `zero_angle_with_fallback`,
+  `zero_point_with_fallback`, `find_zero_angle_ridder`, `find_max_range`, `zero_angle`, `find_zero_angle` and
+  `find_zero_point`; the integrators; `BCLIBC_BaseTrajSeq`, `BCLIBC_TrajectoryData` and `BCLIBC_TrajectoryDataFilter`;
+  `BCLIBC_ShotProps::drag_by_mach`/`update_stability_coefficient`, `BCLIBC_Shot::to_shot_props` and
+  `build_pchip_curve_from_arrays`. Numerics are unchanged: only error propagation and handling moved.
+- `BCLIBC_CashKarpIntegrator`/`BCLIBC_DormandPrinceIntegrator`/`BCLIBC_TsitourasIntegrator`'s
+  `set_relative_tolerance`/`set_absolute_tolerance` return `BCLIBC_Result<std::monostate>` instead of
+  throwing `std::invalid_argument`; their constructors log a warning and keep the field at its default
+  (`embedded_rk45_detail::default_tolerance`) on an invalid value instead of failing to construct.
+- `src/ffi/bclibc_ffi.cpp`: the `try`/`catch` safety net in `ffi_call` is gone, since nothing throws; every entry
+  point maps a `BCLIBC_Error` to a `BCLIBCFFI_ERR_*` code through `setEngineError()` (`switch (error.kind())`),
+  filling the same per-kind diagnostic fields as before. `BCLIBC_SolverRuntimeError` maps to
+  `BCLIBCFFI_ERR_SOLVER_RUNTIME`, every other non-solver error to `BCLIBCFFI_ERR_GENERIC`, as on the previous release.
+- **The bare WebAssembly build (`BCLIBC_WASM_BARE=ON`) is one flavour for both toolchains now.** Because the
+  core never throws, it no longer needs real C++ exceptions: the `BCLIBC_WASM_EXCEPTIONS` option is gone, both
+  `cmake/wasi-sdk-wasm32.cmake` and `cmake/zig-wasm32-wasi.cmake` build with `-fno-exceptions` and `-flto`, and wasi-sdk
+  drops `-fwasm-exceptions`/`-lunwind` (so any wasm32 host works, not only one with WebAssembly's final exception
+  encoding). A failed solve returns the same `BCLIBCFFI_ERR_*` code as the native library on both toolchains; zig's build
+  no longer traps on an ordinary failed solve, only on something that would already be fatal natively.
+  `src/wasm/bare_runtime.cpp`'s stubs are trimmed to what each toolchain's libc still pulls in without an exception
+  runtime: the `__cxa_allocate_exception`/`__cxa_throw` traps are gone too (neither toolchain's link needs them any
+  more). The module is built with `-fno-rtti` as well (zig: ~87 KB → ~84 KB); verified with zig and wasi-sdk 34 by
+  `tests/wasm_parity/parity.py` on wasmtime and Node, bit-identical to native including the error path. The zig module was
+  also run on wasmtime 24/36/49, wasm3, Node 18/20/22/24, bun 1.1/1.4, Deno 1.46/2.9 and Chrome 113/120/132/141, with
+  identical results.
+- `wasm-bare.yml` and the docs use `uv` (`uv pip install ziglang`, `uv run --with ziglang make wasm-zig`) instead of `pip`.
+- `tests/wasm_parity/parity.py`: dropped `--errors codes|trap`; a trap during a normal case is always a failure now.
+
+### Added
+- `BCLIBCFFI_interpolate_trajectory_data` (with `BCLIBCFFI_TrajectoryInterpKey` and `BCLIBCFFI_InterpMethod`) in the flat C
+  ABI: the point of a trajectory where a chosen field has a given value, interpolated from the three points around
+  it (`BCLIBC_TrajectoryData::interpolate`, PCHIP or linear). Until now only the Embind bindings of js-ballistics
+  had it, which the bare WebAssembly build has no use for. No struct changes: `BCLIBCFFI_get_layout()` is the same.
+- `BCLIBCFFI_hermite`, `BCLIBCFFI_interpolate_3pt` and `BCLIBCFFI_interpolate_2pt` in the flat C ABI: the scalar interpolation
+  functions of `interp.hpp`, for the same reason.
+- `pr-check.yml` runs the C++ tests (`ctest`, Debug and Release, since the tests are assert-based) and the `tiny_bclibc`
+  identity test; neither ran in CI before.
+- `cmake/check_no_exceptions.sh` and a `No exceptions or RTTI in the core` job in `pr-check.yml`: builds the core and
+  the C ABI natively with `-fno-exceptions -fno-rtti` (a `throw`, `try` or `catch` is a compile error) and fails if an
+  object still references the C++ exception runtime or RTTI, so a regression shows up in the regular PR check and not
+  only in the wasm one.
+
+### Fixed
+- `cmake/check_no_imports.cmake` now fails on an import section of any kind, by walking the module's sections, not only on
+  a `wasi_snapshot_preview1` string.
+- `tests/test_traj_data.cpp`: `test_streaming_step_coalesces_*` asserted that a ZERO_UP/ZERO_DOWN row merges with the
+  RANGE row at the same point, which contradicts `BCLIBC_TrajectoryDataFilter::handle_step` (events and scheduled
+  samples are separate rows by design since #30). They failed only with asserts enabled (Debug); CI's Release build
+  compiles `assert` out. Renamed to `test_streaming_step_keeps_*_separate`, they now assert the real contract.
+
+### Removed
+- `build_wasm.sh` and `.github/workflows/emsdk-update.yml` (the Emscripten-based wasm build and its automated
+  emsdk-bump PRs). CI (`build-lib.yml`, `build-libs.yml`, `pr-check.yml`, `release.yml`) now builds and publishes
+  the bare wasm module(s) via `wasm-bare.yml` (made reusable via `workflow_call`) instead.
+
 ## [2.0.0-rc.3] - 2026-09-25
 
 ### Changed
@@ -674,7 +747,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.3...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.4...HEAD
+[2.0.0-rc.4]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.3...v2.0.0-rc.4
 [2.0.0-rc.3]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.2...v2.0.0-rc.3
 [2.0.0-rc.2]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.1...v2.0.0-rc.2
 [2.0.0-rc.1]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.8...v2.0.0-rc.1
