@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.4] - 2026-10-01
+
 ### Changed
 - **bclibc no longer throws.** Every fallible function returns `BCLIBC_Result<T>` (`include/bclibc/result.hpp`), the
   C++17 counterpart of `std::expected<T, BCLIBC_Error>` with no third-party dependency: `has_value()`/`has_error()`,
@@ -745,7 +747,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.3...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.4...HEAD
+[2.0.0-rc.4]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.3...v2.0.0-rc.4
 [2.0.0-rc.3]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.2...v2.0.0-rc.3
 [2.0.0-rc.2]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.1...v2.0.0-rc.2
 [2.0.0-rc.1]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-beta.8...v2.0.0-rc.1
