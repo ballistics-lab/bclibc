@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-03
+
+Stable release, covering the whole arc from 1.1.8 through 2.0.0-rc.4. Highlights below; full details are in
+the beta/rc entries beneath this one. The only change since rc.4 itself is CI-only: `release.yml` gates the
+GitHub release job behind a manual-approval environment and no longer deletes a pre-existing release for the
+same tag before publishing.
+
+### Changed
+- **BREAKING: bclibc no longer throws.** Every fallible function returns `BCLIBC_Result<T>` wrapping one
+  tagged `BCLIBC_Error`, replacing the old exception classes and the `BCLIBC_BaseResult`/`BCLIBC_EngineResult`
+  split. The flat C ABI, which already returned error codes, is unaffected at that boundary.
+- **BREAKING: the RK45 tolerance/stats API is now per-instance.** The thread-local
+  `BCLIBC_cashKarpSetRelativeTolerance`-style functions are replaced by `BCLIBC_CashKarpIntegrator`/
+  `BCLIBC_DormandPrinceIntegrator`/`BCLIBC_TsitourasIntegrator` classes, each owning its own tolerances and
+  accepted/rejected step counts (safe to share across threads via `std::ref`).
+- **Event/row interpolation is interval-based, not per-raw-point**, and a scheduled sample no longer silently
+  merges with a physical event at a nearby timestamp — both fix real accuracy/row-count bugs that adaptive
+  stepping exposed.
+- `tiny_bclibc` migrated its adaptive core from Cash-Karp to Tsitouras 5(4), matching bclibc's own default.
+- The bare WebAssembly build (`BCLIBC_WASM_BARE=ON`) is one flavour for both toolchains (wasi-sdk, zig) now
+  that the core never throws.
+
+### Added
+- Dormand-Prince 5(4) and Tsitouras 5(4) adaptive integrators, alongside the existing Cash-Karp.
+- Bare (import-nothing) WebAssembly builds for both `bclibc` and `tiny_bclibc`, verified bit-identical to
+  native.
+- `BCLIBCFFI_interpolate_trajectory_data`, `BCLIBCFFI_hermite`, `BCLIBCFFI_interpolate_3pt`/`_2pt` in the flat
+  C ABI.
+- CI actually runs the C++ test suite and the `tiny_bclibc` identity test on every PR, plus a dedicated
+  "no exceptions or RTTI in the core" guard.
+
+### Removed
+- The Emscripten-based wasm build (`build_wasm.sh`) and its automated emsdk-bump workflow, superseded by the
+  bare wasm build.
+
 ## [2.0.0-rc.4] - 2026-10-01
 
 ### Changed
@@ -747,7 +782,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.4...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/ballistics-lab/bclibc/compare/v1.1.8...v2.0.0
 [2.0.0-rc.4]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.3...v2.0.0-rc.4
 [2.0.0-rc.3]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.2...v2.0.0-rc.3
 [2.0.0-rc.2]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.1...v2.0.0-rc.2
