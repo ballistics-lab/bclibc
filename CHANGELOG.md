@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `BCLIBC_BaseEngine::error_at_distance` no longer fails with "Trajectory too short to determine error at distance."
+  when integration is cut off before the target distance (`cMaximumDrop`, `cMinimumAltitude`, `cMinimumVelocity`,
+  ...). It now uses the last integrated point, as the pure-Python engine does, so the signed miss keeps the Ridder
+  bracketing valid. Previously `find_zero_angle` failed for such configs (e.g. `cMaximumDrop=0` or
+  `cMinimumAltitude=0`) while the Python engine found the zero.
+
 ## [2.0.0] - 2026-10-03
 
 Stable release, covering the whole arc from 1.1.8 through 2.0.0-rc.4. Highlights below; full details are in

@@ -316,16 +316,15 @@ namespace bclibc
 
         integrate(this->MAX_INTEGRATION_RANGE, handler, reason);
 
-        if (!handler.found())
+        // The target distance may be unreachable because integration was cut off earlier
+        // (cMaximumDrop, cMinimumAltitude, cMinimumVelocity, ...). Like the pure-Python engine, fall back to the
+        // last integrated point: its signed miss keeps the bracketing of the zero-finding solvers valid.
+        const auto point_result = handler.found() ? handler.get_result() : handler.get_last();
+        if (has_error(point_result))
         {
             return BCLIBC_Error{BCLIBC_SolverRuntimeError{"Trajectory too short to determine error at distance."}};
         }
-
-        const auto hit_result = handler.get_result();
-        const auto *hit_ref = (hit_result.has_value() ? &hit_result.value() : nullptr);
-        if (hit_ref == nullptr)
-            return BCLIBC_Error{BCLIBC_RuntimeError{"Single-point handler lost its interpolated result"}};
-        const BCLIBC_BaseTrajData &hit = hit_ref->get();
+        const BCLIBC_BaseTrajData &hit = point_result.value().get();
 
         if (hit_out != nullptr)
         {
