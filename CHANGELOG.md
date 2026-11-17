@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - C ABI for the adaptive integrators (Cash-Karp, Dormand-Prince, Tsitouras) in `bclibc_ffi.h`: `BCLIBCFFI_integrate_adaptive_shot`, `BCLIBCFFI_free_base_trajectory`, and the zero-angle, zero-point, max-range and apex variants `BCLIBCFFI_*_adaptive_shot`. Each takes per-call relative and absolute tolerances and reports accepted and rejected step counts (`BCLIBCFFI_StepStats`); the integrate call can also return the accepted-step stream as dense output. Each call owns its integrator, so no state is shared between calls.
+- C ABI for the remaining engine paths: `BCLIBCFFI_integrate_dense_shot` (dense output for the fixed-step RK4, Euler and
+  Velocity Verlet methods), `BCLIBCFFI_find_zero_angle_lofted_shot` and `BCLIBCFFI_find_zero_point_lofted_shot` (lofted
+  solvers, fixed-step), their `*_lofted_adaptive_shot` variants, and `BCLIBCFFI_integrate_at_adaptive_shot` (interpolated
+  point with per-call tolerances). Errors use the same `BCLIBCFFI_Status` codes.
+
 
 ## [2.0.0] - 2026-10-03
 

@@ -639,6 +639,84 @@ extern "C"
         BCLIBCFFI_StepStats *out_stats,
         BCLIBCFFI_Error *err);
 
+    /**
+     * @brief Integrate with a fixed-step method (shot->method: RK4, Euler or Velocity Verlet) and optional dense output.
+     *
+     * Same outputs as BCLIBCFFI_integrate_adaptive_shot(). Adaptive methods are rejected with BCLIBCFFI_ERR_GENERIC
+     * (use BCLIBCFFI_integrate_adaptive_shot for them).
+     */
+    BCLIBC_API int32_t BCLIBCFFI_integrate_dense_shot(
+        const BCLIBCFFI_Shot *shot,
+        const BCLIBCFFI_TrajectoryRequest *request,
+        int32_t want_dense,
+        BCLIBCFFI_TrajectoryData **out_records,
+        int32_t *out_count,
+        BCLIBCFFI_DenseStep **out_dense,
+        int32_t *out_dense_count,
+        int32_t *out_reason, /**< BCLIBCFFI_TerminationReason */
+        BCLIBCFFI_Error *err);
+
+    /**
+     * @brief Barrel elevation for a zero at distance_ft; lofted != 0 selects the higher trajectory (the lofted
+     * solver), lofted == 0 the lower one. Fixed-step method (shot->method).
+     */
+    BCLIBC_API int32_t BCLIBCFFI_find_zero_angle_lofted_shot(
+        const BCLIBCFFI_Shot *shot,
+        double distance_ft,
+        int32_t lofted,
+        double *out_angle_rad,
+        BCLIBCFFI_Error *err);
+
+    /**
+     * @brief Zero angle and terminal point for a zero at distance_ft; lofted selects the higher trajectory.
+     * Fixed-step method (shot->method).
+     */
+    BCLIBC_API int32_t BCLIBCFFI_find_zero_point_lofted_shot(
+        const BCLIBCFFI_Shot *shot,
+        double distance_ft,
+        int32_t lofted,
+        BCLIBCFFI_ZeroPointResult *out,
+        BCLIBCFFI_Error *err);
+
+    /** BCLIBCFFI_find_zero_angle_lofted_shot() with per-call tolerances and step statistics (adaptive method). */
+    BCLIBC_API int32_t BCLIBCFFI_find_zero_angle_lofted_adaptive_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t method,
+        double relative_tolerance,
+        double absolute_tolerance,
+        double distance_ft,
+        int32_t lofted,
+        double *out_angle_rad,
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err);
+
+    /** BCLIBCFFI_find_zero_point_lofted_shot() with per-call tolerances and step statistics (adaptive method). */
+    BCLIBC_API int32_t BCLIBCFFI_find_zero_point_lofted_adaptive_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t method,
+        double relative_tolerance,
+        double absolute_tolerance,
+        double distance_ft,
+        int32_t lofted,
+        BCLIBCFFI_ZeroPointResult *out,
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err);
+
+    /**
+     * @brief Integrate until key reaches target_value (interpolated raw and full point), with per-call tolerances and
+     * step statistics (adaptive method). The fixed-step variant is BCLIBCFFI_integrate_at_shot().
+     */
+    BCLIBC_API int32_t BCLIBCFFI_integrate_at_adaptive_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t method,
+        double relative_tolerance,
+        double absolute_tolerance,
+        int32_t key, /**< BCLIBCFFI_BaseTrajInterpKey */
+        double target_value,
+        BCLIBCFFI_Interception *out,
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err);
+
     // ============================================================================
     // ABI layout introspection (WASM/JS interop only — unused by dart:ffi,
     // which derives struct layout at ffigen-generation time instead).

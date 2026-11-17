@@ -149,12 +149,69 @@ static void test_zero_and_apex()
     CHECK(apex.height_ft > 0.0);
 }
 
+
+static void test_fixed_dense()
+{
+    BCLIBCFFI_Shot s = make_shot(BCLIBCFFI_INTEGRATION_RK4);
+    BCLIBCFFI_TrajectoryRequest req{1000.0 * 3.28084, 100.0 * 3.28084, 0.0, 0};
+    BCLIBCFFI_TrajectoryData *recs = nullptr;
+    BCLIBCFFI_DenseStep *dense = nullptr;
+    int32_t n = 0, dn = 0, reason = 0;
+    BCLIBCFFI_Error err;
+    CHECK(BCLIBCFFI_integrate_dense_shot(&s, &req, 1, &recs, &n, &dense, &dn, &reason, &err) == BCLIBCFFI_OK);
+    CHECK(dense != nullptr && dn > 2 && n > 0);
+    if (dense && dn > 1)
+    {
+        CHECK(dense[0].time == 0.0);
+        CHECK(dense[dn - 1].time > dense[0].time);
+    }
+    BCLIBCFFI_free_base_trajectory(dense);
+    BCLIBCFFI_free_trajectory(recs);
+
+    // Adaptive methods are rejected here.
+    BCLIBCFFI_Shot d = make_shot(BCLIBCFFI_INTEGRATION_DORMAND_PRINCE);
+    CHECK(BCLIBCFFI_integrate_dense_shot(&d, &req, 0, &recs, &n, nullptr, nullptr, &reason, &err) ==
+          BCLIBCFFI_ERR_GENERIC);
+    CHECK(err.code == BCLIBCFFI_ERR_GENERIC);
+}
+
+static void test_lofted_and_integrate_at()
+{
+    // The lofted solver reports "Trajectory too short" for the test shots (the Cython engines report the same error
+    // for these shots); the entry points must return that status, not crash or return garbage.
+    BCLIBCFFI_Shot s = make_shot(BCLIBCFFI_INTEGRATION_RK4);
+    double angle = -1.0;
+    BCLIBCFFI_Error err;
+    CHECK(BCLIBCFFI_find_zero_angle_lofted_shot(&s, 300.0 * 3.28084, 0, &angle, &err) == BCLIBCFFI_OK);
+    CHECK(std::isfinite(angle) && angle > 0.0);
+    CHECK(BCLIBCFFI_find_zero_angle_lofted_shot(&s, 300.0 * 3.28084, 1, &angle, &err) == BCLIBCFFI_ERR_SOLVER_RUNTIME);
+    CHECK(std::strstr(err.message, "too short") != nullptr);
+
+    BCLIBCFFI_ZeroPointResult zp;
+    CHECK(BCLIBCFFI_find_zero_point_lofted_shot(&s, 300.0 * 3.28084, 0, &zp, &err) == BCLIBCFFI_OK);
+    CHECK(std::isfinite(zp.angle_rad) && zp.angle_rad > 0.0);
+
+    // integrate_at: interpolated raw point at time 0.5 s, fixed-step and adaptive
+    BCLIBCFFI_Interception hit;
+    CHECK(BCLIBCFFI_integrate_at_shot(&s, 0 /* BCLIBCFFI_INTERP_KEY_TIME */, 0.5, &hit, &err) == BCLIBCFFI_OK);
+    CHECK(std::fabs(hit.raw_data.time - 0.5) < 1e-6);
+
+    BCLIBCFFI_Shot a = make_shot(BCLIBCFFI_INTEGRATION_CASH_KARP);
+    BCLIBCFFI_StepStats st{0, 0};
+    CHECK(BCLIBCFFI_integrate_at_adaptive_shot(&a, BCLIBCFFI_INTEGRATION_CASH_KARP, 1e-8, 1e-8, 0, 0.5, &hit, &st,
+                                               &err) == BCLIBCFFI_OK);
+    CHECK(std::fabs(hit.raw_data.time - 0.5) < 1e-6);
+    CHECK(st.accepted > 0);
+}
+
 int main()
 {
     test_status_codes();
     test_tolerance_and_stats();
     test_dense_output();
     test_zero_and_apex();
+    test_fixed_dense();
+    test_lofted_and_integrate_at();
     if (failures)
     {
         std::fprintf(stderr, "%d check(s) failed\n", failures);
