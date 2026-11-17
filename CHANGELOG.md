@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- C ABI for the adaptive integrators (Cash-Karp, Dormand-Prince, Tsitouras) in `bclibc_ffi.h`: `BCLIBCFFI_integrate_adaptive_shot`, `BCLIBCFFI_free_base_trajectory`, and the zero-angle, zero-point, max-range and apex variants `BCLIBCFFI_*_adaptive_shot`. Each takes per-call relative and absolute tolerances and reports accepted and rejected step counts (`BCLIBCFFI_StepStats`); the integrate call can also return the accepted-step stream as dense output. Each call owns its integrator, so no state is shared between calls.
+
 ## [2.0.0] - 2026-10-03
 
 Stable release, covering the whole arc from 1.1.8 through 2.0.0-rc.4. Highlights below; full details are in

@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstring>
 #include <cstdlib>
+#include <functional>
 #include <type_traits>
 #include <vector>
 
@@ -397,6 +398,55 @@ static int32_t ffi_call(Func &&fn, BCLIBCFFI_Error *err) noexcept
 {
     clearError(err);
     return fn();
+}
+
+// ============================================================================
+// Adaptive integrators: one integrator per call, installed by reference
+// ============================================================================
+
+// Runs fn(eng, integrator) with a fresh stateful integrator at the given tolerances. The integrator is
+// installed as the engine's integrate_func by reference; its step counts are read by the caller.
+template <class Integ, class Fn>
+static int32_t runAdaptive(const BCLIBCFFI_Shot *shot, double rtol, double atol, BCLIBCFFI_Error *err, Fn &&fn)
+{
+    Integ integ;
+    const auto r = integ.set_relative_tolerance(rtol);
+    if (has_error(r)) return setEngineError(err, r.error());
+    const auto a = integ.set_absolute_tolerance(atol);
+    if (has_error(a)) return setEngineError(err, a.error());
+    BCLIBC_BaseEngine eng;
+    if (const auto status = initEngineFromShot(eng, shot, err); status != BCLIBCFFI_OK) return status;
+    eng.integrate_func = BCLIBC_IntegrateCallable(std::ref(integ));
+    return fn(eng, integ);
+}
+
+template <class Fn>
+static int32_t dispatchAdaptive(int32_t method, const BCLIBCFFI_Shot *shot, double rtol, double atol,
+                                BCLIBCFFI_Error *err, Fn &&fn)
+{
+    switch (method)
+    {
+    case BCLIBCFFI_INTEGRATION_CASH_KARP:
+        return runAdaptive<BCLIBC_CashKarpIntegrator>(shot, rtol, atol, err, fn);
+    case BCLIBCFFI_INTEGRATION_DORMAND_PRINCE:
+        return runAdaptive<BCLIBC_DormandPrinceIntegrator>(shot, rtol, atol, err, fn);
+    case BCLIBCFFI_INTEGRATION_TSITOURAS:
+        return runAdaptive<BCLIBC_TsitourasIntegrator>(shot, rtol, atol, err, fn);
+    default:
+        setError(err, BCLIBCFFI_ERR_GENERIC, "adaptive method required (cash-karp, dormand-prince, tsitouras)");
+        return BCLIBCFFI_ERR_GENERIC;
+    }
+}
+
+// Writes the step counts of a finished (or failed) adaptive run to out_stats, when given.
+template <class Integ>
+static void storeStats(const Integ &integ, BCLIBCFFI_StepStats *out_stats)
+{
+    if (!out_stats) return;
+    int accepted = 0, rejected = 0;
+    integ.get_stats(accepted, rejected);
+    out_stats->accepted = accepted;
+    out_stats->rejected = rejected;
 }
 
 // ============================================================================
@@ -800,6 +850,162 @@ extern "C"
             toC(raw, out->raw_data);
             toC(full, out->full_data);
             return BCLIBCFFI_OK; }, err);
+    }
+
+    int32_t BCLIBCFFI_integrate_adaptive_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t method,
+        double relative_tolerance,
+        double absolute_tolerance,
+        const BCLIBCFFI_TrajectoryRequest *request,
+        int32_t want_dense,
+        BCLIBCFFI_TrajectoryData **out_records,
+        int32_t *out_count,
+        BCLIBCFFI_DenseStep **out_dense,
+        int32_t *out_dense_count,
+        int32_t *out_reason,
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err)
+    {
+        if (out_dense) *out_dense = nullptr;
+        if (out_dense_count) *out_dense_count = 0;
+        return ffi_call([&]() -> int32_t
+                        { return dispatchAdaptive(method, shot, relative_tolerance, absolute_tolerance, err,
+                                                  [&](BCLIBC_BaseEngine &eng, auto &integ) -> int32_t
+                                                  {
+                              std::vector<BCLIBC_TrajectoryData> records;
+                              BCLIBC_TerminationReason reason;
+                              BCLIBC_BaseTrajSeq dense;
+                              const auto res = eng.integrate_filtered(
+                                  request->range_limit_ft, request->range_step_ft, request->time_step,
+                                  static_cast<BCLIBC_TrajFlag>(request->filter_flags),
+                                  records, reason, want_dense ? &dense : nullptr);
+                              storeStats(integ, out_stats);
+                              if (has_error(res)) return setEngineError(err, res.error());
+
+                              const auto count = static_cast<int32_t>(records.size());
+                              BCLIBCFFI_TrajectoryData *arr = nullptr;
+                              if (count > 0)
+                              {
+                                  arr = static_cast<BCLIBCFFI_TrajectoryData *>(
+                                      std::malloc(sizeof(BCLIBCFFI_TrajectoryData) * static_cast<size_t>(count)));
+                                  if (!arr)
+                                  {
+                                      setError(err, BCLIBCFFI_ERR_GENERIC, "Out of memory allocating trajectory");
+                                      return BCLIBCFFI_ERR_GENERIC;
+                                  }
+                                  for (int32_t i = 0; i < count; ++i) toC(records[i], arr[i]);
+                              }
+                              *out_records = arr;
+                              *out_count = count;
+                              *out_reason = static_cast<int32_t>(reason);
+
+                              if (want_dense && out_dense)
+                              {
+                                  const auto n = static_cast<int32_t>(dense.get_length());
+                                  BCLIBCFFI_DenseStep *darr = nullptr;
+                                  if (n > 0)
+                                  {
+                                      darr = static_cast<BCLIBCFFI_DenseStep *>(
+                                          std::malloc(sizeof(BCLIBCFFI_DenseStep) * static_cast<size_t>(n)));
+                                      if (!darr)
+                                      {
+                                          std::free(arr);
+                                          setError(err, BCLIBCFFI_ERR_GENERIC, "Out of memory allocating dense output");
+                                          return BCLIBCFFI_ERR_GENERIC;
+                                      }
+                                      for (int32_t i = 0; i < n; ++i)
+                                      {
+                                          const auto item = dense[i];
+                                          if (has_error(item))
+                                          {
+                                              std::free(darr);
+                                              std::free(arr);
+                                              return setEngineError(err, item.error());
+                                          }
+                                          toC(item.value().get(), darr[i]);
+                                      }
+                                  }
+                                  *out_dense = darr;
+                                  *out_dense_count = n;
+                              }
+                              return BCLIBCFFI_OK; }); }, err);
+    }
+
+    void BCLIBCFFI_free_base_trajectory(BCLIBCFFI_DenseStep *steps)
+    {
+        std::free(steps);
+    }
+
+    int32_t BCLIBCFFI_find_zero_angle_adaptive_shot(
+        const BCLIBCFFI_Shot *shot, int32_t method, double relative_tolerance, double absolute_tolerance,
+        double distance_ft, double *out_angle_rad, BCLIBCFFI_StepStats *out_stats, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        { return dispatchAdaptive(method, shot, relative_tolerance, absolute_tolerance, err,
+                                                  [&](BCLIBC_BaseEngine &eng, auto &integ) -> int32_t
+                                                  {
+                              const auto angle = eng.zero_angle_with_fallback(
+                                  distance_ft, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
+                              storeStats(integ, out_stats);
+                              if (has_error(angle)) return setEngineError(err, angle.error());
+                              *out_angle_rad = angle.value();
+                              return BCLIBCFFI_OK; }); }, err);
+    }
+
+    int32_t BCLIBCFFI_find_zero_point_adaptive_shot(
+        const BCLIBCFFI_Shot *shot, int32_t method, double relative_tolerance, double absolute_tolerance,
+        double distance_ft, BCLIBCFFI_ZeroPointResult *out, BCLIBCFFI_StepStats *out_stats, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        { return dispatchAdaptive(method, shot, relative_tolerance, absolute_tolerance, err,
+                                                  [&](BCLIBC_BaseEngine &eng, auto &integ) -> int32_t
+                                                  {
+                              const auto point = eng.zero_point_with_fallback(
+                                  distance_ft, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
+                              storeStats(integ, out_stats);
+                              if (has_error(point)) return setEngineError(err, point.error());
+                              toC(point.value(), *out);
+                              return BCLIBCFFI_OK; }); }, err);
+    }
+
+    int32_t BCLIBCFFI_find_max_range_adaptive_shot(
+        const BCLIBCFFI_Shot *shot, int32_t method, double relative_tolerance, double absolute_tolerance,
+        double low_angle_deg, double high_angle_deg, BCLIBCFFI_MaxRangeResult *out,
+        BCLIBCFFI_StepStats *out_stats, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        { return dispatchAdaptive(method, shot, relative_tolerance, absolute_tolerance, err,
+                                                  [&](BCLIBC_BaseEngine &eng, auto &integ) -> int32_t
+                                                  {
+                              const auto r = eng.find_max_range(low_angle_deg, high_angle_deg, APEX_IS_MAX_RANGE_RADIANS);
+                              storeStats(integ, out_stats);
+                              if (has_error(r)) return setEngineError(err, r.error());
+                              out->max_range_ft = r.value().max_range_ft;
+                              out->angle_at_max_rad = r.value().angle_at_max_rad;
+                              return BCLIBCFFI_OK; }); }, err);
+    }
+
+    int32_t BCLIBCFFI_find_apex_adaptive_shot(
+        const BCLIBCFFI_Shot *shot, int32_t method, double relative_tolerance, double absolute_tolerance,
+        BCLIBCFFI_TrajectoryData *out, BCLIBCFFI_StepStats *out_stats, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        { return dispatchAdaptive(method, shot, relative_tolerance, absolute_tolerance, err,
+                                                  [&](BCLIBC_BaseEngine &eng, auto &integ) -> int32_t
+                                                  {
+                              BCLIBC_BaseTrajData apex;
+                              const auto apex_result = eng.find_apex(apex);
+                              storeStats(integ, out_stats);
+                              if (has_error(apex_result)) return setEngineError(err, apex_result.error());
+                              auto traj = BCLIBC_TrajectoryData::from_base(eng.shot, apex, BCLIBC_TRAJ_FLAG_APEX);
+                              if (has_error(traj))
+                              {
+                                  setError(err, BCLIBCFFI_ERR_GENERIC, traj.error().what());
+                                  return BCLIBCFFI_ERR_GENERIC;
+                              }
+                              toC(traj.value(), *out);
+                              return BCLIBCFFI_OK; }); }, err);
     }
 
     // ============================================================================

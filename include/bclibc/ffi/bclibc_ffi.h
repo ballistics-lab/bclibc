@@ -548,6 +548,98 @@ extern "C"
         BCLIBCFFI_Error *err);
 
     // ============================================================================
+    // Adaptive integrators (Cash-Karp, Dormand-Prince, Tsitouras)
+    //
+    // Each call builds its own integrator, so tolerances and step statistics are per call and calls
+    // are independent (no shared or thread-local state). `method` must be one of
+    // BCLIBCFFI_INTEGRATION_CASH_KARP, BCLIBCFFI_INTEGRATION_DORMAND_PRINCE or
+    // BCLIBCFFI_INTEGRATION_TSITOURAS; any other value returns BCLIBCFFI_ERR_GENERIC.
+    // `shot->method` is ignored for these calls. Tolerances must be finite and positive (relative)
+    // or finite and non-negative (absolute); otherwise BCLIBCFFI_ERR_GENERIC is returned.
+    // ============================================================================
+
+    /** Accepted and rejected step counts of the most recent adaptive call. */
+    typedef struct BCLIBCFFI_StepStats
+    {
+        int32_t accepted; /**< Accepted steps. */
+        int32_t rejected; /**< Rejected steps. */
+    } BCLIBCFFI_StepStats;
+
+    /** One accepted step of the adaptive integrator (dense output). Same layout as BCLIBCFFI_BaseTrajData. */
+    typedef BCLIBCFFI_BaseTrajData BCLIBCFFI_DenseStep;
+
+    /**
+     * @brief Integrate with per-call tolerances, optionally returning the accepted-step stream.
+     *
+     * On success *out_records (and *out_dense when want_dense != 0) point to heap arrays of
+     * *out_count (and *out_dense_count) elements. Release them with BCLIBCFFI_free_trajectory() and
+     * BCLIBCFFI_free_base_trajectory(). *out_dense is NULL when want_dense == 0.
+     *
+     * @param out_stats Optional. Filled even when the integration fails (step counts so far).
+     */
+    BCLIBC_API int32_t BCLIBCFFI_integrate_adaptive_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t method,
+        double relative_tolerance,
+        double absolute_tolerance,
+        const BCLIBCFFI_TrajectoryRequest *request,
+        int32_t want_dense,
+        BCLIBCFFI_TrajectoryData **out_records,
+        int32_t *out_count,
+        BCLIBCFFI_DenseStep **out_dense,
+        int32_t *out_dense_count,
+        int32_t *out_reason, /**< BCLIBCFFI_TerminationReason */
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err);
+
+    /** Free a dense-step array allocated by BCLIBCFFI_integrate_adaptive_shot(). */
+    BCLIBC_API void BCLIBCFFI_free_base_trajectory(BCLIBCFFI_DenseStep *steps);
+
+    /** Barrel elevation that hits the sight line at distance_ft, with per-call tolerances. */
+    BCLIBC_API int32_t BCLIBCFFI_find_zero_angle_adaptive_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t method,
+        double relative_tolerance,
+        double absolute_tolerance,
+        double distance_ft,
+        double *out_angle_rad,
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err);
+
+    /** Lower zero and its terminal RANGE point, with per-call tolerances. */
+    BCLIBC_API int32_t BCLIBCFFI_find_zero_point_adaptive_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t method,
+        double relative_tolerance,
+        double absolute_tolerance,
+        double distance_ft,
+        BCLIBCFFI_ZeroPointResult *out,
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err);
+
+    /** Maximum range and its launch angle within [low_angle_deg, high_angle_deg], with per-call tolerances. */
+    BCLIBC_API int32_t BCLIBCFFI_find_max_range_adaptive_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t method,
+        double relative_tolerance,
+        double absolute_tolerance,
+        double low_angle_deg,
+        double high_angle_deg,
+        BCLIBCFFI_MaxRangeResult *out,
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err);
+
+    /** Apex point, with per-call tolerances. */
+    BCLIBC_API int32_t BCLIBCFFI_find_apex_adaptive_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t method,
+        double relative_tolerance,
+        double absolute_tolerance,
+        BCLIBCFFI_TrajectoryData *out,
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err);
+
+    // ============================================================================
     // ABI layout introspection (WASM/JS interop only — unused by dart:ffi,
     // which derives struct layout at ffigen-generation time instead).
     // ============================================================================
