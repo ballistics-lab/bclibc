@@ -144,9 +144,9 @@ static double calcStep(BCLIBCFFI_IntegrationMethod m, double multiplier)
     case BCLIBCFFI_INTEGRATION_RK4:
         return 0.0025 * multiplier;
     case BCLIBCFFI_INTEGRATION_VELOCITY_VERLET:
-        // Velocity Verlet is a fixed-step (non-adaptive) method like RK4; use the
-        // same conservative base step size for comparable accuracy.
-        return 0.0025 * multiplier;
+        // Velocity Verlet uses the 0.001 s base step of the Python and Cython engines
+        // (VelocityVerletIntegrationEngine.DEFAULT_TIME_STEP), not RK4's 0.0025 s.
+        return 0.001 * multiplier;
     case BCLIBCFFI_INTEGRATION_CASH_KARP:
         // This is the *base* step Cash-Karp starts from and can grow up to 64x
         // (or shrink down to 1/64x) via its own adaptive error control -- same
