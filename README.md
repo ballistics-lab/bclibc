@@ -205,7 +205,7 @@ Two build artifacts:
 
 - CMake 3.13+
 - C++17 compiler: GCC, Clang, or MSVC
-- Make (Linux/macOS) or Visual Studio 2022 (Windows)
+- Make (Linux/macOS) or Visual Studio (Windows, any recent version: CMake picks the newest installed)
 
 ---
 
@@ -213,11 +213,7 @@ Two build artifacts:
 
 ### Linux / macOS
 
-```bash
-./build.sh
-```
-
-Or via Make:
+With Make:
 
 ```bash
 make          # Build everything (Core + FFI)
@@ -230,17 +226,15 @@ make clean    # Remove build/
 
 ### Windows
 
-PowerShell:
-```powershell
-.\build.ps1              # Release (default)
-.\build.ps1 -Configuration Debug
+Use CMake directly (from any shell; `-A x64` selects the architecture of the Visual Studio generator):
+
+```bat
+cmake -B build -A x64
+cmake --build build --config Release
+cmake --build build --config Debug
 ```
 
-CMD:
-```bat
-build.bat Release
-build.bat Debug
-```
+The DLL is `build\bin\<Config>\bclibc_ffi.dll`, the static core `build\lib\<Config>\bclibc_core.lib`.
 
 ### Manual CMake
 
@@ -521,10 +515,6 @@ chmod +x pre-commit-check.sh
 │
 ├── CMakeLists.txt
 ├── Makefile
-├── build.sh                       # Linux/macOS build script
-├── build.ps1                      # Windows PowerShell build script
-├── build.bat                      # Windows CMD build script
-├── clean.ps1                      # Windows clean script
 ├── pre-commit-check.sh
 ├── version.h.in
 └── LICENSE

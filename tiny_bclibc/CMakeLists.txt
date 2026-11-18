@@ -84,9 +84,13 @@ function(tiny_bclibc_configure_target tgt)
         #      so -Os is safe: no duplicate rk4/filter, arithmetic still well-optimized.
         # -fvisibility=hidden: only TINY_BCLIBC_FUNC symbols exported; internals hidden.
         target_compile_options(${tgt} PRIVATE -Os -fvisibility=hidden)
-        # Strip unneeded symbols in Release builds
-        target_link_options(${tgt} PRIVATE
-            $<$<CONFIG:Release>:-Wl,--strip-all>)
+        # Strip symbols in Release builds. Apple's ld has no --strip-all: -x drops the non-global symbols there (the
+        # exported ones are what a shared library keeps anyway).
+        if(APPLE)
+            target_link_options(${tgt} PRIVATE $<$<CONFIG:Release>:-Wl,-x>)
+        else()
+            target_link_options(${tgt} PRIVATE $<$<CONFIG:Release>:-Wl,--strip-all>)
+        endif()
     endif()
 endfunction()
 

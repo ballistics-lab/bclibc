@@ -102,10 +102,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      # The documented entry points of the repo, none of which the other jobs run.
-      - name: build.sh
-        run: ./build.sh
-
+      # The Makefile entry points, which the other jobs (plain cmake) never run.
       - name: Makefile targets
         run: |
           make build
@@ -118,23 +115,6 @@ jobs:
       # rules, the include directories of the exported targets, the short target names, libm.
       - name: Installed packages work for consumers
         run: cmake/check_package.sh
-
-  windows-scripts:
-    name: Windows build scripts
-    runs-on: windows-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: build.ps1
-        shell: pwsh
-        run: ./build.ps1 -Configuration Release
-
-      - name: build.bat
-        shell: cmd
-        run: |
-          rmdir /s /q build
-          call build.bat Debug
 
   no-exceptions:
     name: No exceptions or RTTI in the core
