@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <initializer_list>
 
 static int failures = 0;
 
@@ -285,6 +286,207 @@ static void test_invalid_arguments()
     BCLIBCFFI_free_trajectory(nullptr);
 }
 
+static const double kFt = 3.28084;
+
+static void test_error_at_distance_and_range()
+{
+    const double d = 300.0 * kFt;
+    const int32_t methods[] = {BCLIBCFFI_INTEGRATION_RK4, BCLIBCFFI_INTEGRATION_CASH_KARP,
+                               BCLIBCFFI_INTEGRATION_DORMAND_PRINCE, BCLIBCFFI_INTEGRATION_TSITOURAS};
+    for (int32_t m : methods)
+    {
+        BCLIBCFFI_Shot s = make_shot(m);
+        BCLIBCFFI_Error err;
+        double zero = 0.0;
+        CHECK(BCLIBCFFI_find_zero_angle_shot(&s, d, &zero, &err) == BCLIBCFFI_OK);
+
+        // At the zero angle the error at the target is ~0, and the hit point lies at the target distance.
+        double e = 1.0;
+        BCLIBCFFI_BaseTrajData hit;
+        std::memset(&hit, 0, sizeof hit);
+        CHECK(BCLIBCFFI_error_at_distance_shot(&s, zero, d, 0.0, &e, &hit, &err) == BCLIBCFFI_OK);
+        CHECK(std::fabs(e) < 1e-2);
+        CHECK(std::fabs(hit.px - d) < 1e-6 && hit.time > 0.0);
+
+        // A steeper angle puts the shot higher (positive error), a flatter one lower.
+        double up = 0.0, down = 0.0;
+        CHECK(BCLIBCFFI_error_at_distance_shot(&s, zero + 0.002, d, 0.0, &up, nullptr, &err) == BCLIBCFFI_OK);
+        CHECK(BCLIBCFFI_error_at_distance_shot(&s, zero - 0.002, d, 0.0, &down, nullptr, &err) == BCLIBCFFI_OK);
+        CHECK(up > e && down < e);
+
+        // The line-of-sight crossing for the zero angle is the zero distance, for every method: the crossing is
+        // located on the Hermite interpolant of the step, so large adaptive steps do not cost accuracy.
+        double range = 0.0;
+        CHECK(BCLIBCFFI_range_for_angle_shot(&s, zero, &range, &err) == BCLIBCFFI_OK);
+        CHECK(std::fabs(range - d) < 0.1);
+
+        // Adaptive forms agree with the fixed-step ones to the tolerance, and report steps.
+        if (m != BCLIBCFFI_INTEGRATION_RK4)
+        {
+            BCLIBCFFI_StepStats st{0, 0};
+            double ea = 1.0, ra = 0.0;
+            CHECK(BCLIBCFFI_error_at_distance_adaptive_shot(&s, m, 1e-9, 1e-9, zero, d, 0.0, &ea, nullptr, &st,
+                                                            &err) == BCLIBCFFI_OK);
+            CHECK(std::fabs(ea) < 1e-2 && st.accepted > 0);
+            st = {0, 0};
+            CHECK(BCLIBCFFI_range_for_angle_adaptive_shot(&s, m, 1e-9, 1e-9, zero, &ra, &st, &err) == BCLIBCFFI_OK);
+            CHECK(std::fabs(ra - d) < 0.1 && st.accepted > 0);
+        }
+    }
+
+    // A target the shot never reaches (it drops below the minimum velocity first): solver error, no crash.
+    BCLIBCFFI_Shot s = make_shot(BCLIBCFFI_INTEGRATION_RK4);
+    BCLIBCFFI_Error err;
+    double e = 0.0;
+    CHECK(BCLIBCFFI_error_at_distance_shot(&s, 0.01, 1e7, 0.0, &e, nullptr, &err) == BCLIBCFFI_ERR_SOLVER_RUNTIME);
+    CHECK(err.code == BCLIBCFFI_ERR_SOLVER_RUNTIME);
+    BCLIBCFFI_StepStats st{-1, -1};
+    CHECK(BCLIBCFFI_error_at_distance_adaptive_shot(&s, BCLIBCFFI_INTEGRATION_TSITOURAS, 1e-6, 1e-6, 0.01, 1e7, 0.0,
+                                                    &e, nullptr, &st, &err) == BCLIBCFFI_ERR_SOLVER_RUNTIME);
+    CHECK(st.accepted > 0); // stats are filled on failure too
+
+    // Invalid adaptive arguments are rejected like everywhere else.
+    CHECK(BCLIBCFFI_error_at_distance_adaptive_shot(&s, BCLIBCFFI_INTEGRATION_RK4, 1e-6, 1e-6, 0.01, d, 0.0, &e,
+                                                    nullptr, nullptr, &err) == BCLIBCFFI_ERR_GENERIC);
+    CHECK(BCLIBCFFI_range_for_angle_adaptive_shot(&s, BCLIBCFFI_INTEGRATION_TSITOURAS, -1.0, 1e-6, 0.01, &e,
+                                                  nullptr, &err) == BCLIBCFFI_ERR_GENERIC);
+}
+
+static void test_newton_and_zero_init()
+{
+    const double d = 300.0 * kFt;
+    BCLIBCFFI_Error err;
+    for (int32_t m : {BCLIBCFFI_INTEGRATION_RK4, BCLIBCFFI_INTEGRATION_TSITOURAS})
+    {
+        BCLIBCFFI_Shot s = make_shot(m);
+        double ref = 0.0, newton = 0.0;
+        CHECK(BCLIBCFFI_find_zero_angle_shot(&s, d, &ref, &err) == BCLIBCFFI_OK);
+        CHECK(BCLIBCFFI_find_zero_angle_newton_shot(&s, d, &newton, &err) == BCLIBCFFI_OK);
+        CHECK(std::fabs(newton - ref) < 1e-6);
+    }
+    BCLIBCFFI_Shot a = make_shot(BCLIBCFFI_INTEGRATION_DORMAND_PRINCE);
+    BCLIBCFFI_StepStats st{0, 0};
+    double ref = 0.0, newton = 0.0;
+    CHECK(BCLIBCFFI_find_zero_angle_adaptive_shot(&a, BCLIBCFFI_INTEGRATION_DORMAND_PRINCE, 1e-9, 1e-9, d, &ref, nullptr,
+                                                  &err) == BCLIBCFFI_OK);
+    CHECK(BCLIBCFFI_find_zero_angle_newton_adaptive_shot(&a, BCLIBCFFI_INTEGRATION_DORMAND_PRINCE, 1e-9, 1e-9, d,
+                                                         &newton, &st, &err) == BCLIBCFFI_OK);
+    CHECK(std::fabs(newton - ref) < 1e-6 && st.accepted > 0);
+    CHECK(BCLIBCFFI_find_zero_angle_newton_adaptive_shot(&a, 0, 1e-9, 1e-9, d, &newton, nullptr, &err) ==
+          BCLIBCFFI_ERR_GENERIC);
+
+    // zero_init: an ordinary shot needs a search; the target is d ahead, the muzzle sits a sight height below.
+    BCLIBCFFI_Shot s = make_shot(BCLIBCFFI_INTEGRATION_RK4);
+    BCLIBCFFI_ZeroInit zi;
+    std::memset(&zi, 0xFF, sizeof zi);
+    CHECK(BCLIBCFFI_zero_init_shot(&s, d, &zi, &err) == BCLIBCFFI_OK);
+    CHECK(zi.status == BCLIBCFFI_ZERO_INIT_CONTINUE && zi.reserved == 0);
+    CHECK(std::fabs(zi.slant_range_ft - d) < 1e-9 && std::fabs(zi.target_x_ft - d) < 1e-9);
+    CHECK(std::fabs(zi.target_y_ft) < 1e-9 && std::fabs(zi.look_angle_rad) < 1e-12);
+    CHECK(std::fabs(zi.start_height_ft + 0.15) < 1e-9);
+    // A target at the muzzle is done at once.
+    CHECK(BCLIBCFFI_zero_init_shot(&s, 1e-6, &zi, &err) == BCLIBCFFI_OK);
+    CHECK(zi.status == BCLIBCFFI_ZERO_INIT_DONE);
+    st = {0, 0};
+    CHECK(BCLIBCFFI_zero_init_adaptive_shot(&a, BCLIBCFFI_INTEGRATION_DORMAND_PRINCE, 1e-6, 1e-6, d, &zi, &st, &err) ==
+          BCLIBCFFI_OK);
+    CHECK(zi.status == BCLIBCFFI_ZERO_INIT_CONTINUE);
+    // A vertical shot whose apex is below the target: out of range.
+    BCLIBCFFI_Shot v = make_shot(BCLIBCFFI_INTEGRATION_RK4);
+    v.look_angle_rad = 1.5707963267948966;
+    v.barrel_elevation_rad = 1.5707963267948966;
+    CHECK(BCLIBCFFI_zero_init_shot(&v, 1e7, &zi, &err) == BCLIBCFFI_ERR_OUT_OF_RANGE);
+}
+
+static void test_dense_helpers()
+{
+    BCLIBCFFI_Shot s = make_shot(BCLIBCFFI_INTEGRATION_TSITOURAS);
+    BCLIBCFFI_TrajectoryRequest req{1000.0 * kFt, 100.0 * kFt, 0.0, 0};
+    BCLIBCFFI_TrajectoryData *recs = nullptr;
+    BCLIBCFFI_DenseStep *dense = nullptr;
+    int32_t n = 0, dn = 0, reason = 0;
+    BCLIBCFFI_Error err;
+    s.barrel_elevation_rad = 0.004;
+    CHECK(BCLIBCFFI_integrate_adaptive_shot(&s, BCLIBCFFI_INTEGRATION_TSITOURAS, 1e-9, 1e-9, &req, 1, &recs, &n,
+                                            &dense, &dn, &reason, nullptr, &err) == BCLIBCFFI_OK);
+    CHECK(dense != nullptr && dn > 4);
+    if (dense && dn > 4)
+    {
+        // Interpolating in the dense stream at a time inside it matches integrate_at at that time.
+        const double t = 0.5;
+        BCLIBCFFI_DenseStep at;
+        CHECK(BCLIBCFFI_dense_get_at(dense, dn, BCLIBCFFI_INTERP_KEY_TIME, t, 0.0, &at, &err) == BCLIBCFFI_OK);
+        CHECK(std::fabs(at.time - t) < 1e-12);
+        BCLIBCFFI_Interception hit;
+        CHECK(BCLIBCFFI_integrate_at_adaptive_shot(&s, BCLIBCFFI_INTEGRATION_TSITOURAS, 1e-9, 1e-9, 0, t, &hit,
+                                                   nullptr, &err) == BCLIBCFFI_OK);
+        // Both interpolate the same stream, from slightly different brackets: they agree to a few millimetres.
+        CHECK(std::fabs(at.px - hit.raw_data.px) < 0.05 && std::fabs(at.py - hit.raw_data.py) < 0.01);
+
+        // An exact step is returned as it is.
+        BCLIBCFFI_DenseStep exact;
+        CHECK(BCLIBCFFI_dense_get_at(dense, dn, BCLIBCFFI_INTERP_KEY_TIME, dense[2].time, 0.0, &exact, &err) ==
+              BCLIBCFFI_OK);
+        CHECK(exact.px == dense[2].px && exact.vy == dense[2].vy);
+
+        // By position, by slant height (the muzzle is 0.15 ft below the sight line, so it crosses 0 going up).
+        BCLIBCFFI_DenseStep byx;
+        CHECK(BCLIBCFFI_dense_get_at(dense, dn, BCLIBCFFI_INTERP_KEY_POS_X, 500.0, 0.0, &byx, &err) == BCLIBCFFI_OK);
+        CHECK(std::fabs(byx.px - 500.0) < 1e-9);
+        BCLIBCFFI_DenseStep slant;
+        CHECK(BCLIBCFFI_dense_get_at_slant_height(dense, dn, 0.0, 0.0, &slant, &err) == BCLIBCFFI_OK);
+        CHECK(std::fabs(slant.py) < 1e-6);
+
+        // A value outside the stream is an interception error, not a crash.
+        BCLIBCFFI_DenseStep none;
+        CHECK(BCLIBCFFI_dense_get_at(dense, dn, BCLIBCFFI_INTERP_KEY_TIME, 1e6, 0.0, &none, &err) !=
+              BCLIBCFFI_OK);
+        // Empty input is rejected.
+        CHECK(BCLIBCFFI_dense_get_at(nullptr, 0, BCLIBCFFI_INTERP_KEY_TIME, 0.5, 0.0, &none, &err) ==
+              BCLIBCFFI_ERR_GENERIC);
+        CHECK(BCLIBCFFI_dense_get_at_slant_height(dense, 0, 0.0, 0.0, &none, &err) == BCLIBCFFI_ERR_GENERIC);
+
+        // A step becomes a full record: it matches the record the integrate call itself produced at that range
+        // (3 x 100 m = 984.252 ft is one of the requested rows).
+        const double row_ft = 3.0 * 100.0 * kFt;
+        BCLIBCFFI_DenseStep byrow;
+        CHECK(BCLIBCFFI_dense_get_at(dense, dn, BCLIBCFFI_INTERP_KEY_POS_X, row_ft, 0.0, &byrow, &err) == BCLIBCFFI_OK);
+        BCLIBCFFI_TrajectoryData full;
+        CHECK(BCLIBCFFI_trajectory_data_from_step_shot(&s, &byrow, BCLIBCFFI_TRAJ_FLAG_RANGE, &full, &err) ==
+              BCLIBCFFI_OK);
+        CHECK(full.flag == BCLIBCFFI_TRAJ_FLAG_RANGE);
+        CHECK(std::fabs(full.distance_ft - row_ft) < 1e-9 && std::fabs(full.time - byrow.time) < 1e-12);
+        CHECK(full.velocity_fps > 0.0 && full.energy_ft_lb > 0.0);
+        bool matched = false;
+        for (int32_t i = 0; i < n; ++i)
+        {
+            if (std::fabs(recs[i].distance_ft - row_ft) < 1e-6)
+            {
+                matched = true;
+                CHECK(std::fabs(recs[i].height_ft - full.height_ft) < 0.01);
+                CHECK(std::fabs(recs[i].velocity_fps - full.velocity_fps) < 0.5);
+            }
+        }
+        CHECK(matched);
+    }
+    BCLIBCFFI_free_base_trajectory(dense);
+    BCLIBCFFI_free_trajectory(recs);
+}
+
+static void test_layout_ext()
+{
+    int32_t buf[32];
+    CHECK(BCLIBCFFI_get_layout_ext(buf, 3) == -1);
+    const int32_t count = BCLIBCFFI_get_layout_ext(buf, 32);
+    CHECK(count == 11);
+    CHECK(buf[0] == (int32_t)sizeof(BCLIBCFFI_StepStats) && buf[1] == 0 && buf[2] == 4);
+    CHECK(buf[3] == (int32_t)sizeof(BCLIBCFFI_ZeroInit) && buf[4] == 0 && buf[5] == 4 && buf[6] == 8);
+    // The frozen layout keeps its size (85 values), so readers built against it still work. Adding a field to it
+    // is a breaking change: put new structs in BCLIBCFFI_get_layout_ext() instead.
+    int32_t big[256];
+    CHECK(BCLIBCFFI_get_layout(big, 256) == 85);
+}
+
 int main()
 {
     test_status_codes();
@@ -295,6 +497,10 @@ int main()
     test_lofted_and_integrate_at();
     test_all_methods_and_lofted_adaptive();
     test_invalid_arguments();
+    test_error_at_distance_and_range();
+    test_newton_and_zero_init();
+    test_dense_helpers();
+    test_layout_ext();
     if (failures)
     {
         std::fprintf(stderr, "%d check(s) failed\n", failures);

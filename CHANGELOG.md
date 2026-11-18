@@ -13,7 +13,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Velocity Verlet methods), `BCLIBCFFI_find_zero_angle_lofted_shot` and `BCLIBCFFI_find_zero_point_lofted_shot` (lofted
   solvers, fixed-step), their `*_lofted_adaptive_shot` variants, and `BCLIBCFFI_integrate_at_adaptive_shot` (interpolated
   point with per-call tolerances). Errors use the same `BCLIBCFFI_Status` codes.
+- C ABI for the pieces the solvers are made of: `BCLIBCFFI_error_at_distance_shot`, `BCLIBCFFI_range_for_angle_shot`,
+  `BCLIBCFFI_find_zero_angle_newton_shot` and `BCLIBCFFI_zero_init_shot` (each with an `_adaptive_shot` form taking
+  per-call tolerances and reporting step counts), so a caller can run its own zero or range search.
+- C ABI for working with dense output: `BCLIBCFFI_dense_get_at` and `BCLIBCFFI_dense_get_at_slant_height`
+  (interpolation inside the accepted-step array) and `BCLIBCFFI_trajectory_data_from_step_shot` (a step as a full
+  trajectory record), so dense output is usable without reimplementing PCHIP or the shot physics per language.
+- `BCLIBCFFI_get_layout_ext()` for the layout of `BCLIBCFFI_StepStats` and `BCLIBCFFI_ZeroInit`. It is separate from
+  `BCLIBCFFI_get_layout()`, whose size is unchanged, so existing WASM/JS readers keep working.
+- `tests/test_ffi_adaptive.cpp`: C ABI tests for all of the above (status codes, tolerances, step statistics, dense
+  output, every integration method, error paths), run by CTest.
 
+### Fixed
+- `BCLIBC_BaseEngine::range_for_angle` located the line-of-sight crossing by linear interpolation between two
+  integrator steps. With the large steps of the adaptive integrators that is far off where the trajectory crosses the
+  line of sight at a shallow angle (a 984 ft crossing came out at 952-978 ft; RK4's small steps were off by about
+  0.004 ft). It now uses the cubic Hermite interpolant of the step, as the trajectory filter's `ZERO_DOWN` rows and
+  `tiny_bclibc` already do, so every method gives the same answer. `find_max_range` uses it, but its landing crossing
+  is steep: for a G7 2750 fps shot (about 18,420 ft) the maximum range moves by hundredths of a foot and the angle of the
+  maximum by up to 0.06 degrees (adaptive methods), RK4 only at the milli-foot level. The py-ballisticcalc test suite
+  (all six Cython engines) passes unchanged.
+- The `BCLIBCFFI_integrate_*` calls that return dense output now set their output pointers to `NULL`/`0` on failure
+  instead of leaving them untouched.
 
 ## [2.0.0] - 2026-10-03
 

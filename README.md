@@ -379,6 +379,27 @@ accepted/rejected step counts, also when the call fails.
 | `BCLIBCFFI_find_zero_angle_lofted_shot()` / `BCLIBCFFI_find_zero_point_lofted_shot()` | Lower (`lofted == 0`) or higher (`lofted != 0`) zero, fixed-step |
 | `BCLIBCFFI_find_zero_angle_lofted_adaptive_shot()` / `BCLIBCFFI_find_zero_point_lofted_adaptive_shot()` | Lofted solvers with per-call tolerances |
 
+**Solver building blocks and dense-output helpers (`BCLIBCFFI_Shot`-based):**
+
+The pieces the zero and max-range solvers are made of, for callers that run their own search. Each solver piece has a
+fixed-step form (`shot->method`) and an `_adaptive_` form with per-call tolerances and step statistics, as above.
+
+| Function | Description |
+|---|---|
+| `BCLIBCFFI_error_at_distance_shot()` / `_adaptive_shot()` | Vertical error at a target `x` for a barrel angle, with the interpolated hit point |
+| `BCLIBCFFI_range_for_angle_shot()` / `_adaptive_shot()` | Slant distance where a shot crosses the line of sight again |
+| `BCLIBCFFI_find_zero_angle_newton_shot()` / `_adaptive_shot()` | Zero angle by Newton's method only (no Ridder fallback) |
+| `BCLIBCFFI_zero_init_shot()` / `_adaptive_shot()` | Starting data of a zero search (`BCLIBCFFI_ZeroInit`): look angle, target `x`/`y`, muzzle height |
+| `BCLIBCFFI_dense_get_at()` | Step where a key (time, Mach, position, velocity) reaches a value, interpolated in a dense-output array |
+| `BCLIBCFFI_dense_get_at_slant_height()` | Step where the height above the line of sight reaches a value |
+| `BCLIBCFFI_trajectory_data_from_step_shot()` | Full trajectory record (distance, drop, windage, energy, ...) of one dense step |
+
+`BCLIBCFFI_error_at_distance_*` fails with `BCLIBCFFI_ERR_SOLVER_RUNTIME` when the trajectory ends (minimum velocity,
+maximum drop or minimum altitude) before the target.
+
+`BCLIBCFFI_get_layout_ext()` reports the layout of `BCLIBCFFI_StepStats` and `BCLIBCFFI_ZeroInit` for WASM/JS readers.
+It is separate from `BCLIBCFFI_get_layout()`, whose size is frozen so existing readers keep working.
+
 On success `*out_records` / `*out_dense` are `malloc`ed arrays: release them with `BCLIBCFFI_free_trajectory()` and
 `BCLIBCFFI_free_base_trajectory()`. On failure they are set to `NULL` / `0`; `*out_dense` is also `NULL` when
 `want_dense == 0`.
@@ -397,6 +418,7 @@ On success `*out_records` / `*out_dense` are `malloc`ed arrays: release them wit
 | `BCLIBCFFI_MaxRangeResult` | Max range + angle from `find_max_range` |
 | `BCLIBCFFI_StepStats` | Accepted / rejected step counts of an adaptive call |
 | `BCLIBCFFI_DenseStep` | One accepted step (dense output); same layout as `BCLIBCFFI_BaseTrajData` |
+| `BCLIBCFFI_ZeroInit` | Starting data of a zero search from `zero_init` |
 | `BCLIBCFFI_Error` | Error code + message + typed extra fields |
 
 ### Symbol visibility
