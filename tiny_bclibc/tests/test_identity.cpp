@@ -580,6 +580,68 @@ static bool test_g7_basic_find_max_range()
            identity::compare_scalar("angle_at_max (rad)", bc_result.value().angle_at_max_rad, tb_angle, 1e-6);
 }
 
+static bool test_g7_basic_zero_angle_tight_limits()
+{
+    // The zero does not depend on the early-termination limits (issue #45). Both engines solve it with the default
+    // limits and with tight ones (0 is "stop at muzzle level"); the four answers must agree: a limit may not cut the
+    // search short (it used to end it with an error) nor bias the result.
+    constexpr double APEX_MAX_RAD = 1.5707963267948966 * 0.99;
+    constexpr double ALLOWED_ERR = 0.001;
+    struct Limits { const char *name; double min_altitude, max_drop; };
+    const Limits limits[] = {
+        {"default", kDefaultConfig.cMinimumAltitude, kDefaultConfig.cMaximumDrop},
+        {"alt 0, drop 0", 0.0, 0.0},
+        {"alt 0, drop -10000", 0.0, -10000.0},
+        {"alt -1500, drop 0", -1500.0, 0.0},
+    };
+
+    bool ok = true;
+    for (const double dist_ft : {1000.0, 3000.0})
+    {
+        std::printf("\n=== G7_BASIC / zero_angle with tight limits / target=%.0fft ===\n", dist_ft);
+        double reference = 0.0;
+        for (size_t i = 0; i < sizeof limits / sizeof limits[0]; ++i)
+        {
+            bclibc::BCLIBC_BaseEngine bc_eng;
+            init_bclibc_engine(bc_eng, make_bclibc_shot_props());
+            bc_eng.config.cMinimumAltitude = limits[i].min_altitude;
+            bc_eng.config.cMaximumDrop = limits[i].max_drop;
+            auto bc_result = bc_eng.zero_angle(dist_ft, APEX_MAX_RAD, ALLOWED_ERR);
+            if (bclibc::has_error(bc_result))
+            {
+                std::printf("FAIL: bclibc zero_angle failed with limits '%s'\n", limits[i].name);
+                ok = false;
+                continue;
+            }
+            const double bc_angle = bc_result.value();
+
+            TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
+            TINY_BCLIBC_ShotProps tb_props;
+            if (make_tiny_bclibc_shot_props(&tb_props, tb_curve) != TINY_BCLIBC_OK)
+                return false;
+            tb_props.cfg.cMinimumAltitude = limits[i].min_altitude;
+            tb_props.cfg.cMaximumDrop = limits[i].max_drop;
+            double tb_angle = 0.0;
+            const int rc = tiny_bclibc_find_zero_angle(&tb_props, dist_ft, &tb_angle);
+            if (rc != TINY_BCLIBC_OK)
+            {
+                std::printf("FAIL: tiny_bclibc_find_zero_angle rc=%d with limits '%s': %s\n", rc, limits[i].name,
+                            tiny_bclibc_last_error());
+                ok = false;
+                continue;
+            }
+
+            if (i == 0)
+                reference = bc_angle;
+            std::printf("  limits '%s'\n", limits[i].name);
+            ok &= identity::compare_scalar("bclibc vs tiny_bclibc (rad)", bc_angle, tb_angle, 1e-6);
+            ok &= identity::compare_scalar("bclibc vs default limits (rad)", bc_angle, reference, 1e-6);
+            ok &= identity::compare_scalar("tiny_bclibc vs default limits (rad)", tb_angle, reference, 1e-6);
+        }
+    }
+    return ok;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // main
 // ═══════════════════════════════════════════════════════════════════════════
@@ -597,6 +659,7 @@ int main()
     all_pass &= test_g7_basic_zero_point();
     all_pass &= test_g7_basic_find_apex();
     all_pass &= test_g7_basic_find_max_range();
+    all_pass &= test_g7_basic_zero_angle_tight_limits();
 
     std::printf("\n%s\n", all_pass ? "ALL TESTS PASSED" : "SOME TESTS FAILED");
     return all_pass ? 0 : 1;

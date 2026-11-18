@@ -39,6 +39,38 @@ BCLIBC_BaseEngine.zero_angle
 
 namespace bclibc
 {
+    // ------------------------------------------------------------------------
+    // Early-termination limits during a zero search
+    //
+    // A zero search fires shots that are far from the answer: the flat edge of a bracket, the first Newton guess. They
+    // fall well below the muzzle before they reach the target. With a tight cMaximumDrop or cMinimumAltitude (0 is
+    // "stop at muzzle level") the integration ends short of the target and the search has nothing to work with.
+    // So for the duration of a zero search the two limits are widened to what is needed to see the drop to the target
+    // (never narrowed): the result is then the unconstrained zero, whatever the limits are. The integration the caller
+    // makes afterwards keeps the caller's limits.
+    // ------------------------------------------------------------------------
+
+    /** Drop below the muzzle that a zero search has to be able to follow (same bound in the Newton and Ridder paths). */
+    static inline double zero_search_required_drop_ft(double target_x_ft, double target_y_ft)
+    {
+        return target_x_ft / 2.0 - target_y_ft;
+    }
+
+    /** cMaximumDrop for a zero search: the caller's value, widened to the required drop. */
+    static inline double zero_search_max_drop(double cMaximumDrop, double required_drop_ft)
+    {
+        return std::fabs(cMaximumDrop) < required_drop_ft ? required_drop_ft : cMaximumDrop;
+    }
+
+    /**
+     * cMinimumAltitude for a zero search: the caller's value, lowered so that the shot may descend `required_drop_ft`
+     * below the muzzle altitude `alt0` (the descent allowed is alt0 - cMinimumAltitude).
+     */
+    static inline double zero_search_min_altitude(double cMinimumAltitude, double alt0, double required_drop_ft)
+    {
+        return (alt0 - cMinimumAltitude) < required_drop_ft ? alt0 - required_drop_ft : cMinimumAltitude;
+    }
+
     /**
      * @brief Ensures the integration function is valid.
      *
@@ -316,15 +348,17 @@ namespace bclibc
 
         integrate(this->MAX_INTEGRATION_RANGE, handler, reason);
 
-        if (!handler.found())
-        {
-            return BCLIBC_Error{BCLIBC_SolverRuntimeError{"Trajectory too short to determine error at distance."}};
-        }
-
-        const auto hit_result = handler.get_result();
+        // The trajectory may end before the target (a limit, the minimum velocity): then the miss is measured at its
+        // last point. It is still a valid, signed error -- the shot is short, the distance term makes it negative --
+        // so a zero search can bracket with it instead of giving up (the Python engine does the same).
+        const auto hit_result = handler.found() ? handler.get_result() : handler.get_last();
         const auto *hit_ref = (hit_result.has_value() ? &hit_result.value() : nullptr);
         if (hit_ref == nullptr)
-            return BCLIBC_Error{BCLIBC_RuntimeError{"Single-point handler lost its interpolated result"}};
+        {
+            return handler.found()
+                       ? BCLIBC_Error{BCLIBC_RuntimeError{"Single-point handler lost its interpolated result"}}
+                       : BCLIBC_Error{BCLIBC_SolverRuntimeError{"Trajectory too short to determine error at distance."}};
+        }
         const BCLIBC_BaseTrajData &hit = hit_ref->get();
 
         if (hit_out != nullptr)
@@ -532,23 +566,21 @@ namespace bclibc
         double last_correction = 0.0;
         double height_error_ft = _cZeroFindingAccuracy * 2;
 
-        double required_drop_ft = target_x_ft / 2.0 - target_y_ft;
+        double required_drop_ft = zero_search_required_drop_ft(target_x_ft, target_y_ft);
 
         double current_distance = 0.0;
         double trajectory_angle = 0.0;
 
-        // Backup, adjust and restore constraints (emulate @with_max_drop_zero and @with_no_minimum_altitude)
+        // Backup, widen and restore the limits: the first guesses fall a long way before the target (see above).
+        // The altitude test was `cMinimumAltitude - alt0 > required_drop_ft`, which compares a (negative) offset below
+        // the muzzle with a positive drop and so was almost never true: the altitude limit was not widened at all.
         BCLIBC_ValueGuard<double> cMaximumDrop_guard(
             &this->config.cMaximumDrop,
-            (std::fabs(this->config.cMaximumDrop) < required_drop_ft)
-                ? required_drop_ft
-                : this->config.cMaximumDrop);
+            zero_search_max_drop(this->config.cMaximumDrop, required_drop_ft));
 
         BCLIBC_ValueGuard<double> cMinimumAltitude_guard(
             &this->config.cMinimumAltitude,
-            (this->config.cMinimumAltitude - this->shot.alt0 > required_drop_ft)
-                ? this->shot.alt0 - required_drop_ft
-                : this->config.cMinimumAltitude);
+            zero_search_min_altitude(this->config.cMinimumAltitude, this->shot.alt0, required_drop_ft));
 
         // Main iteration loop
         while (iterations_count < _cMaxIterations)
@@ -565,15 +597,15 @@ namespace bclibc
 
             this->integrate(target_x_ft, handler, reason);
 
-            if (!handler.found())
+            // A trajectory that ends before the target is used at its last point: the distance term then makes the
+            // step non-convergent, which is a ZeroFindingError and so lets zero_angle_with_fallback switch to Ridder's
+            // method. (It used to be a SolverRuntimeError, which no fallback catches.)
+            const auto hit_result = handler.found() ? handler.get_result() : handler.get_last();
+            const auto *hit_ref = (hit_result.has_value() ? &hit_result.value() : nullptr);
+            if (hit_ref == nullptr)
             {
                 return BCLIBC_Error{BCLIBC_SolverRuntimeError{"Failed to interpolate trajectory at target distance"}};
             }
-
-            const auto hit_result = handler.get_result();
-            const auto *hit_ref = (hit_result.has_value() ? &hit_result.value() : nullptr);
-            if (hit_ref == nullptr)
-                return BCLIBC_Error{BCLIBC_RuntimeError{"Single-point handler lost its interpolated result"}};
             hit = hit_ref->get();
 
             if (hit.time == 0.0)
@@ -918,6 +950,16 @@ namespace bclibc
             this->config.cMinimumVelocity != 0.0
                 ? 0.0
                 : this->config.cMinimumVelocity);
+
+        // The flat edge of the bracket falls below the muzzle before it reaches the target: do not let the drop and
+        // altitude limits cut it short (see the note at the top of the file). Only widened, restored on return.
+        const double required_drop_ft = zero_search_required_drop_ft(target_x_ft, target_y_ft);
+        BCLIBC_ValueGuard<double> cMaximumDrop_guard(
+            &this->config.cMaximumDrop,
+            zero_search_max_drop(this->config.cMaximumDrop, required_drop_ft));
+        BCLIBC_ValueGuard<double> cMinimumAltitude_guard(
+            &this->config.cMinimumAltitude,
+            zero_search_min_altitude(this->config.cMinimumAltitude, this->shot.alt0, required_drop_ft));
 
         // 3. Establish search bracket for the zero angle.
         double low_angle, high_angle;

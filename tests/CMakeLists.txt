@@ -34,3 +34,14 @@ target_include_directories(bclibc_test_ffi_adaptive PRIVATE "${BCLIBC_INCLUDE_DI
 target_compile_features(bclibc_test_ffi_adaptive PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_ffi_adaptive COMMAND bclibc_test_ffi_adaptive)
+
+# The zero search does not depend on the early-termination limits (cMaximumDrop, cMinimumAltitude): issue #45.
+add_executable(bclibc_test_zero_limits
+    test_zero_limits.cpp
+)
+
+target_link_libraries(bclibc_test_zero_limits PRIVATE bclibc_ffi)
+target_include_directories(bclibc_test_zero_limits PRIVATE "${BCLIBC_INCLUDE_DIR}")
+target_compile_features(bclibc_test_zero_limits PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_zero_limits COMMAND bclibc_test_zero_limits)

@@ -748,10 +748,16 @@ extern "C"
      * @brief Vertical error of a shot fired at angle_rad, measured where x reaches target_x_ft:
      * (hit.y - target_y_ft) - |hit.x - target_x_ft|.
      *
-     * Fails with BCLIBCFFI_ERR_SOLVER_RUNTIME when the trajectory ends (minimum velocity, maximum drop or minimum
-     * altitude) before target_x_ft, or when nothing was integrated.
+     * When the trajectory ends before target_x_ft (minimum velocity, maximum drop or minimum altitude) the error is
+     * measured at its last point instead: it is still finite and signed (a shot that falls short is negative), which
+     * is what a zero search needs to bracket. Fails with BCLIBCFFI_ERR_SOLVER_RUNTIME only when nothing was
+     * integrated.
      *
-     * @param out_hit Optional. The interpolated point at target_x_ft.
+     * The shot's limits (config) apply as given. The zero solvers widen cMaximumDrop and cMinimumAltitude and drop
+     * cMinimumVelocity for their own searches; to reproduce one of their evaluations, do the same.
+     *
+     * @param out_hit Optional. The interpolated point at target_x_ft, or the last point of a trajectory that ended
+     * before it.
      */
     BCLIBC_API int32_t BCLIBCFFI_error_at_distance_shot(
         const BCLIBCFFI_Shot *shot,

@@ -1230,6 +1230,9 @@ static inline void tiny_bclibc__set_error(const char *msg)
         int32_t n;
         int32_t found;
         TINY_BCLIBC_BaseTrajData result;
+        /* The last point of the trajectory, for a target the trajectory ends before (see error_at_distance). */
+        TINY_BCLIBC_BaseTrajData last;
+        int32_t have_last;
     } tiny_bclibc__AtCtx;
 
     static inline int32_t tiny_bclibc__at_ck_on_first(const TINY_BCLIBC_BaseTrajData *pt, void *ctx_)
@@ -1238,6 +1241,8 @@ static inline void tiny_bclibc__set_error(const char *msg)
         /* Seed the 3-point window with the initial sample. */
         c->win[0] = *pt;
         c->n = 1;
+        c->last = *pt;
+        c->have_last = 1;
 
         /* Only an exact hit at the very first sample can short-circuit here. */
         real_t v = TINY_BCLIBC_BaseTrajData_get(pt, c->key);
@@ -1258,6 +1263,8 @@ static inline void tiny_bclibc__set_error(const char *msg)
         tiny_bclibc__AtCtx *c = (tiny_bclibc__AtCtx *)ctx_;
         if (c->found)
             return 1;
+        c->last = *end;
+        c->have_last = 1;
 
         /* Mirror BCLIBC_SinglePointHandler::handle_step in bclibc:
          * - For POS_X, use the exact 2-point Hermite reconstruction
@@ -1304,6 +1311,31 @@ static inline void tiny_bclibc__set_error(const char *msg)
         return 1;
     }
 
+    /* Integrates until `key` reaches `target_value`. ctx->found says whether it did; either way ctx->last is the last
+     * point of the trajectory (the one it ended on when a limit stopped it short of the target). */
+    static inline void tiny_bclibc__integrate_at_run(
+        const TINY_BCLIBC_ShotProps *props,
+        int32_t key,
+        real_t target_value,
+        tiny_bclibc__AtCtx *ctx)
+    {
+        memset(ctx, 0, sizeof(*ctx));
+        ctx->key = key;
+        ctx->target = target_value;
+
+        TINY_BCLIBC_TrajectoryRequest req;
+        req.range_limit_ft = TINY_BCLIBC_MAX_INTEGRATION_RANGE;
+        req.range_step_ft = REAL_C(0.0);
+        req.time_step = REAL_C(0.0);
+        req.filter_flags = TINY_BCLIBC_TRAJ_FLAG_NONE;
+
+        int32_t reason;
+        tiny_bclibc__run_tsitouras(props, &req,
+                                  tiny_bclibc__at_ck_on_first,
+                                  tiny_bclibc__at_ck_on_interval,
+                                  ctx, &reason);
+    }
+
     TINY_BCLIBC_FUNC int32_t tiny_bclibc_integrate_at(
         const TINY_BCLIBC_ShotProps *props,
         int32_t key,
@@ -1317,21 +1349,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
             return TINY_BCLIBC_ERR_INVALID_ARG;
         }
         tiny_bclibc__AtCtx ctx;
-        memset(&ctx, 0, sizeof(ctx));
-        ctx.key = key;
-        ctx.target = target_value;
-
-        TINY_BCLIBC_TrajectoryRequest req;
-        req.range_limit_ft = TINY_BCLIBC_MAX_INTEGRATION_RANGE;
-        req.range_step_ft = REAL_C(0.0);
-        req.time_step = REAL_C(0.0);
-        req.filter_flags = TINY_BCLIBC_TRAJ_FLAG_NONE;
-
-        int32_t reason;
-        tiny_bclibc__run_tsitouras(props, &req,
-                                  tiny_bclibc__at_ck_on_first,
-                                  tiny_bclibc__at_ck_on_interval,
-                                  &ctx, &reason);
+        tiny_bclibc__integrate_at_run(props, key, target_value, &ctx);
 
         if (!ctx.found)
         {
@@ -1372,14 +1390,32 @@ static inline void tiny_bclibc__set_error(const char *msg)
         real_t target_y_ft)
     {
         props_mut->barrel_elevation = angle_rad;
-        TINY_BCLIBC_BaseTrajData raw;
-        TINY_BCLIBC_TrajectoryData full;
-        int32_t rc = tiny_bclibc_integrate_at(props_mut, TINY_BCLIBC_KEY_POS_X, target_x_ft, &raw, &full);
-        if (rc != TINY_BCLIBC_OK)
+        tiny_bclibc__AtCtx ctx;
+        tiny_bclibc__integrate_at_run(props_mut, TINY_BCLIBC_KEY_POS_X, target_x_ft, &ctx);
+        /* A trajectory that ends before the target (a limit, the minimum velocity) is measured at its last point:
+         * still a finite, signed error (a shot that falls short is negative), which a search can bracket with. It
+         * used to be a +1e9 sentinel, the wrong sign for "short". Only a trajectory that never left the muzzle is a
+         * sentinel. */
+        const TINY_BCLIBC_BaseTrajData *raw = ctx.found ? &ctx.result : (ctx.have_last ? &ctx.last : NULL);
+        if (!raw || raw->time == REAL_C(0.0))
             return REAL_C(1e9);
-        if (raw.time == REAL_C(0.0))
-            return REAL_C(1e9);
-        return (raw.py - target_y_ft) - TINY_BCLIBC_FABS(raw.px - target_x_ft);
+        return (raw->py - target_y_ft) - TINY_BCLIBC_FABS(raw->px - target_x_ft);
+    }
+
+    /* ── Early-termination limits during a zero search ──
+     * A zero search fires shots that fall well below the muzzle before they reach the target (the flat edge of a
+     * bracket, the first Newton guess). With a tight cMaximumDrop or cMinimumAltitude (0 is "stop at muzzle level") the
+     * integration ends short of the target and the search has nothing to work with. Widen the two limits, on the
+     * search's own copy of the props, to what is needed to follow the drop to the target (never narrow them).
+     * Mirrors zero_search_* in bclibc's engine.cpp. */
+    static inline void tiny_bclibc__zero_search_widen_limits(TINY_BCLIBC_ShotProps *p, real_t target_x_ft, real_t target_y_ft)
+    {
+        const real_t required_drop_ft = target_x_ft / REAL_C(2.0) - target_y_ft;
+        if (TINY_BCLIBC_FABS(p->cfg.cMaximumDrop) < required_drop_ft)
+            p->cfg.cMaximumDrop = required_drop_ft;
+        /* the descent allowed below the muzzle altitude is alt0 - cMinimumAltitude */
+        if ((p->alt0 - p->cfg.cMinimumAltitude) < required_drop_ft)
+            p->cfg.cMinimumAltitude = p->alt0 - required_drop_ft;
     }
 
     /* ── range_for_angle — now Cash-Karp based ──────────────────────────── */
@@ -1548,6 +1584,10 @@ static inline void tiny_bclibc__set_error(const char *msg)
             *out_angle_rad = angle_at_max;
             return TINY_BCLIBC_OK;
         }
+
+        /* The flat edge of the bracket falls below the muzzle before it reaches the target. Widened only here, after
+         * the max-range search, as bclibc does. */
+        tiny_bclibc__zero_search_widen_limits(&p, tx, ty);
 
         real_t low_angle = la;
         real_t high_angle = angle_at_max;
@@ -1792,9 +1832,9 @@ static inline void tiny_bclibc__set_error(const char *msg)
             *out_angle_rad = TINY_BCLIBC_ATAN2(ty + sh, tx);
             return TINY_BCLIBC_OK;
         }
-        (void)ty;
 
         TINY_BCLIBC_ShotProps p_newton = *props;
+        tiny_bclibc__zero_search_widen_limits(&p_newton, tx, ty);
         if (tiny_bclibc__zero_angle_newton(&p_newton, distance_ft, tx, la, out_angle_rad) == TINY_BCLIBC_OK)
             return TINY_BCLIBC_OK;
 

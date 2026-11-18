@@ -178,15 +178,28 @@ static void test_fixed_dense()
 
 static void test_lofted_and_integrate_at()
 {
-    // The lofted solver reports "Trajectory too short" for the test shots (the Cython engines report the same error
-    // for these shots); the entry points must return that status, not crash or return garbage.
+    // The lofted zero is the higher of the two angles that hit the target. Its search brackets between the angle of
+    // the maximum range and 89.9 degrees; the near-vertical edge never gets as far as the target, which used to end
+    // the search with "Trajectory too short" (the miss is now measured at the last point of that trajectory).
     BCLIBCFFI_Shot s = make_shot(BCLIBCFFI_INTEGRATION_RK4);
-    double angle = -1.0;
+    double angle = -1.0, low = -1.0;
     BCLIBCFFI_Error err;
-    CHECK(BCLIBCFFI_find_zero_angle_lofted_shot(&s, 300.0 * 3.28084, 0, &angle, &err) == BCLIBCFFI_OK);
-    CHECK(std::isfinite(angle) && angle > 0.0);
-    CHECK(BCLIBCFFI_find_zero_angle_lofted_shot(&s, 300.0 * 3.28084, 1, &angle, &err) == BCLIBCFFI_ERR_SOLVER_RUNTIME);
-    CHECK(std::strstr(err.message, "too short") != nullptr);
+    CHECK(BCLIBCFFI_find_zero_angle_lofted_shot(&s, 300.0 * 3.28084, 0, &low, &err) == BCLIBCFFI_OK);
+    CHECK(std::isfinite(low) && low > 0.0);
+    CHECK(BCLIBCFFI_find_zero_angle_lofted_shot(&s, 300.0 * 3.28084, 1, &angle, &err) == BCLIBCFFI_OK);
+    CHECK(std::isfinite(angle) && angle > low && angle < 1.5707963267948966);
+    {
+        // ... and it really is a zero: fired at that angle the shot comes back down through the sight line at 300 m.
+        // The solvers fire with no minimum velocity (the shot slows to a crawl at the apex of a near-vertical flight),
+        // so the check does too. Near vertical the miss is very sensitive to the angle (2.5 ft per 1e-6 rad).
+        double miss = 1e9;
+        BCLIBCFFI_Shot hi = make_shot(BCLIBCFFI_INTEGRATION_RK4);
+        hi.config.cMinimumVelocity = 0.0;
+        BCLIBCFFI_BaseTrajData hit;
+        CHECK(BCLIBCFFI_error_at_distance_shot(&hi, angle, 300.0 * 3.28084, 0.0, &miss, &hit, &err) == BCLIBCFFI_OK);
+        CHECK(std::fabs(miss) < 1.0);
+        CHECK(hit.vy < 0.0); // on the way down
+    }
 
     BCLIBCFFI_ZeroPointResult zp;
     CHECK(BCLIBCFFI_find_zero_point_lofted_shot(&s, 300.0 * 3.28084, 0, &zp, &err) == BCLIBCFFI_OK);
@@ -246,15 +259,17 @@ static void test_all_methods_and_lofted_adaptive()
         CHECK(mr.max_range_ft > 1000.0 && mr.angle_at_max_rad > 0.0 && mr.angle_at_max_rad < 1.6);
     }
 
-    // The lofted solvers report their error through the same status codes and still fill the stats.
+    // The lofted (higher) zero with an adaptive method: found, and the step counts are reported.
     BCLIBCFFI_Shot s = make_shot(BCLIBCFFI_INTEGRATION_TSITOURAS);
     BCLIBCFFI_Error err;
     BCLIBCFFI_StepStats st{-1, -1};
-    double angle = 0.0;
+    double angle = 0.0, low = 0.0;
     CHECK(BCLIBCFFI_find_zero_angle_lofted_adaptive_shot(&s, BCLIBCFFI_INTEGRATION_TSITOURAS, 1e-6, 1e-6,
-                                                         300.0 * 3.28084, 1, &angle, &st, &err) !=
-          BCLIBCFFI_OK);
-    CHECK(st.accepted >= 0 && st.rejected >= 0);
+                                                         300.0 * 3.28084, 1, &angle, &st, &err) == BCLIBCFFI_OK);
+    CHECK(BCLIBCFFI_find_zero_angle_lofted_adaptive_shot(&s, BCLIBCFFI_INTEGRATION_TSITOURAS, 1e-6, 1e-6,
+                                                         300.0 * 3.28084, 0, &low, &st, &err) == BCLIBCFFI_OK);
+    CHECK(angle > low && angle < 1.5707963267948966);
+    CHECK(st.accepted > 0);
 }
 
 static void test_invalid_arguments()
@@ -334,16 +349,22 @@ static void test_error_at_distance_and_range()
         }
     }
 
-    // A target the shot never reaches (it drops below the minimum velocity first): solver error, no crash.
+    // A target the shot never reaches (it drops below the minimum velocity first): the miss is measured at the last
+    // point of the trajectory -- a finite, very negative error (short), and that point is the hit.
     BCLIBCFFI_Shot s = make_shot(BCLIBCFFI_INTEGRATION_RK4);
     BCLIBCFFI_Error err;
     double e = 0.0;
-    CHECK(BCLIBCFFI_error_at_distance_shot(&s, 0.01, 1e7, 0.0, &e, nullptr, &err) == BCLIBCFFI_ERR_SOLVER_RUNTIME);
-    CHECK(err.code == BCLIBCFFI_ERR_SOLVER_RUNTIME);
+    BCLIBCFFI_BaseTrajData last;
+    std::memset(&last, 0, sizeof last);
+    CHECK(BCLIBCFFI_error_at_distance_shot(&s, 0.01, 1e7, 0.0, &e, &last, &err) == BCLIBCFFI_OK);
+    CHECK(std::isfinite(e) && e < -1e6);
+    CHECK(last.time > 0.0 && last.px > 0.0 && last.px < 1e7);
     BCLIBCFFI_StepStats st{-1, -1};
+    e = 0.0;
     CHECK(BCLIBCFFI_error_at_distance_adaptive_shot(&s, BCLIBCFFI_INTEGRATION_TSITOURAS, 1e-6, 1e-6, 0.01, 1e7, 0.0,
-                                                    &e, nullptr, &st, &err) == BCLIBCFFI_ERR_SOLVER_RUNTIME);
-    CHECK(st.accepted > 0); // stats are filled on failure too
+                                                    &e, nullptr, &st, &err) == BCLIBCFFI_OK);
+    CHECK(std::isfinite(e) && e < -1e6);
+    CHECK(st.accepted > 0);
 
     // Invalid adaptive arguments are rejected like everywhere else.
     CHECK(BCLIBCFFI_error_at_distance_adaptive_shot(&s, BCLIBCFFI_INTEGRATION_RK4, 1e-6, 1e-6, 0.01, d, 0.0, &e,

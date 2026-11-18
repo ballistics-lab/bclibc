@@ -31,6 +31,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   paths): 204 cases, identical between the native library and the wasi-sdk and zig modules (angles within a few ulp).
 
 ### Fixed
+- The zero search no longer depends on the early-termination limits (#45). `find_zero_angle` failed with "Trajectory too
+  short to determine error at distance" (or "Failed to interpolate trajectory at target distance") whenever a shot of the search
+  was cut off before the target, which a tight `cMaximumDrop` or `cMinimumAltitude` (0 means "stop at muzzle level") does
+  to the flat edge of the Ridder bracket and to the first Newton guess; the same inputs worked with the default limits. Now:
+  - Ridder's method and Newton's method widen both limits (never narrow them) for the duration of the search, so the answer is the
+    unconstrained zero, the same as with the default limits; the caller's limits apply to every later integration.
+  - `error_at_distance` measures a trajectory that ends before the target at its last point (a finite, signed error), as the Python
+    engine does, instead of failing; Newton does the same, so a trajectory that falls short is a failure to converge and
+    `zero_angle_with_fallback` switches to Ridder's method (it was a `SolverRuntimeError`, which nothing caught).
+  - The widening for `cMinimumAltitude` had the sign of its test inverted (`cMinimumAltitude - alt0 > required_drop`, ported
+    from the Python engine): the limit was almost never widened, so long zeros failed even with the default limits. Over a grid
+    of 1314 zeros (three shots, six engines, sight heights, look angles, 25 to 5000 yd) at the default limits, 72 that raised
+    `SolverRuntimeError` now solve (3500 and 5000 yd), none got worse and no solved value changed.
+  - The higher (lofted) zero, whose near-vertical bracket edge never reaches the target, is found instead of failing with
+    "Trajectory too short".
+  - `tiny_bclibc` has the same changes (its `error_at_distance` returned a `+1e9` sentinel, the wrong sign for a shot that falls
+    short, and nothing widened the limits), so it solves the same zeros, to rounding, as bclibc.
 - `BCLIBC_BaseEngine::range_for_angle` located the line-of-sight crossing by linear interpolation between two
   integrator steps. With the large steps of the adaptive integrators that is far off where the trajectory crosses the
   line of sight at a shallow angle (a 984 ft crossing came out at 952-978 ft; RK4's small steps were off by about
