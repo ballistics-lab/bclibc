@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-18
+
+Adds the C ABI the bindings were missing (adaptive integrators, dense output, the pieces of the solvers) and makes the zero
+search independent of the early-termination limits (#45). Two things readers of the ABI have to know, under "Changed".
+
 ### Added
 - C ABI for the adaptive integrators (Cash-Karp, Dormand-Prince, Tsitouras) in `bclibc_ffi.h`: `BCLIBCFFI_integrate_adaptive_shot`, `BCLIBCFFI_free_base_trajectory`, and the zero-angle, zero-point, max-range and apex variants `BCLIBCFFI_*_adaptive_shot`. Each takes per-call relative and absolute tolerances and reports accepted and rejected step counts (`BCLIBCFFI_StepStats`); the integrate call can also return the accepted-step stream as dense output. Each call owns its integrator, so no state is shared between calls.
 - C ABI for the remaining engine paths: `BCLIBCFFI_integrate_dense_shot` (dense output for the fixed-step RK4, Euler and
@@ -30,6 +35,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tests/wasm_parity/parity.py` covers the new entry points too (adaptive integrators with step statistics, dense
   output and its helpers, the lofted and Newton solvers, `error_at_distance`, `range_for_angle`, `zero_init`, error
   paths): 204 cases, identical between the native library and the wasi-sdk and zig modules (angles within a few ulp).
+
+### Changed
+- **BREAKING for a reader that checks the exact count: `BCLIBCFFI_get_layout()` returns 96 values (was 85).** `StepStats`
+  and `ZeroInit` are appended at its end, so no earlier offset moves; a reader that passes the old buffer size gets `-1`. The
+  web layer of dart-bclibc (`_Layout.fieldCount`) and js-ballistics (`LAYOUT_FIELD_COUNT`) must be raised with the library.
+- **A zero beyond the maximum range is reported as `BCLIBCFFI_ERR_OUT_OF_RANGE` (2), not `BCLIBCFFI_ERR_SOLVER_RUNTIME` (1)**
+  (`BCLIBC_SolverOutOfRangeError` in C++, with the requested and the maximum distance), as the documentation always said: the
+  first shot of Newton's method ended short of the target, which no fallback caught, and now Ridder's method takes over and
+  checks the range. Code that matched on status 1 for this case has to match 2.
+- Ridder's method lost a branch that could not run any more (a "nudge" of the low bracket edge when `error_at_distance`
+  failed): it returns a finite miss now, never a sentinel.
 
 ### Fixed
 - The zero search no longer depends on the early-termination limits (#45). `find_zero_angle` failed with "Trajectory too
@@ -854,7 +870,8 @@ same tag before publishing.
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/ballistics-lab/bclibc/compare/v1.1.8...v2.0.0
 [2.0.0-rc.4]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.3...v2.0.0-rc.4
 [2.0.0-rc.3]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.2...v2.0.0-rc.3

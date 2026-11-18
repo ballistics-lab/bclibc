@@ -996,17 +996,6 @@ namespace bclibc
         last_hit = &low_hit;
         last_angle = low_angle;
 
-        // If low is exactly look angle and failed to evaluate, nudge slightly upward to bracket
-        if (f_low > 1e8 && std::fabs(low_angle - look_angle_rad) < 1e-9)
-        {
-            low_angle = look_angle_rad + 1e-3;
-            const auto f_low_result = this->error_at_distance(low_angle, target_x_ft, target_y_ft, &low_hit);
-            if (has_error(f_low_result)) return f_low_result.error();
-            f_low = f_low_result.value();
-            last_hit = &low_hit;
-            last_angle = low_angle;
-        }
-
         {
             const auto f_high_result = this->error_at_distance(high_angle, target_x_ft, target_y_ft, &high_hit);
             if (has_error(f_high_result)) return f_high_result.error();

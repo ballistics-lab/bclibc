@@ -26,12 +26,25 @@ one engine, bound natively into [py-ballisticcalc][py-ballisticcalc] (Python/Cyt
 
 ## Coverage
 
-`bclibc` has no test suite or coverage tooling of its own. Its C++ engine is exercised and
-correctness-tested through the Cython wrapper in [`py_ballisticcalc.exts`][py_ballisticcalc.exts],
-part of the [py-ballisticcalc][py-ballisticcalc] Python library — its pytest suite
-(`euler` / `rk4` / `rk45`) drives every `bclibc` and `tiny_bclibc` code path
-end-to-end via the Cython bindings. The badge above reflects that project's overall
-coverage; line-level coverage of the compiled `.pyx`/C++ layer itself is not tracked separately.
+`bclibc` is tested here and by the projects that use it.
+
+**In this repository** (`make test`, and the `PR Check` and `WASM (bare module)` workflows on every PR):
+
+- `tests/`: the C++ tests (`ctest`): the engine and the RK45 integrators, the C ABI of the adaptive integrators, dense
+  output and the solver building blocks (`test_ffi_adaptive`), and the zero search under every combination of the
+  early-termination limits (`test_zero_limits`). Run in Debug (asserts on) and Release, and under ASan + UBSan.
+- `tiny_bclibc/tests`: the identity test, `bclibc` against `tiny_bclibc` (integration, zero, apex, max range, tight limits).
+- `tests/wasm_parity/parity.py`: the native library against the bare wasm module (wasi-sdk and zig, wasmtime and Node),
+  bit for bit, including the struct layout.
+- `cmake/check_package.sh`: the installed packages (`find_package` of `bclibc` and `tiny_bclibc`) work for a consumer.
+
+**By the consumers**, which run their own suites on every `bclibc` they pin: the Cython engines of
+[`py_ballisticcalc.exts`][py_ballisticcalc.exts] (its pytest suite drives every `bclibc` code path end to end, and the
+stress tests there run the zero search with the tightest limits), the `tiny_bclibc` engines of
+[py-ballisticcalc][py-ballisticcalc] and [tiny-bclibc-wasm-py](https://github.com/ballistics-lab/tiny-bclibc-wasm-py), the
+dart and web layers of [dart-bclibc](https://github.com/ballistics-lab/dart-bclibc), [js-ballistics][js-ballistics] and
+[micropython-bclibc][micropython-bclibc]. The coverage badge above is py-ballisticcalc's; line coverage of the C++ is not
+tracked separately.
 
 ---
 
