@@ -494,18 +494,23 @@ static void test_dense_helpers()
     BCLIBCFFI_free_trajectory(recs);
 }
 
-static void test_layout_ext()
+static void test_layout()
 {
-    int32_t buf[32];
-    CHECK(BCLIBCFFI_get_layout_ext(buf, 3) == -1);
-    const int32_t count = BCLIBCFFI_get_layout_ext(buf, 32);
-    CHECK(count == 11);
-    CHECK(buf[0] == (int32_t)sizeof(BCLIBCFFI_StepStats) && buf[1] == 0 && buf[2] == 4);
-    CHECK(buf[3] == (int32_t)sizeof(BCLIBCFFI_ZeroInit) && buf[4] == 0 && buf[5] == 4 && buf[6] == 8);
-    // The frozen layout keeps its size (85 values), so readers built against it still work. Adding a field to it
-    // is a breaking change: put new structs in BCLIBCFFI_get_layout_ext() instead.
-    int32_t big[256];
-    CHECK(BCLIBCFFI_get_layout(big, 256) == 85);
+    // BCLIBCFFI_get_layout() lists the structs in the order they joined the ABI, the newest at the end: StepStats and
+    // ZeroInit are the last 3 + 8 values, and nothing before them moved. Readers that check the exact count (js-ballistics,
+    // the web layer of dart-bclibc) have to follow it.
+    int32_t buf[256];
+    const int32_t count = BCLIBCFFI_get_layout(buf, 256);
+    CHECK(count == 96);
+    CHECK(BCLIBCFFI_get_layout(buf, count - 1) == -1); // one value short: refused, nothing half-written is "success"
+    CHECK(BCLIBCFFI_get_layout(buf, 85) == -1);        // the size of the layout before StepStats and ZeroInit joined it
+    CHECK(BCLIBCFFI_get_layout(buf, count) == count);
+    // the tail: StepStats (size, accepted, rejected), ZeroInit (size, 7 fields)
+    CHECK(buf[85] == (int32_t)sizeof(BCLIBCFFI_StepStats) && buf[86] == 0 && buf[87] == 4);
+    CHECK(buf[88] == (int32_t)sizeof(BCLIBCFFI_ZeroInit) && buf[89] == 0 && buf[90] == 4 && buf[91] == 8 && buf[92] == 16 &&
+          buf[93] == 24 && buf[94] == 32 && buf[95] == 40);
+    // and the head is still where readers built before expect it: Config first, its size then its first offset
+    CHECK(buf[0] == (int32_t)sizeof(BCLIBCFFI_Config) && buf[1] == 0);
 }
 
 int main()
@@ -521,7 +526,7 @@ int main()
     test_error_at_distance_and_range();
     test_newton_and_zero_init();
     test_dense_helpers();
-    test_layout_ext();
+    test_layout();
     if (failures)
     {
         std::fprintf(stderr, "%d check(s) failed\n", failures);
