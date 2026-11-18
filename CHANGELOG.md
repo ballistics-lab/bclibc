@@ -19,8 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - C ABI for working with dense output: `BCLIBCFFI_dense_get_at` and `BCLIBCFFI_dense_get_at_slant_height`
   (interpolation inside the accepted-step array) and `BCLIBCFFI_trajectory_data_from_step_shot` (a step as a full
   trajectory record), so dense output is usable without reimplementing PCHIP or the shot physics per language.
-- `BCLIBCFFI_get_layout_ext()` for the layout of `BCLIBCFFI_StepStats` and `BCLIBCFFI_ZeroInit`. It is separate from
-  `BCLIBCFFI_get_layout()`, whose size is unchanged, so existing WASM/JS readers keep working.
+- `BCLIBCFFI_get_layout()` also reports `BCLIBCFFI_StepStats` and `BCLIBCFFI_ZeroInit`: appended at the end, so no earlier
+  offset moves, and it now returns 96 values (was 85). A reader that checks the exact count (js-ballistics, the web layer of
+  dart-bclibc) must raise its expected count with the library.
 - `tests/test_ffi_adaptive.cpp`: C ABI tests for all of the above (status codes, tolerances, step statistics, dense
   output, every integration method, error paths), run by CTest.
 - CI (`pr-check.yml`): an ASan + UBSan job (the C++ tests and the `tiny_bclibc` identity test) and a packaging job on

@@ -1370,6 +1370,12 @@ extern "C"
     //   [ sizeof(Interception),      2 field offsets ]
     //   [ sizeof(ZeroPointResult),   2 field offsets ]
     //   [ sizeof(Error),             6 field offsets ]
+    //   [ sizeof(StepStats),         2 field offsets ]
+    //   [ sizeof(ZeroInit),          7 field offsets ]
+    //
+    // Append-only: a struct added to the ABI goes at the end, so every offset keeps its place and a reader that
+    // knows the earlier ones only has to raise its expected count (BCLIBCFFI_get_layout() returns -1 when the
+    // buffer is too small, and a reader that checks the exact count must be updated with the library).
     // ============================================================================
 
     int32_t BCLIBCFFI_get_layout(int32_t *out, int32_t out_len)
@@ -1470,17 +1476,6 @@ extern "C"
             (int32_t)offsetof(BCLIBCFFI_Error, f64_1),
             (int32_t)offsetof(BCLIBCFFI_Error, f64_2),
             (int32_t)offsetof(BCLIBCFFI_Error, i32_0),
-        };
-        constexpr int32_t count = (int32_t)(sizeof(vals) / sizeof(vals[0]));
-        if (out_len < count)
-            return -1;
-        std::memcpy(out, vals, sizeof(vals));
-        return count;
-    }
-
-    int32_t BCLIBCFFI_get_layout_ext(int32_t *out, int32_t out_len)
-    {
-        const int32_t vals[] = {
             // StepStats
             (int32_t)sizeof(BCLIBCFFI_StepStats),
             (int32_t)offsetof(BCLIBCFFI_StepStats, accepted),

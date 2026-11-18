@@ -393,8 +393,8 @@ measures the miss at its last point: a finite, signed error (a shot that falls s
 search brackets with. It fails with `BCLIBCFFI_ERR_SOLVER_RUNTIME` only when nothing was integrated. The shot's limits apply as
 given; the zero solvers widen `cMaximumDrop` and `cMinimumAltitude` and drop `cMinimumVelocity` for their own searches.
 
-`BCLIBCFFI_get_layout_ext()` reports the layout of `BCLIBCFFI_StepStats` and `BCLIBCFFI_ZeroInit` for WASM/JS readers.
-It is separate from `BCLIBCFFI_get_layout()`, whose size is frozen so existing readers keep working.
+`BCLIBCFFI_get_layout()` also reports `BCLIBCFFI_StepStats` and `BCLIBCFFI_ZeroInit` (appended at the end, so no earlier offset
+moves). A WASM/JS reader that checks the exact count has to raise it to match the library.
 
 On success `*out_records` / `*out_dense` are `malloc`ed arrays: release them with `BCLIBCFFI_free_trajectory()` and
 `BCLIBCFFI_free_base_trajectory()`. On failure they are set to `NULL` / `0`; `*out_dense` is also `NULL` when

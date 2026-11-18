@@ -460,6 +460,42 @@ NEW_CASES += [
 CASES += NEW_CASES
 
 
+# BCLIBCFFI_get_layout() against the layouts computed here from the field lists (SPECS): the structs in the order they
+# joined the ABI, each as its size and the offsets of its fields. Checked on both sides, with the pointer size of each
+# (8 native, 4 wasm32), so every struct -- StepStats and ZeroInit, the newest, included -- is read back as the C
+# compiler laid it out.
+LAYOUT_ORDER = ["Config", "Wind", "Shot", "Request", "TrajectoryData", "MaxRange", "BaseTrajData", "Interception",
+                "ZeroPoint", "Error", "StepStats", "ZeroInit"]
+
+def expected_layout(P):
+    out = []
+    for name in LAYOUT_ORDER:
+        size, _, fields = layout(name, P)
+        out += [size] + [off for _, off, _ in fields]
+    return out
+
+def check_layout(native_values, wasm_values):
+    ok = True
+    for side, got, P in (("native", native_values, 8), ("wasm", wasm_values, 4)):
+        want = expected_layout(P)
+        if got != want:
+            first = next((i for i, (g, w) in enumerate(zip(got, want)) if g != w), min(len(got), len(want)))
+            print(f"FAIL get_layout on {side}: {len(got)} values, expected {len(want)}; first difference at {first}")
+            ok = False
+        else:
+            print(f"get_layout on {side:6} ok ({len(got)} values, {len(LAYOUT_ORDER)} structs)")
+    return ok
+
+def native_layout():
+    NATIVE.BCLIBCFFI_get_layout.restype = I; NATIVE.BCLIBCFFI_get_layout.argtypes = [PT, I]
+    buf = (I * 512)(); n = NATIVE.BCLIBCFFI_get_layout(ctypes.cast(buf, PT), 512)
+    return list(buf[:n]) if n > 0 else []
+
+def wasm_layout(wasm):
+    buf = wasm.alloc(bytes(512 * 4)); n = wasm.e.BCLIBCFFI_get_layout(buf, 512)
+    vals = list(struct.unpack(f"<{n}i", bytes(wasm.mem.read(buf, n * 4)))) if n > 0 else []
+    wasm.free(buf); return vals
+
 def main():
     global NATIVE, WASM
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
@@ -474,6 +510,7 @@ def main():
     for backend in args.backend or ["wasmtime"]:
         print(f"\n=== {args.wasm} on {backend} vs {args.native}")
         wasm = Wasm(backend)
+        failures += not check_layout(native_layout(), wasm_layout(wasm))
         for label, fn, sv, extra in CASES:
             expect_error = "error path" in label
             try:
