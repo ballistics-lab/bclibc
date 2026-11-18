@@ -547,6 +547,39 @@ static bool test_g7_basic_find_apex()
     return identity::compare_point(bc_apex, tb_apex, 0, identity::kAbsTol, true, 1e-7);
 }
 
+static bool test_g7_basic_find_max_range()
+{
+    // find_max_range drives range_for_angle (the line-of-sight crossing) for every probe, so this checks that
+    // bclibc locates that crossing the way tiny_bclibc does (cubic Hermite on the step), not on a chord.
+    constexpr double APEX_MAX_RAD = 1.5707963267948966 * 0.99;
+
+    bclibc::BCLIBC_BaseEngine bc_eng;
+    init_bclibc_engine(bc_eng, make_bclibc_shot_props());
+    auto bc_result = bc_eng.find_max_range(0.0, 90.0, APEX_MAX_RAD);
+    if (bclibc::has_error(bc_result))
+    {
+        std::printf("FAIL: bclibc find_max_range failed\n");
+        return false;
+    }
+
+    TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
+    TINY_BCLIBC_ShotProps tb_props;
+    if (make_tiny_bclibc_shot_props(&tb_props, tb_curve) != TINY_BCLIBC_OK)
+        return false;
+    double tb_range = 0.0, tb_angle = 0.0;
+    int rc = tiny_bclibc_find_max_range(&tb_props, 0.0, 90.0, &tb_range, &tb_angle);
+    if (rc != TINY_BCLIBC_OK)
+    {
+        std::printf("FAIL: tiny_bclibc_find_max_range rc=%d: %s\n", rc, tiny_bclibc_last_error());
+        return false;
+    }
+
+    std::printf("\n=== G7_BASIC / find_max_range / 0..90 deg ===\n");
+    // Same search, same crossing: they agree to rounding (with a chord in bclibc they were 0.03 ft / 4e-4 rad apart).
+    return identity::compare_scalar("max_range (ft)", bc_result.value().max_range_ft, tb_range, 1e-6) &&
+           identity::compare_scalar("angle_at_max (rad)", bc_result.value().angle_at_max_rad, tb_angle, 1e-6);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // main
 // ═══════════════════════════════════════════════════════════════════════════
@@ -563,6 +596,7 @@ int main()
     all_pass &= test_g7_basic_zero_angle();
     all_pass &= test_g7_basic_zero_point();
     all_pass &= test_g7_basic_find_apex();
+    all_pass &= test_g7_basic_find_max_range();
 
     std::printf("\n%s\n", all_pass ? "ALL TESTS PASSED" : "SOME TESTS FAILED");
     return all_pass ? 0 : 1;

@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- C ABI for the adaptive integrators (Cash-Karp, Dormand-Prince, Tsitouras) in `bclibc_ffi.h`: `BCLIBCFFI_integrate_adaptive_shot`, `BCLIBCFFI_free_base_trajectory`, and the zero-angle, zero-point, max-range and apex variants `BCLIBCFFI_*_adaptive_shot`. Each takes per-call relative and absolute tolerances and reports accepted and rejected step counts (`BCLIBCFFI_StepStats`); the integrate call can also return the accepted-step stream as dense output. Each call owns its integrator, so no state is shared between calls.
+- C ABI for the remaining engine paths: `BCLIBCFFI_integrate_dense_shot` (dense output for the fixed-step RK4, Euler and
+  Velocity Verlet methods), `BCLIBCFFI_find_zero_angle_lofted_shot` and `BCLIBCFFI_find_zero_point_lofted_shot` (lofted
+  solvers, fixed-step), their `*_lofted_adaptive_shot` variants, and `BCLIBCFFI_integrate_at_adaptive_shot` (interpolated
+  point with per-call tolerances). Errors use the same `BCLIBCFFI_Status` codes.
+- C ABI for the pieces the solvers are made of: `BCLIBCFFI_error_at_distance_shot`, `BCLIBCFFI_range_for_angle_shot`,
+  `BCLIBCFFI_find_zero_angle_newton_shot` and `BCLIBCFFI_zero_init_shot` (each with an `_adaptive_shot` form taking
+  per-call tolerances and reporting step counts), so a caller can run its own zero or range search.
+- C ABI for working with dense output: `BCLIBCFFI_dense_get_at` and `BCLIBCFFI_dense_get_at_slant_height`
+  (interpolation inside the accepted-step array) and `BCLIBCFFI_trajectory_data_from_step_shot` (a step as a full
+  trajectory record), so dense output is usable without reimplementing PCHIP or the shot physics per language.
+- `BCLIBCFFI_get_layout_ext()` for the layout of `BCLIBCFFI_StepStats` and `BCLIBCFFI_ZeroInit`. It is separate from
+  `BCLIBCFFI_get_layout()`, whose size is unchanged, so existing WASM/JS readers keep working.
+- `tests/test_ffi_adaptive.cpp`: C ABI tests for all of the above (status codes, tolerances, step statistics, dense
+  output, every integration method, error paths), run by CTest.
+- CI (`pr-check.yml`): an ASan + UBSan job (the C++ tests and the `tiny_bclibc` identity test) and a packaging job on
+  Linux and macOS (the Makefile targets, and `cmake/check_package.sh`, which installs `bclibc` and `tiny_bclibc` and
+  builds, links and runs a `find_package` consumer of each at `-O0`).
+- `tests/wasm_parity/parity.py` covers the new entry points too (adaptive integrators with step statistics, dense
+  output and its helpers, the lofted and Newton solvers, `error_at_distance`, `range_for_angle`, `zero_init`, error
+  paths): 204 cases, identical between the native library and the wasi-sdk and zig modules (angles within a few ulp).
+
+### Fixed
+- `BCLIBC_BaseEngine::range_for_angle` located the line-of-sight crossing by linear interpolation between two
+  integrator steps. With the large steps of the adaptive integrators that is far off where the trajectory crosses the
+  line of sight at a shallow angle (a 984 ft crossing came out at 952-978 ft; RK4's small steps were off by about
+  0.004 ft). It now uses the cubic Hermite interpolant of the step, as the trajectory filter's `ZERO_DOWN` rows and
+  `tiny_bclibc` already do, so every method gives the same answer. `find_max_range` uses it, but its landing crossing
+  is steep: for a G7 2750 fps shot (about 18,420 ft) the maximum range moves by hundredths of a foot and the angle of the
+  maximum by up to 0.06 degrees (adaptive methods), RK4 only at the milli-foot level. The py-ballisticcalc test suite
+  (all six Cython engines) passes unchanged, and the `tiny_bclibc` identity test now also compares `find_max_range`
+  (bclibc and `tiny_bclibc` agree to rounding).
+- The `BCLIBCFFI_integrate_*` calls that return dense output now set their output pointers to `NULL`/`0` on failure
+  instead of leaving them untouched.
+- `make linux` and `make macos` failed (`cd build && cd build`): the Makefile's `MAKE_COMMAND` is GNU make's own variable
+  (`$(MAKE)` is defined as `$(MAKE_COMMAND)`), so overriding it broke `$(MAKE)`. Renamed to `BUILD_COMMAND`.
+- `cmake --install` left out `result.hpp`, `error.hpp` and `velocity_verlet.hpp`, so `#include <bclibc.hpp>` from the
+  installed tree did not compile; the whole header tree is installed now instead of a hand-kept list.
+- The installed `bclibc::bclibc_core` and `bclibc::bclibc_ffi` targets carried no include directory (`CMAKE_INSTALL_INCLUDEDIR`
+  was still empty where the targets were declared), so `find_package(bclibc)` consumers could not find the headers.
+  `bclibc_ffi` also exports its public include directory now.
+- `tiny_bclibc` as a `find_package` package: the short target names of the README (`tiny_bclibc::headers`, `::baremetal`,
+  `::static`, `::shared`) now exist there (and `::shared` in a subdirectory build); the exported long names are unchanged.
+  `libm` is propagated to consumers, which compile the header-only math calls themselves, so linking the shared library
+  or the headers no longer fails with undefined `sin`/`cos`/`atan2`.
+- `tiny_bclibc` as a shared library did not link on macOS: Apple's `ld` has no `--strip-all` (it uses `-x` there now).
+
+### Removed
+- `build.sh`, `build.bat`, `build.ps1` and `clean.ps1`. Nothing used them (no workflow, no consumer: dart-bclibc,
+  js-ballistics, micropython-bclibc and tiny-bclibc-wasm-py all build through `make`/`cmake`), `build.sh` reported
+  "libraries not found" after a successful build and `build.ps1` needed a Developer prompt for `dumpbin`. The README
+  describes `make` and `cmake` instead.
+
 ## [2.0.0] - 2026-10-03
 
 Stable release, covering the whole arc from 1.1.8 through 2.0.0-rc.4. Highlights below; full details are in

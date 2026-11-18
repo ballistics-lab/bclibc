@@ -23,3 +23,14 @@ target_link_libraries(bclibc_test_rk45_integrators PRIVATE bclibc_core Threads::
 target_compile_features(bclibc_test_rk45_integrators PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_rk45_integrators COMMAND bclibc_test_rk45_integrators)
+
+# C ABI checks for the adaptive entry points of bclibc_ffi.h (status codes, tolerances, stats, dense output).
+add_executable(bclibc_test_ffi_adaptive
+    test_ffi_adaptive.cpp
+)
+
+target_link_libraries(bclibc_test_ffi_adaptive PRIVATE bclibc_ffi)
+target_include_directories(bclibc_test_ffi_adaptive PRIVATE "${BCLIBC_INCLUDE_DIR}")
+target_compile_features(bclibc_test_ffi_adaptive PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_ffi_adaptive COMMAND bclibc_test_ffi_adaptive)

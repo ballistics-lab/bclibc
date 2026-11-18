@@ -919,25 +919,29 @@ namespace bclibc
         // Check for zero-down crossing (positive -> negative/zero)
         if (h_prev > 0.0 && h_curr <= 0.0)
         {
-            // Linear interpolation to find exact crossing point
-            double denom = h_prev - h_curr;
-            double t;
-
-            if (denom == 0.0)
+            // Locate the crossing on the cubic Hermite interpolant of the step (position and velocity at both ends),
+            // as the trajectory filter does for its ZERO_DOWN rows. A straight chord between two raw points is
+            // far off for the large steps of the adaptive integrators (several percent of the range).
+            const auto slant_height = [this](const BCLIBC_BaseTrajData &d)
+            { return d.py * this->look_angle_cos_ - d.px * this->look_angle_sin_; };
+            BCLIBC_BaseTrajData hit;
+            double ix, iy;
+            if (hermite_at_value(this->prev_point, data, slant_height, 0.0, hit))
             {
-                t = 1.0; // Points have same height, use current
+                ix = hit.px;
+                iy = hit.py;
             }
             else
             {
-                t = h_prev / denom;
-                t = std::fmax(0.0, std::fmin(1.0, t)); // Clamp [0,1]
+                // The interpolant could not be evaluated (degenerate step): fall back to the chord.
+                const double denom = h_prev - h_curr;
+                const double t = denom == 0.0 ? 1.0 : std::fmax(0.0, std::fmin(1.0, h_prev / denom));
+                ix = this->prev_point.px + t * (data.px - this->prev_point.px);
+                iy = this->prev_point.py + t * (data.py - this->prev_point.py);
             }
 
-            // Interpolate position
-            double ix = this->prev_point.px + t * (data.px - this->prev_point.px);
-            double iy = this->prev_point.py + t * (data.py - this->prev_point.py);
-
-            // Compute slant distance
+            // Compute slant distance (the height over the line of sight is zero here, so there is nothing to penalise
+            // as the Python engine does with `slant_distance - |slant_height|`).
             this->result_slant_distance = ix * this->look_angle_cos_ + iy * this->look_angle_sin_;
             this->is_found = true;
             if (this->termination_reason_ptr != nullptr)

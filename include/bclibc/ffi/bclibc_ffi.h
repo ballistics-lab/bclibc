@@ -548,6 +548,343 @@ extern "C"
         BCLIBCFFI_Error *err);
 
     // ============================================================================
+    // Adaptive integrators (Cash-Karp, Dormand-Prince, Tsitouras)
+    //
+    // Each call builds its own integrator, so tolerances and step statistics are per call and calls
+    // are independent (no shared or thread-local state). `method` must be one of
+    // BCLIBCFFI_INTEGRATION_CASH_KARP, BCLIBCFFI_INTEGRATION_DORMAND_PRINCE or
+    // BCLIBCFFI_INTEGRATION_TSITOURAS; any other value returns BCLIBCFFI_ERR_GENERIC.
+    // `shot->method` is ignored for these calls. Tolerances must be finite and positive (relative)
+    // or finite and non-negative (absolute); otherwise BCLIBCFFI_ERR_GENERIC is returned.
+    // ============================================================================
+
+    /** Accepted and rejected step counts of the most recent adaptive call. */
+    typedef struct BCLIBCFFI_StepStats
+    {
+        int32_t accepted; /**< Accepted steps. */
+        int32_t rejected; /**< Rejected steps. */
+    } BCLIBCFFI_StepStats;
+
+    /** One accepted step of the adaptive integrator (dense output). Same layout as BCLIBCFFI_BaseTrajData. */
+    typedef BCLIBCFFI_BaseTrajData BCLIBCFFI_DenseStep;
+
+    /**
+     * @brief Integrate with per-call tolerances, optionally returning the accepted-step stream.
+     *
+     * On success *out_records (and *out_dense when want_dense != 0) point to heap arrays of
+     * *out_count (and *out_dense_count) elements. Release them with BCLIBCFFI_free_trajectory() and
+     * BCLIBCFFI_free_base_trajectory(). *out_dense is NULL when want_dense == 0.
+     *
+     * @param out_stats Optional. Filled even when the integration fails (step counts so far).
+     */
+    BCLIBC_API int32_t BCLIBCFFI_integrate_adaptive_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t method,
+        double relative_tolerance,
+        double absolute_tolerance,
+        const BCLIBCFFI_TrajectoryRequest *request,
+        int32_t want_dense,
+        BCLIBCFFI_TrajectoryData **out_records,
+        int32_t *out_count,
+        BCLIBCFFI_DenseStep **out_dense,
+        int32_t *out_dense_count,
+        int32_t *out_reason, /**< BCLIBCFFI_TerminationReason */
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err);
+
+    /** Free a dense-step array allocated by BCLIBCFFI_integrate_adaptive_shot(). */
+    BCLIBC_API void BCLIBCFFI_free_base_trajectory(BCLIBCFFI_DenseStep *steps);
+
+    /** Barrel elevation that hits the sight line at distance_ft, with per-call tolerances. */
+    BCLIBC_API int32_t BCLIBCFFI_find_zero_angle_adaptive_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t method,
+        double relative_tolerance,
+        double absolute_tolerance,
+        double distance_ft,
+        double *out_angle_rad,
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err);
+
+    /** Lower zero and its terminal RANGE point, with per-call tolerances. */
+    BCLIBC_API int32_t BCLIBCFFI_find_zero_point_adaptive_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t method,
+        double relative_tolerance,
+        double absolute_tolerance,
+        double distance_ft,
+        BCLIBCFFI_ZeroPointResult *out,
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err);
+
+    /** Maximum range and its launch angle within [low_angle_deg, high_angle_deg], with per-call tolerances. */
+    BCLIBC_API int32_t BCLIBCFFI_find_max_range_adaptive_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t method,
+        double relative_tolerance,
+        double absolute_tolerance,
+        double low_angle_deg,
+        double high_angle_deg,
+        BCLIBCFFI_MaxRangeResult *out,
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err);
+
+    /** Apex point, with per-call tolerances. */
+    BCLIBC_API int32_t BCLIBCFFI_find_apex_adaptive_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t method,
+        double relative_tolerance,
+        double absolute_tolerance,
+        BCLIBCFFI_TrajectoryData *out,
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err);
+
+    /**
+     * @brief Integrate with a fixed-step method (shot->method: RK4, Euler or Velocity Verlet) and optional dense output.
+     *
+     * Same outputs as BCLIBCFFI_integrate_adaptive_shot(). Adaptive methods are rejected with BCLIBCFFI_ERR_GENERIC
+     * (use BCLIBCFFI_integrate_adaptive_shot for them).
+     */
+    BCLIBC_API int32_t BCLIBCFFI_integrate_dense_shot(
+        const BCLIBCFFI_Shot *shot,
+        const BCLIBCFFI_TrajectoryRequest *request,
+        int32_t want_dense,
+        BCLIBCFFI_TrajectoryData **out_records,
+        int32_t *out_count,
+        BCLIBCFFI_DenseStep **out_dense,
+        int32_t *out_dense_count,
+        int32_t *out_reason, /**< BCLIBCFFI_TerminationReason */
+        BCLIBCFFI_Error *err);
+
+    /**
+     * @brief Barrel elevation for a zero at distance_ft; lofted != 0 selects the higher trajectory (the lofted
+     * solver), lofted == 0 the lower one. Fixed-step method (shot->method).
+     */
+    BCLIBC_API int32_t BCLIBCFFI_find_zero_angle_lofted_shot(
+        const BCLIBCFFI_Shot *shot,
+        double distance_ft,
+        int32_t lofted,
+        double *out_angle_rad,
+        BCLIBCFFI_Error *err);
+
+    /**
+     * @brief Zero angle and terminal point for a zero at distance_ft; lofted selects the higher trajectory.
+     * Fixed-step method (shot->method).
+     */
+    BCLIBC_API int32_t BCLIBCFFI_find_zero_point_lofted_shot(
+        const BCLIBCFFI_Shot *shot,
+        double distance_ft,
+        int32_t lofted,
+        BCLIBCFFI_ZeroPointResult *out,
+        BCLIBCFFI_Error *err);
+
+    /** BCLIBCFFI_find_zero_angle_lofted_shot() with per-call tolerances and step statistics (adaptive method). */
+    BCLIBC_API int32_t BCLIBCFFI_find_zero_angle_lofted_adaptive_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t method,
+        double relative_tolerance,
+        double absolute_tolerance,
+        double distance_ft,
+        int32_t lofted,
+        double *out_angle_rad,
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err);
+
+    /** BCLIBCFFI_find_zero_point_lofted_shot() with per-call tolerances and step statistics (adaptive method). */
+    BCLIBC_API int32_t BCLIBCFFI_find_zero_point_lofted_adaptive_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t method,
+        double relative_tolerance,
+        double absolute_tolerance,
+        double distance_ft,
+        int32_t lofted,
+        BCLIBCFFI_ZeroPointResult *out,
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err);
+
+    /**
+     * @brief Integrate until key reaches target_value (interpolated raw and full point), with per-call tolerances and
+     * step statistics (adaptive method). The fixed-step variant is BCLIBCFFI_integrate_at_shot().
+     */
+    BCLIBC_API int32_t BCLIBCFFI_integrate_at_adaptive_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t method,
+        double relative_tolerance,
+        double absolute_tolerance,
+        int32_t key, /**< BCLIBCFFI_BaseTrajInterpKey */
+        double target_value,
+        BCLIBCFFI_Interception *out,
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err);
+
+    // ============================================================================
+    // Solver building blocks (error_at_distance, range_for_angle, Newton zero, zero-init)
+    //
+    // The pieces the zero and max-range solvers are made of, for callers that run their own search.
+    // Each has a fixed-step form (integrates with shot->method, adaptive methods at their default tolerances)
+    // and an `_adaptive_` form with per-call tolerances and step statistics (same rules as above).
+    // ============================================================================
+
+    /** Outcome of BCLIBCFFI_zero_init_shot(). */
+    typedef enum BCLIBCFFI_ZeroInitStatus
+    {
+        BCLIBCFFI_ZERO_INIT_CONTINUE = 0, /**< A search is needed. */
+        BCLIBCFFI_ZERO_INIT_DONE = 1,     /**< The answer is already in look_angle_rad (very close or vertical shot). */
+    } BCLIBCFFI_ZeroInitStatus;
+
+    /** Starting data of a zero search (see BCLIBCFFI_zero_init_shot). */
+    typedef struct BCLIBCFFI_ZeroInit
+    {
+        int32_t status;          /**< BCLIBCFFI_ZeroInitStatus */
+        int32_t reserved;        /**< Padding, always 0. */
+        double look_angle_rad;   /**< Look angle; when status is DONE for a close shot, the barrel angle to use. */
+        double slant_range_ft;   /**< Slant distance to the target. */
+        double target_x_ft;      /**< Horizontal distance to the target. */
+        double target_y_ft;      /**< Target height. */
+        double start_height_ft;  /**< Muzzle height relative to the sight line (negative sight height, cant applied). */
+    } BCLIBCFFI_ZeroInit;
+
+    /**
+     * @brief Vertical error of a shot fired at angle_rad, measured where x reaches target_x_ft:
+     * (hit.y - target_y_ft) - |hit.x - target_x_ft|.
+     *
+     * Fails with BCLIBCFFI_ERR_SOLVER_RUNTIME when the trajectory ends (minimum velocity, maximum drop or minimum
+     * altitude) before target_x_ft, or when nothing was integrated.
+     *
+     * @param out_hit Optional. The interpolated point at target_x_ft.
+     */
+    BCLIBC_API int32_t BCLIBCFFI_error_at_distance_shot(
+        const BCLIBCFFI_Shot *shot,
+        double angle_rad,
+        double target_x_ft,
+        double target_y_ft,
+        double *out_error_ft,
+        BCLIBCFFI_BaseTrajData *out_hit,
+        BCLIBCFFI_Error *err);
+
+    /** BCLIBCFFI_error_at_distance_shot() with per-call tolerances and step statistics. */
+    BCLIBC_API int32_t BCLIBCFFI_error_at_distance_adaptive_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t method,
+        double relative_tolerance,
+        double absolute_tolerance,
+        double angle_rad,
+        double target_x_ft,
+        double target_y_ft,
+        double *out_error_ft,
+        BCLIBCFFI_BaseTrajData *out_hit,
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err);
+
+    /**
+     * @brief Slant distance where a shot fired at angle_rad crosses the line of sight (downward) again.
+     * *out_slant_range_ft is 0.0 when it never does.
+     */
+    BCLIBC_API int32_t BCLIBCFFI_range_for_angle_shot(
+        const BCLIBCFFI_Shot *shot,
+        double angle_rad,
+        double *out_slant_range_ft,
+        BCLIBCFFI_Error *err);
+
+    /** BCLIBCFFI_range_for_angle_shot() with per-call tolerances and step statistics. */
+    BCLIBC_API int32_t BCLIBCFFI_range_for_angle_adaptive_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t method,
+        double relative_tolerance,
+        double absolute_tolerance,
+        double angle_rad,
+        double *out_slant_range_ft,
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err);
+
+    /**
+     * @brief Zero angle for distance_ft by Newton's method only (BCLIBCFFI_find_zero_angle_shot() adds the Ridder
+     * fallback). Fails with BCLIBCFFI_ERR_ZERO_FINDING when it does not converge.
+     */
+    BCLIBC_API int32_t BCLIBCFFI_find_zero_angle_newton_shot(
+        const BCLIBCFFI_Shot *shot,
+        double distance_ft,
+        double *out_angle_rad,
+        BCLIBCFFI_Error *err);
+
+    /** BCLIBCFFI_find_zero_angle_newton_shot() with per-call tolerances and step statistics. */
+    BCLIBC_API int32_t BCLIBCFFI_find_zero_angle_newton_adaptive_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t method,
+        double relative_tolerance,
+        double absolute_tolerance,
+        double distance_ft,
+        double *out_angle_rad,
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err);
+
+    /**
+     * @brief Starting data of a zero search for distance_ft. Fails with BCLIBCFFI_ERR_OUT_OF_RANGE for a vertical
+     * shot whose apex is below the target.
+     */
+    BCLIBC_API int32_t BCLIBCFFI_zero_init_shot(
+        const BCLIBCFFI_Shot *shot,
+        double distance_ft,
+        BCLIBCFFI_ZeroInit *out,
+        BCLIBCFFI_Error *err);
+
+    /** BCLIBCFFI_zero_init_shot() with per-call tolerances and step statistics. */
+    BCLIBC_API int32_t BCLIBCFFI_zero_init_adaptive_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t method,
+        double relative_tolerance,
+        double absolute_tolerance,
+        double distance_ft,
+        BCLIBCFFI_ZeroInit *out,
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err);
+
+    // ============================================================================
+    // Working with dense output
+    //
+    // The accepted-step stream from the integrate calls above is a plain array of BCLIBCFFI_DenseStep. These
+    // calls interpolate in it and turn a step into a full trajectory record, so callers need no PCHIP or
+    // shot-physics code of their own. `steps` must be time-ordered, as the integrate calls return it.
+    // ============================================================================
+
+    /**
+     * @brief Interpolated step where `key` reaches `value` (3-point PCHIP, or the exact step when one matches).
+     *
+     * @param start_from_time Only steps with time >= this are searched; 0 or negative disables it (ignored for TIME).
+     * Fails with BCLIBCFFI_ERR_INTERCEPTION when the value is not inside the stream.
+     */
+    BCLIBC_API int32_t BCLIBCFFI_dense_get_at(
+        const BCLIBCFFI_DenseStep *steps,
+        int32_t count,
+        int32_t key, /**< BCLIBCFFI_BaseTrajInterpKey */
+        double value,
+        double start_from_time,
+        BCLIBCFFI_DenseStep *out,
+        BCLIBCFFI_Error *err);
+
+    /** Interpolated step where the slant height (height above the line of sight at look_angle_rad) reaches `value`. */
+    BCLIBC_API int32_t BCLIBCFFI_dense_get_at_slant_height(
+        const BCLIBCFFI_DenseStep *steps,
+        int32_t count,
+        double look_angle_rad,
+        double value,
+        BCLIBCFFI_DenseStep *out,
+        BCLIBCFFI_Error *err);
+
+    /**
+     * @brief The full trajectory record (distance, drop, windage, energy, ...) of one dense step, using the shot's
+     * atmosphere, drag and Coriolis data.
+     *
+     * @param flag BCLIBCFFI_TrajFlag value stored in the record.
+     */
+    BCLIBC_API int32_t BCLIBCFFI_trajectory_data_from_step_shot(
+        const BCLIBCFFI_Shot *shot,
+        const BCLIBCFFI_DenseStep *step,
+        int32_t flag,
+        BCLIBCFFI_TrajectoryData *out,
+        BCLIBCFFI_Error *err);
+
+    // ============================================================================
     // ABI layout introspection (WASM/JS interop only — unused by dart:ffi,
     // which derives struct layout at ffigen-generation time instead).
     // ============================================================================
@@ -565,6 +902,17 @@ extern "C"
      *         -1 if out_len is too small.
      */
     BCLIBC_API int32_t BCLIBCFFI_get_layout(int32_t *out, int32_t out_len);
+
+    /**
+     * @brief Layout of the structs added after BCLIBCFFI_get_layout() was frozen, in the same style (WASM/JS interop).
+     *
+     * Kept separate so the size BCLIBCFFI_get_layout() returns, and the readers that rely on it, do not change.
+     * Fixed order: [ sizeof(StepStats), 2 field offsets (accepted, rejected) ]
+     *              [ sizeof(ZeroInit), 7 field offsets (status, reserved, look_angle_rad, slant_range_ft,
+     *                target_x_ft, target_y_ft, start_height_ft) ].
+     * Returns the number of values written, or -1 if out_len is too small.
+     */
+    BCLIBC_API int32_t BCLIBCFFI_get_layout_ext(int32_t *out, int32_t out_len);
 
 #ifdef __cplusplus
 } // extern "C"

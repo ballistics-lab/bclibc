@@ -4,6 +4,10 @@
     python tests/wasm_parity/parity.py --native build/libbclibc_ffi.so --wasm build/wasm/bclibc_wasm.wasm \\
         --backend wasmtime --backend node
 
+Covers the integrate / zero / max-range / apex entry points, the adaptive integrators with per-call tolerances and step
+statistics, dense output and its helpers, and the solver building blocks (error_at_distance, range_for_angle, Newton zero,
+zero_init).
+
 The same shots go through `libbclibc_ffi` (ctypes) and through the module (wasmhost: https://pypi.org/project/wasmhost,
 `pip install --pre wasmhost wasmtime`). Every double of every result is compared bit for bit:
 
@@ -44,6 +48,8 @@ SPECS = {
 }
 SPECS["Interception"] = [("raw","BaseTrajData"),("full","TrajectoryData")]
 SPECS["ZeroPoint"] = [("angle_rad","d"),("point","TrajectoryData")]
+SPECS["StepStats"] = [("accepted","i"),("rejected","i")]
+SPECS["ZeroInit"] = [("status","i"),("reserved","i"),("look_angle_rad","d"),("slant_range_ft","d"),("target_x_ft","d"),("target_y_ft","d"),("start_height_ft","d")]
 
 def layout(name, P):
     """(size, align, [(field, offset, kind)]) for pointer size P."""
@@ -149,6 +155,7 @@ def bind_native():
     sig("BCLIBCFFI_find_zero_angle_shot", PT, D, PT, PT); sig("BCLIBCFFI_find_zero_point_shot", PT, D, PT, PT)
     sig("BCLIBCFFI_integrate_shot", PT, PT, PT, PT, PT, PT); sig("BCLIBCFFI_integrate_at_shot", PT, I, D, PT, PT)
     NATIVE.BCLIBCFFI_free_trajectory.argtypes = [PT]; NATIVE.BCLIBCFFI_free_trajectory.restype = None
+    NATIVE.BCLIBCFFI_free_base_trajectory.argtypes = [PT]; NATIVE.BCLIBCFFI_free_base_trajectory.restype = None
 
 def structs(kind, image, P):
     return doubles_of(image, kind, P)
@@ -268,6 +275,150 @@ CASES += [("RK4 apex", "BCLIBCFFI_find_apex_shot", shot_values(0, barrel_elevati
           ("RK4 cant 5deg, look 3deg", "BCLIBCFFI_integrate_shot", shot_values(0, cant_angle_rad=math.radians(5), look_angle_rad=math.radians(3), barrel_elevation_rad=0.004), scenario_integrate()),
           ("RK4 zero out of range 20000yd (error path)", "BCLIBCFFI_find_zero_angle_shot", shot_values(0), scenario_zero_angle(60000.0))]
 
+
+
+# ---- the calls added for adaptive integrators, solver building blocks and dense output
+
+def scenario_call(*args, shot=True):
+    """Any call of the form f(shot, <args>, err) (f(<args>, err) with shot=False, the calls that take no shot). Each arg: ('d', x) double, ('i', n) int32, ('in', Struct, values) pointer
+    to an input struct, ('arr', Struct, [values]) pointer to an input array, ('out', Struct) pointer to an output
+    struct, ('outd',) pointer to an output double, ('null',) a NULL pointer. Every output is compared."""
+    def fields_of(kind, image, P):
+        if kind == "d": return [("value", struct.unpack("<Q", image[:8])[0])]
+        return doubles_of(image, kind, P)
+    def n(fn, shot_c, err):
+        call, keep, outs = ([ctypes.byref(shot_c)] if shot else []), [], []
+        for a in args:
+            k = a[0]
+            if k == "d": call.append(ctypes.c_double(a[1]))
+            elif k == "i": call.append(ctypes.c_int32(a[1]))
+            elif k == "in":
+                o = CT[a[1]].from_buffer_copy(pack(a[1], a[2], 8)); keep.append(o); call.append(ctypes.byref(o))
+            elif k == "arr":
+                blob = b"".join(pack(a[1], v, 8) for v in a[2]); buf = ctypes.create_string_buffer(blob, len(blob)); keep.append(buf); call.append(ctypes.c_void_p(ctypes.addressof(buf)))
+            elif k == "out":
+                o = CT[a[1]](); outs.append((a[1], o)); call.append(ctypes.byref(o))
+            elif k == "outd":
+                o = D(); outs.append(("d", o)); call.append(ctypes.byref(o))
+            elif k == "null": call.append(ctypes.c_void_p(None))
+        rc = fn(*call, ctypes.byref(err))
+        res = []
+        for idx, (kind, o) in enumerate(outs):
+            res += [(f"o{idx}.{p}", v) for p, v in fields_of(kind, bytes(o), 8)]
+        return rc, res
+    def w(wasm, name, shot_w, err):
+        call, frees, outs = ([shot_w] if shot else []), [], []
+        for a in args:
+            k = a[0]
+            if k == "d": call.append(float(a[1]))
+            elif k == "i": call.append(int(a[1]))
+            elif k in ("in", "arr"):
+                vals = [a[2]] if k == "in" else a[2]
+                ptr = wasm.alloc(b"".join(pack(a[1], v, 4) for v in vals)); frees.append(ptr); call.append(ptr)
+            elif k in ("out", "outd"):
+                kind = a[1] if k == "out" else "d"; size = layout(kind, 4)[0] if k == "out" else 8
+                ptr = wasm.alloc(bytes(size)); frees.append(ptr); outs.append((kind, ptr, size)); call.append(ptr)
+            elif k == "null": call.append(0)
+        rc = getattr(wasm.e, name)(*call, err)
+        res = []
+        for idx, (kind, ptr, size) in enumerate(outs):
+            res += [(f"o{idx}.{p}", v) for p, v in fields_of(kind, bytes(wasm.mem.read(ptr, size)), 4)]
+        for ptr in frees: wasm.free(ptr)
+        return rc, res
+    return dict(native=n, wasm=w)
+
+def scenario_integrate_dense(adaptive=None, req=REQ):
+    """BCLIBCFFI_integrate_adaptive_shot (adaptive=(method, rtol, atol)) or BCLIBCFFI_integrate_dense_shot (None), with the
+    dense output requested: the records, the accepted steps and the step counts are all compared."""
+    def n(fn, shot, err):
+        r = CT["Request"].from_buffer_copy(pack("Request", req, 8)); recs, dense = PT(), PT(); cnt, dcnt, reason = I(), I(), I(); st = CT["StepStats"]()
+        head = [ctypes.byref(shot)] + ([ctypes.c_int32(adaptive[0]), ctypes.c_double(adaptive[1]), ctypes.c_double(adaptive[2])] if adaptive else []) + [ctypes.byref(r), ctypes.c_int32(1), ctypes.byref(recs), ctypes.byref(cnt), ctypes.byref(dense), ctypes.byref(dcnt), ctypes.byref(reason)]
+        rc = fn(*head, *([ctypes.byref(st)] if adaptive else []), ctypes.byref(err))
+        out = [("count", cnt.value), ("dcount", dcnt.value), ("reason", reason.value)]
+        if adaptive: out += [("stats." + p, v) for p, v in doubles_of(bytes(st), "StepStats", 8)]
+        if rc == 0:
+            sz = ctypes.sizeof(CT["TrajectoryData"]); blob = ctypes.string_at(recs, sz * cnt.value)
+            for i in range(cnt.value): out += [(f"[{i}].{p}", v) for p, v in doubles_of(blob, "TrajectoryData", 8, i * sz)]
+            bs = ctypes.sizeof(CT["BaseTrajData"]); blob = ctypes.string_at(dense, bs * dcnt.value)
+            for i in range(dcnt.value): out += [(f"d[{i}].{p}", v) for p, v in doubles_of(blob, "BaseTrajData", 8, i * bs)]
+            NATIVE.BCLIBCFFI_free_trajectory(recs); NATIVE.BCLIBCFFI_free_base_trajectory(dense)
+        return rc, out
+    def w(wasm, name, shot, err):
+        P = 4; r = wasm.alloc(pack("Request", req, P)); cells = [wasm.alloc(bytes(4)) for _ in range(5)]; recs, cnt, dense, dcnt, reason = cells
+        stp = wasm.alloc(bytes(8))
+        head = [shot] + (list(adaptive) if adaptive else []) + [r, 1, recs, cnt, dense, dcnt, reason]
+        rc = getattr(wasm.e, name)(*head, *([stp] if adaptive else []), err)
+        rd = lambda p: struct.unpack("<i", bytes(wasm.mem.read(p, 4)))[0]
+        c, dc = rd(cnt), rd(dcnt); out = [("count", c), ("dcount", dc), ("reason", rd(reason))]
+        if adaptive: out += [("stats." + p, v) for p, v in doubles_of(bytes(wasm.mem.read(stp, 8)), "StepStats", P)]
+        if rc == 0:
+            ptr, dptr = struct.unpack("<I", bytes(wasm.mem.read(recs, 4)))[0], struct.unpack("<I", bytes(wasm.mem.read(dense, 4)))[0]
+            sz, bs = layout("TrajectoryData", P)[0], layout("BaseTrajData", P)[0]
+            blob = bytes(wasm.mem.read(ptr, sz * c))
+            for i in range(c): out += [(f"[{i}].{p}", v) for p, v in doubles_of(blob, "TrajectoryData", P, i * sz)]
+            blob = bytes(wasm.mem.read(dptr, bs * dc))
+            for i in range(dc): out += [(f"d[{i}].{p}", v) for p, v in doubles_of(blob, "BaseTrajData", P, i * bs)]
+            wasm.e.BCLIBCFFI_free_trajectory(ptr); wasm.e.BCLIBCFFI_free_base_trajectory(dptr)
+        for p in (r, stp, *cells): wasm.free(p)
+        return rc, out
+    return dict(native=n, wasm=w)
+
+# a synthetic, time-ordered dense stream (plain + - * arithmetic: the same bits on both sides) and one step for the
+# dense-to-record conversion
+def _step(t): return dict(time=t, px=2700.0*t - 300.0*t*t, py=20.0*t - 16.1*t*t, pz=0.5*t, vx=2700.0 - 600.0*t, vy=20.0 - 32.2*t, vz=0.5, mach=2.4 - 0.3*t)
+STREAM = [_step(i * 0.1) for i in range(8)]
+STEP = dict(time=0.5, px=1300.0, py=3.2, pz=0.1, vx=2300.0, vy=-3.0, vz=0.2, mach=2.05)
+D_ = lambda x: ("d", x)
+I_ = lambda x: ("i", x)
+RT, AT = 1e-8, 1e-8
+D900 = 900.0  # 300 yd, in feet
+
+NEW_CASES = []
+for mname, m in (("CASH_KARP", 3), ("DOPRI", 4), ("TSITOURAS", 5)):
+    sv = shot_values(0); sv_b = shot_values(0, barrel_elevation_rad=math.radians(0.3)); sv_a = shot_values(0, barrel_elevation_rad=math.radians(30))
+    ad = (I_(m), D_(RT), D_(AT))
+    NEW_CASES += [
+        (f"{mname:9} integrate_adaptive+dense", "BCLIBCFFI_integrate_adaptive_shot", sv, scenario_integrate_dense((m, RT, AT))),
+        (f"{mname:9} zero_angle_adaptive", "BCLIBCFFI_find_zero_angle_adaptive_shot", sv, scenario_call(*ad, D_(D900), ("outd",), ("out", "StepStats"))),
+        (f"{mname:9} zero_point_adaptive", "BCLIBCFFI_find_zero_point_adaptive_shot", sv, scenario_call(*ad, D_(D900), ("out", "ZeroPoint"), ("out", "StepStats"))),
+        (f"{mname:9} max_range_adaptive", "BCLIBCFFI_find_max_range_adaptive_shot", sv_b, scenario_call(*ad, D_(0.0), D_(90.0), ("out", "MaxRange"), ("out", "StepStats"))),
+        (f"{mname:9} apex_adaptive", "BCLIBCFFI_find_apex_adaptive_shot", sv_a, scenario_call(*ad, ("out", "TrajectoryData"), ("out", "StepStats"))),
+        (f"{mname:9} integrate_at_adaptive time=0.5", "BCLIBCFFI_integrate_at_adaptive_shot", sv_b, scenario_call(*ad, I_(0), D_(0.5), ("out", "Interception"), ("out", "StepStats"))),
+        (f"{mname:9} zero_angle_lofted_adaptive low", "BCLIBCFFI_find_zero_angle_lofted_adaptive_shot", sv, scenario_call(*ad, D_(D900), I_(0), ("outd",), ("out", "StepStats"))),
+        (f"{mname:9} zero_angle_lofted_adaptive high", "BCLIBCFFI_find_zero_angle_lofted_adaptive_shot", sv, scenario_call(*ad, D_(D900), I_(1), ("outd",), ("out", "StepStats"))),
+        (f"{mname:9} zero_point_lofted_adaptive low", "BCLIBCFFI_find_zero_point_lofted_adaptive_shot", sv, scenario_call(*ad, D_(D900), I_(0), ("out", "ZeroPoint"), ("out", "StepStats"))),
+        (f"{mname:9} error_at_distance_adaptive", "BCLIBCFFI_error_at_distance_adaptive_shot", sv_b, scenario_call(*ad, D_(0.004), D_(D900), D_(0.0), ("outd",), ("out", "BaseTrajData"), ("out", "StepStats"))),
+        (f"{mname:9} range_for_angle_adaptive", "BCLIBCFFI_range_for_angle_adaptive_shot", sv, scenario_call(*ad, D_(0.004), ("outd",), ("out", "StepStats"))),
+        (f"{mname:9} zero_angle_newton_adaptive", "BCLIBCFFI_find_zero_angle_newton_adaptive_shot", sv, scenario_call(*ad, D_(D900), ("outd",), ("out", "StepStats"))),
+        (f"{mname:9} zero_init_adaptive", "BCLIBCFFI_zero_init_adaptive_shot", sv, scenario_call(*ad, D_(D900), ("out", "ZeroInit"), ("out", "StepStats"))),
+    ]
+for mname, m in METHODS.items():
+    if m > 2: continue  # the fixed-step methods
+    sv = shot_values(m)
+    NEW_CASES += [
+        (f"{mname:9} integrate_dense", "BCLIBCFFI_integrate_dense_shot", sv, scenario_integrate_dense(None)),
+        (f"{mname:9} zero_angle_lofted low", "BCLIBCFFI_find_zero_angle_lofted_shot", sv, scenario_call(D_(D900), I_(0), ("outd",))),
+        (f"{mname:9} zero_angle_lofted high", "BCLIBCFFI_find_zero_angle_lofted_shot", sv, scenario_call(D_(D900), I_(1), ("outd",))),
+        (f"{mname:9} zero_point_lofted low", "BCLIBCFFI_find_zero_point_lofted_shot", sv, scenario_call(D_(D900), I_(0), ("out", "ZeroPoint"))),
+        (f"{mname:9} error_at_distance", "BCLIBCFFI_error_at_distance_shot", shot_values(m, barrel_elevation_rad=math.radians(0.3)), scenario_call(D_(0.004), D_(D900), D_(0.0), ("outd",), ("out", "BaseTrajData"))),
+        (f"{mname:9} error_at_distance, no hit out", "BCLIBCFFI_error_at_distance_shot", sv, scenario_call(D_(0.004), D_(D900), D_(0.0), ("outd",), ("null",))),
+        (f"{mname:9} range_for_angle", "BCLIBCFFI_range_for_angle_shot", sv, scenario_call(D_(0.004), ("outd",))),
+        (f"{mname:9} zero_angle_newton", "BCLIBCFFI_find_zero_angle_newton_shot", sv, scenario_call(D_(D900), ("outd",))),
+        (f"{mname:9} zero_init", "BCLIBCFFI_zero_init_shot", sv, scenario_call(D_(D900), ("out", "ZeroInit"))),
+    ]
+sv = shot_values(0)
+NEW_CASES += [
+    ("zero_init very close shot", "BCLIBCFFI_zero_init_shot", sv, scenario_call(D_(1e-6), ("out", "ZeroInit"))),
+    ("RK4 zero_angle_newton out of range (error path)", "BCLIBCFFI_find_zero_angle_newton_shot", sv, scenario_call(D_(60000.0), ("outd",))),
+    ("RK4 error_at_distance never reached (error path)", "BCLIBCFFI_error_at_distance_shot", sv, scenario_call(D_(0.004), D_(1e8), D_(0.0), ("outd",), ("null",))),
+    ("dense_get_at time=0.35", "BCLIBCFFI_dense_get_at", sv, scenario_call(("arr", "BaseTrajData", STREAM), I_(len(STREAM)), I_(0), D_(0.35), D_(0.0), ("out", "BaseTrajData"), shot=False)),
+    ("dense_get_at pos_x=1000", "BCLIBCFFI_dense_get_at", sv, scenario_call(("arr", "BaseTrajData", STREAM), I_(len(STREAM)), I_(2), D_(1000.0), D_(0.0), ("out", "BaseTrajData"), shot=False)),
+    ("dense_get_at exact step", "BCLIBCFFI_dense_get_at", sv, scenario_call(("arr", "BaseTrajData", STREAM), I_(len(STREAM)), I_(0), D_(STREAM[3]["time"]), D_(0.0), ("out", "BaseTrajData"), shot=False)),
+    ("dense_get_at outside the stream (error path)", "BCLIBCFFI_dense_get_at", sv, scenario_call(("arr", "BaseTrajData", STREAM), I_(len(STREAM)), I_(0), D_(50.0), D_(0.0), ("out", "BaseTrajData"), shot=False)),
+    ("dense_get_at_slant_height 3 ft", "BCLIBCFFI_dense_get_at_slant_height", sv, scenario_call(("arr", "BaseTrajData", STREAM), I_(len(STREAM)), D_(0.0), D_(3.0), ("out", "BaseTrajData"), shot=False)),
+    ("trajectory_data_from_step", "BCLIBCFFI_trajectory_data_from_step_shot", sv, scenario_call(("in", "BaseTrajData", STEP), I_(8), ("out", "TrajectoryData"))),
+]
+CASES += NEW_CASES
 
 
 def main():

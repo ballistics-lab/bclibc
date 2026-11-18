@@ -56,6 +56,11 @@ if(TINY_BCLIBC_SINGLE_PRECISION)
     target_compile_definitions(tiny_bclibc_headers INTERFACE TINY_BCLIBC_SINGLE_PRECISION)
 endif()
 
+# The header-only implementation is compiled in the consumer, and it calls sin/cos/atan2/...: the consumer links libm.
+if(NOT WIN32)
+    target_link_libraries(tiny_bclibc_headers INTERFACE m)
+endif()
+
 # ── Shared setup func compile-target ────────────────────
 function(tiny_bclibc_configure_target tgt)
     target_include_directories(${tgt} PUBLIC
@@ -72,15 +77,20 @@ function(tiny_bclibc_configure_target tgt)
         VERSION   ${TINY_BCLIBC_VERSION_MAJOR}.${TINY_BCLIBC_VERSION_MINOR}.${TINY_BCLIBC_VERSION_PATCH}
         SOVERSION ${TINY_BCLIBC_VERSION_MAJOR})
     if(NOT WIN32)
-        target_link_libraries(${tgt} PRIVATE m)
+        # PUBLIC: a consumer that includes the headers compiles the same math calls itself (see tiny_bclibc_headers).
+        target_link_libraries(${tgt} PUBLIC m)
         # -Os: size-first (no loop unrolling, shorter sequences) — matches embedded toolchain.
         #      TINY_BCLIBC_INTERNAL handles the critical noinline guarantee explicitly,
         #      so -Os is safe: no duplicate rk4/filter, arithmetic still well-optimized.
         # -fvisibility=hidden: only TINY_BCLIBC_FUNC symbols exported; internals hidden.
         target_compile_options(${tgt} PRIVATE -Os -fvisibility=hidden)
-        # Strip unneeded symbols in Release builds
-        target_link_options(${tgt} PRIVATE
-            $<$<CONFIG:Release>:-Wl,--strip-all>)
+        # Strip symbols in Release builds. Apple's ld has no --strip-all: -x drops the non-global symbols there (the
+        # exported ones are what a shared library keeps anyway).
+        if(APPLE)
+            target_link_options(${tgt} PRIVATE $<$<CONFIG:Release>:-Wl,-x>)
+        else()
+            target_link_options(${tgt} PRIVATE $<$<CONFIG:Release>:-Wl,--strip-all>)
+        endif()
     endif()
 endfunction()
 
@@ -88,6 +98,7 @@ endfunction()
 if(TINY_BCLIBC_BUILD_SHARED)
     add_library(tiny_bclibc SHARED src/tiny_bclibc_impl.c)
     add_library(tiny_bclibc::tiny_bclibc ALIAS tiny_bclibc)
+    add_library(tiny_bclibc::shared ALIAS tiny_bclibc)  # the name the README uses
     tiny_bclibc_configure_target(tiny_bclibc)
     if(WIN32)
         target_compile_definitions(tiny_bclibc PUBLIC TINY_BCLIBC_USE_SHARED)

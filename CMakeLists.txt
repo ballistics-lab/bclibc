@@ -109,6 +109,10 @@ if(BCLIBC_WASM_BARE)
     return()
 endif()
 
+# CMAKE_INSTALL_INCLUDEDIR is used by the INSTALL_INTERFACE of the targets below. It has to be defined before them:
+# empty there, `$<INSTALL_INTERFACE:>` gave the installed targets no include directory at all.
+include(GNUInstallDirs)
+
 # ============================================================================
 # 1. Target: Pure core (Static Library)
 # ============================================================================
@@ -132,7 +136,12 @@ add_library(bclibc_ffi SHARED "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp")
 
 # Add generated folder to include paths for FFI
 target_include_directories(bclibc_ffi PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
-target_include_directories(bclibc_ffi PRIVATE "${BCLIBC_INCLUDE_DIR}")
+# The public header (bclibc/ffi/bclibc_ffi.h) travels with the target, so a consumer of bclibc::bclibc_ffi finds it
+# from find_package() as well as from add_subdirectory().
+target_include_directories(bclibc_ffi PUBLIC
+    "$<BUILD_INTERFACE:${BCLIBC_INCLUDE_DIR}>"
+    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
+)
 
 # Platform-specific settings for FFI library
 if(WINDOWS_BUILD)
@@ -276,31 +285,12 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
       DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/bclibc
   )
 
-  install(FILES "${BCLIBC_INCLUDE_DIR}/bclibc.hpp"
+  # The whole public header tree (bclibc.hpp, bclibc/*.hpp, bclibc/ffi/bclibc_ffi.h), not a list of names: a header
+  # added to the tree is installed with it, and the installed headers stay self-contained (an explicit list had
+  # drifted and left out result.hpp, error.hpp and velocity_verlet.hpp, which bclibc.hpp includes).
+  install(DIRECTORY "${BCLIBC_INCLUDE_DIR}/"
       DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-  )
-
-  install(FILES
-      "${BCLIBC_INCLUDE_DIR}/bclibc/base_types.hpp"
-      "${BCLIBC_INCLUDE_DIR}/bclibc/cash_karp.hpp"
-      "${BCLIBC_INCLUDE_DIR}/bclibc/dormand_prince.hpp"
-      "${BCLIBC_INCLUDE_DIR}/bclibc/embedded_rk45.hpp"
-      "${BCLIBC_INCLUDE_DIR}/bclibc/engine.hpp"
-      "${BCLIBC_INCLUDE_DIR}/bclibc/euler.hpp"
-      "${BCLIBC_INCLUDE_DIR}/bclibc/exceptions.hpp"
-      "${BCLIBC_INCLUDE_DIR}/bclibc/interp.hpp"
-      "${BCLIBC_INCLUDE_DIR}/bclibc/log.hpp"
-      "${BCLIBC_INCLUDE_DIR}/bclibc/rk4.hpp"
-      "${BCLIBC_INCLUDE_DIR}/bclibc/scope_guard.hpp"
-      "${BCLIBC_INCLUDE_DIR}/bclibc/traj_data.hpp"
-      "${BCLIBC_INCLUDE_DIR}/bclibc/traj_filter.hpp"
-      "${BCLIBC_INCLUDE_DIR}/bclibc/tsitouras.hpp"
-      "${BCLIBC_INCLUDE_DIR}/bclibc/v3d.hpp"
-      DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/bclibc
-  )
-
-  install(FILES "${BCLIBC_INCLUDE_DIR}/bclibc/ffi/bclibc_ffi.h"
-      DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/bclibc/ffi
+      FILES_MATCHING PATTERN "*.hpp" PATTERN "*.h"
   )
 
   install(EXPORT bclibc-targets

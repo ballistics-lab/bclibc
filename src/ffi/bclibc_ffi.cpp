@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstring>
 #include <cstdlib>
+#include <functional>
 #include <type_traits>
 #include <vector>
 
@@ -397,6 +398,197 @@ static int32_t ffi_call(Func &&fn, BCLIBCFFI_Error *err) noexcept
 {
     clearError(err);
     return fn();
+}
+
+// ============================================================================
+// Adaptive integrators: one integrator per call, installed by reference
+// ============================================================================
+
+// Runs fn(eng, integrator) with a fresh stateful integrator at the given tolerances. The integrator is
+// installed as the engine's integrate_func by reference; its step counts are read by the caller.
+template <class Integ, class Fn>
+static int32_t runAdaptive(const BCLIBCFFI_Shot *shot, double rtol, double atol, BCLIBCFFI_Error *err, Fn &&fn)
+{
+    Integ integ;
+    const auto r = integ.set_relative_tolerance(rtol);
+    if (has_error(r)) return setEngineError(err, r.error());
+    const auto a = integ.set_absolute_tolerance(atol);
+    if (has_error(a)) return setEngineError(err, a.error());
+    BCLIBC_BaseEngine eng;
+    if (const auto status = initEngineFromShot(eng, shot, err); status != BCLIBCFFI_OK) return status;
+    eng.integrate_func = BCLIBC_IntegrateCallable(std::ref(integ));
+    return fn(eng, integ);
+}
+
+template <class Fn>
+static int32_t dispatchAdaptive(int32_t method, const BCLIBCFFI_Shot *shot, double rtol, double atol,
+                                BCLIBCFFI_Error *err, Fn &&fn)
+{
+    switch (method)
+    {
+    case BCLIBCFFI_INTEGRATION_CASH_KARP:
+        return runAdaptive<BCLIBC_CashKarpIntegrator>(shot, rtol, atol, err, fn);
+    case BCLIBCFFI_INTEGRATION_DORMAND_PRINCE:
+        return runAdaptive<BCLIBC_DormandPrinceIntegrator>(shot, rtol, atol, err, fn);
+    case BCLIBCFFI_INTEGRATION_TSITOURAS:
+        return runAdaptive<BCLIBC_TsitourasIntegrator>(shot, rtol, atol, err, fn);
+    default:
+        setError(err, BCLIBCFFI_ERR_GENERIC, "adaptive method required (cash-karp, dormand-prince, tsitouras)");
+        return BCLIBCFFI_ERR_GENERIC;
+    }
+}
+
+// Writes the step counts of a finished (or failed) adaptive run to out_stats, when given.
+template <class Integ>
+static void storeStats(const Integ &integ, BCLIBCFFI_StepStats *out_stats)
+{
+    if (!out_stats) return;
+    int accepted = 0, rejected = 0;
+    integ.get_stats(accepted, rejected);
+    out_stats->accepted = accepted;
+    out_stats->rejected = rejected;
+}
+
+// Integrates on eng and writes the filtered records and (when want_dense != 0) the accepted-step stream to the
+// out_ pointers. Shared by the fixed-step and the adaptive entry points, so both return the same shapes.
+static int32_t writeIntegration(BCLIBC_BaseEngine &eng, const BCLIBCFFI_TrajectoryRequest *request,
+                                int32_t want_dense, BCLIBCFFI_TrajectoryData **out_records, int32_t *out_count,
+                                BCLIBCFFI_DenseStep **out_dense, int32_t *out_dense_count, int32_t *out_reason,
+                                BCLIBCFFI_Error *err)
+{
+    std::vector<BCLIBC_TrajectoryData> records;
+    BCLIBC_TerminationReason reason;
+    BCLIBC_BaseTrajSeq dense;
+    // Leave the outputs defined on failure so a caller that frees them unconditionally is safe.
+    *out_records = nullptr;
+    *out_count = 0;
+    *out_reason = 0;
+    const auto res = eng.integrate_filtered(
+        request->range_limit_ft, request->range_step_ft, request->time_step,
+        static_cast<BCLIBC_TrajFlag>(request->filter_flags),
+        records, reason, want_dense ? &dense : nullptr);
+    if (has_error(res)) return setEngineError(err, res.error());
+
+    const auto count = static_cast<int32_t>(records.size());
+    BCLIBCFFI_TrajectoryData *arr = nullptr;
+    if (count > 0)
+    {
+        arr = static_cast<BCLIBCFFI_TrajectoryData *>(
+            std::malloc(sizeof(BCLIBCFFI_TrajectoryData) * static_cast<size_t>(count)));
+        if (!arr)
+        {
+            setError(err, BCLIBCFFI_ERR_GENERIC, "Out of memory allocating trajectory");
+            return BCLIBCFFI_ERR_GENERIC;
+        }
+        for (int32_t i = 0; i < count; ++i) toC(records[i], arr[i]);
+    }
+    *out_records = arr;
+    *out_count = count;
+    *out_reason = static_cast<int32_t>(reason);
+
+    if (want_dense && out_dense)
+    {
+        const auto n = static_cast<int32_t>(dense.get_length());
+        BCLIBCFFI_DenseStep *darr = nullptr;
+        if (n > 0)
+        {
+            darr = static_cast<BCLIBCFFI_DenseStep *>(
+                std::malloc(sizeof(BCLIBCFFI_DenseStep) * static_cast<size_t>(n)));
+            if (!darr)
+            {
+                std::free(arr);
+                setError(err, BCLIBCFFI_ERR_GENERIC, "Out of memory allocating dense output");
+                return BCLIBCFFI_ERR_GENERIC;
+            }
+            for (int32_t i = 0; i < n; ++i)
+            {
+                const auto item = dense[i];
+                if (has_error(item))
+                {
+                    std::free(darr);
+                    std::free(arr);
+                    return setEngineError(err, item.error());
+                }
+                toC(item.value().get(), darr[i]);
+            }
+        }
+        *out_dense = darr;
+        *out_dense_count = n;
+    }
+    return BCLIBCFFI_OK;
+}
+
+static bool isAdaptiveMethod(int32_t method)
+{
+    return method == BCLIBCFFI_INTEGRATION_CASH_KARP || method == BCLIBCFFI_INTEGRATION_DORMAND_PRINCE ||
+           method == BCLIBCFFI_INTEGRATION_TSITOURAS;
+}
+
+// ============================================================================
+// Solver building blocks and dense-output helpers (shared by the fixed-step and adaptive entry points)
+// ============================================================================
+
+static BCLIBC_BaseTrajData fromC(const BCLIBCFFI_BaseTrajData &s)
+{
+    return BCLIBC_BaseTrajData(s.time, s.px, s.py, s.pz, s.vx, s.vy, s.vz, s.mach);
+}
+
+// Builds the engine for a fixed-step call (shot->method) and runs fn(eng).
+template <class Fn>
+static int32_t runFixed(const BCLIBCFFI_Shot *shot, BCLIBCFFI_Error *err, Fn &&fn)
+{
+    BCLIBC_BaseEngine eng;
+    if (const auto status = initEngineFromShot(eng, shot, err); status != BCLIBCFFI_OK) return status;
+    return fn(eng);
+}
+
+static int32_t opErrorAtDistance(BCLIBC_BaseEngine &eng, double angle_rad, double x_ft, double y_ft,
+                                 double *out_error, BCLIBCFFI_BaseTrajData *out_hit, BCLIBCFFI_Error *err)
+{
+    BCLIBC_BaseTrajData hit;
+    const auto e = eng.error_at_distance(angle_rad, x_ft, y_ft, out_hit ? &hit : nullptr);
+    if (has_error(e)) return setEngineError(err, e.error());
+    *out_error = e.value();
+    if (out_hit) toC(hit, *out_hit);
+    return BCLIBCFFI_OK;
+}
+
+static int32_t opRangeForAngle(BCLIBC_BaseEngine &eng, double angle_rad, double *out_range)
+{
+    *out_range = eng.range_for_angle(angle_rad);
+    return BCLIBCFFI_OK;
+}
+
+static int32_t opZeroNewton(BCLIBC_BaseEngine &eng, double distance_ft, double *out_angle, BCLIBCFFI_Error *err)
+{
+    const auto angle = eng.zero_angle_newton(distance_ft, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
+    if (has_error(angle)) return setEngineError(err, angle.error());
+    *out_angle = angle.value();
+    return BCLIBCFFI_OK;
+}
+
+static int32_t opZeroInit(BCLIBC_BaseEngine &eng, double distance_ft, BCLIBCFFI_ZeroInit *out, BCLIBCFFI_Error *err)
+{
+    BCLIBC_ZeroInitialData data;
+    const auto r = eng.init_zero_calculation(distance_ft, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET, data);
+    if (has_error(r)) return setEngineError(err, r.error());
+    out->status = data.status == BCLIBC_ZeroInitialStatus::DONE ? BCLIBCFFI_ZERO_INIT_DONE
+                                                                : BCLIBCFFI_ZERO_INIT_CONTINUE;
+    out->reserved = 0;
+    out->look_angle_rad = data.look_angle_rad;
+    out->slant_range_ft = data.slant_range_ft;
+    out->target_x_ft = data.target_x_ft;
+    out->target_y_ft = data.target_y_ft;
+    out->start_height_ft = data.start_height_ft;
+    return BCLIBCFFI_OK;
+}
+
+// Copies a C array of dense steps into a sequence the interpolators can search.
+static BCLIBC_BaseTrajSeq denseSeq(const BCLIBCFFI_DenseStep *steps, int32_t count)
+{
+    BCLIBC_BaseTrajSeq seq;
+    for (int32_t i = 0; i < count; ++i) seq.append(fromC(steps[i]));
+    return seq;
 }
 
 // ============================================================================
@@ -802,6 +994,366 @@ extern "C"
             return BCLIBCFFI_OK; }, err);
     }
 
+    int32_t BCLIBCFFI_integrate_adaptive_shot(
+        const BCLIBCFFI_Shot *shot,
+        int32_t method,
+        double relative_tolerance,
+        double absolute_tolerance,
+        const BCLIBCFFI_TrajectoryRequest *request,
+        int32_t want_dense,
+        BCLIBCFFI_TrajectoryData **out_records,
+        int32_t *out_count,
+        BCLIBCFFI_DenseStep **out_dense,
+        int32_t *out_dense_count,
+        int32_t *out_reason,
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err)
+    {
+        if (out_dense) *out_dense = nullptr;
+        if (out_dense_count) *out_dense_count = 0;
+        return ffi_call([&]() -> int32_t
+                        { return dispatchAdaptive(method, shot, relative_tolerance, absolute_tolerance, err,
+                                                  [&](BCLIBC_BaseEngine &eng, auto &integ) -> int32_t
+                                                  {
+                              const int32_t st = writeIntegration(eng, request, want_dense, out_records, out_count,
+                                                                  out_dense, out_dense_count, out_reason, err);
+                              storeStats(integ, out_stats);
+                              return st; }); }, err);
+    }
+
+    int32_t BCLIBCFFI_integrate_dense_shot(
+        const BCLIBCFFI_Shot *shot,
+        const BCLIBCFFI_TrajectoryRequest *request,
+        int32_t want_dense,
+        BCLIBCFFI_TrajectoryData **out_records,
+        int32_t *out_count,
+        BCLIBCFFI_DenseStep **out_dense,
+        int32_t *out_dense_count,
+        int32_t *out_reason,
+        BCLIBCFFI_Error *err)
+    {
+        if (out_dense) *out_dense = nullptr;
+        if (out_dense_count) *out_dense_count = 0;
+        return ffi_call([&]() -> int32_t
+                        {
+            if (isAdaptiveMethod(shot->method))
+            {
+                setError(err, BCLIBCFFI_ERR_GENERIC, "adaptive method: use BCLIBCFFI_integrate_adaptive_shot");
+                return BCLIBCFFI_ERR_GENERIC;
+            }
+            BCLIBC_BaseEngine eng;
+            if (const auto status = initEngineFromShot(eng, shot, err); status != BCLIBCFFI_OK) return status;
+            return writeIntegration(eng, request, want_dense, out_records, out_count, out_dense, out_dense_count,
+                                    out_reason, err); }, err);
+    }
+
+    void BCLIBCFFI_free_base_trajectory(BCLIBCFFI_DenseStep *steps)
+    {
+        std::free(steps);
+    }
+
+    int32_t BCLIBCFFI_find_zero_angle_adaptive_shot(
+        const BCLIBCFFI_Shot *shot, int32_t method, double relative_tolerance, double absolute_tolerance,
+        double distance_ft, double *out_angle_rad, BCLIBCFFI_StepStats *out_stats, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        { return dispatchAdaptive(method, shot, relative_tolerance, absolute_tolerance, err,
+                                                  [&](BCLIBC_BaseEngine &eng, auto &integ) -> int32_t
+                                                  {
+                              const auto angle = eng.zero_angle_with_fallback(
+                                  distance_ft, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
+                              storeStats(integ, out_stats);
+                              if (has_error(angle)) return setEngineError(err, angle.error());
+                              *out_angle_rad = angle.value();
+                              return BCLIBCFFI_OK; }); }, err);
+    }
+
+    int32_t BCLIBCFFI_find_zero_point_adaptive_shot(
+        const BCLIBCFFI_Shot *shot, int32_t method, double relative_tolerance, double absolute_tolerance,
+        double distance_ft, BCLIBCFFI_ZeroPointResult *out, BCLIBCFFI_StepStats *out_stats, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        { return dispatchAdaptive(method, shot, relative_tolerance, absolute_tolerance, err,
+                                                  [&](BCLIBC_BaseEngine &eng, auto &integ) -> int32_t
+                                                  {
+                              const auto point = eng.zero_point_with_fallback(
+                                  distance_ft, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
+                              storeStats(integ, out_stats);
+                              if (has_error(point)) return setEngineError(err, point.error());
+                              toC(point.value(), *out);
+                              return BCLIBCFFI_OK; }); }, err);
+    }
+
+    int32_t BCLIBCFFI_find_max_range_adaptive_shot(
+        const BCLIBCFFI_Shot *shot, int32_t method, double relative_tolerance, double absolute_tolerance,
+        double low_angle_deg, double high_angle_deg, BCLIBCFFI_MaxRangeResult *out,
+        BCLIBCFFI_StepStats *out_stats, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        { return dispatchAdaptive(method, shot, relative_tolerance, absolute_tolerance, err,
+                                                  [&](BCLIBC_BaseEngine &eng, auto &integ) -> int32_t
+                                                  {
+                              const auto r = eng.find_max_range(low_angle_deg, high_angle_deg, APEX_IS_MAX_RANGE_RADIANS);
+                              storeStats(integ, out_stats);
+                              if (has_error(r)) return setEngineError(err, r.error());
+                              out->max_range_ft = r.value().max_range_ft;
+                              out->angle_at_max_rad = r.value().angle_at_max_rad;
+                              return BCLIBCFFI_OK; }); }, err);
+    }
+
+    int32_t BCLIBCFFI_find_apex_adaptive_shot(
+        const BCLIBCFFI_Shot *shot, int32_t method, double relative_tolerance, double absolute_tolerance,
+        BCLIBCFFI_TrajectoryData *out, BCLIBCFFI_StepStats *out_stats, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        { return dispatchAdaptive(method, shot, relative_tolerance, absolute_tolerance, err,
+                                                  [&](BCLIBC_BaseEngine &eng, auto &integ) -> int32_t
+                                                  {
+                              BCLIBC_BaseTrajData apex;
+                              const auto apex_result = eng.find_apex(apex);
+                              storeStats(integ, out_stats);
+                              if (has_error(apex_result)) return setEngineError(err, apex_result.error());
+                              auto traj = BCLIBC_TrajectoryData::from_base(eng.shot, apex, BCLIBC_TRAJ_FLAG_APEX);
+                              if (has_error(traj))
+                              {
+                                  setError(err, BCLIBCFFI_ERR_GENERIC, traj.error().what());
+                                  return BCLIBCFFI_ERR_GENERIC;
+                              }
+                              toC(traj.value(), *out);
+                              return BCLIBCFFI_OK; }); }, err);
+    }
+
+    int32_t BCLIBCFFI_find_zero_angle_lofted_shot(
+        const BCLIBCFFI_Shot *shot, double distance_ft, int32_t lofted, double *out_angle_rad, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        {
+            BCLIBC_BaseEngine eng;
+            if (const auto status = initEngineFromShot(eng, shot, err); status != BCLIBCFFI_OK) return status;
+            const auto angle = eng.find_zero_angle(distance_ft, lofted, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
+            if (has_error(angle)) return setEngineError(err, angle.error());
+            *out_angle_rad = angle.value();
+            return BCLIBCFFI_OK; }, err);
+    }
+
+    int32_t BCLIBCFFI_find_zero_point_lofted_shot(
+        const BCLIBCFFI_Shot *shot, double distance_ft, int32_t lofted, BCLIBCFFI_ZeroPointResult *out,
+        BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        {
+            BCLIBC_BaseEngine eng;
+            if (const auto status = initEngineFromShot(eng, shot, err); status != BCLIBCFFI_OK) return status;
+            const auto point = eng.find_zero_point(distance_ft, lofted, APEX_IS_MAX_RANGE_RADIANS, ALLOWED_ZERO_ERROR_FEET);
+            if (has_error(point)) return setEngineError(err, point.error());
+            toC(point.value(), *out);
+            return BCLIBCFFI_OK; }, err);
+    }
+
+    int32_t BCLIBCFFI_find_zero_angle_lofted_adaptive_shot(
+        const BCLIBCFFI_Shot *shot, int32_t method, double relative_tolerance, double absolute_tolerance,
+        double distance_ft, int32_t lofted, double *out_angle_rad, BCLIBCFFI_StepStats *out_stats, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        { return dispatchAdaptive(method, shot, relative_tolerance, absolute_tolerance, err,
+                                                  [&](BCLIBC_BaseEngine &eng, auto &integ) -> int32_t
+                                                  {
+                              const auto angle = eng.find_zero_angle(distance_ft, lofted, APEX_IS_MAX_RANGE_RADIANS,
+                                                                     ALLOWED_ZERO_ERROR_FEET);
+                              storeStats(integ, out_stats);
+                              if (has_error(angle)) return setEngineError(err, angle.error());
+                              *out_angle_rad = angle.value();
+                              return BCLIBCFFI_OK; }); }, err);
+    }
+
+    int32_t BCLIBCFFI_find_zero_point_lofted_adaptive_shot(
+        const BCLIBCFFI_Shot *shot, int32_t method, double relative_tolerance, double absolute_tolerance,
+        double distance_ft, int32_t lofted, BCLIBCFFI_ZeroPointResult *out, BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        { return dispatchAdaptive(method, shot, relative_tolerance, absolute_tolerance, err,
+                                                  [&](BCLIBC_BaseEngine &eng, auto &integ) -> int32_t
+                                                  {
+                              const auto point = eng.find_zero_point(distance_ft, lofted, APEX_IS_MAX_RANGE_RADIANS,
+                                                                     ALLOWED_ZERO_ERROR_FEET);
+                              storeStats(integ, out_stats);
+                              if (has_error(point)) return setEngineError(err, point.error());
+                              toC(point.value(), *out);
+                              return BCLIBCFFI_OK; }); }, err);
+    }
+
+    int32_t BCLIBCFFI_integrate_at_adaptive_shot(
+        const BCLIBCFFI_Shot *shot, int32_t method, double relative_tolerance, double absolute_tolerance,
+        int32_t key, double target_value, BCLIBCFFI_Interception *out, BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        { return dispatchAdaptive(method, shot, relative_tolerance, absolute_tolerance, err,
+                                                  [&](BCLIBC_BaseEngine &eng, auto &integ) -> int32_t
+                                                  {
+                              BCLIBC_BaseTrajData raw;
+                              BCLIBC_TrajectoryData full;
+                              const auto result = eng.integrate_at(static_cast<BCLIBC_BaseTrajData_InterpKey>(key),
+                                                                   target_value, raw, full);
+                              storeStats(integ, out_stats);
+                              if (has_error(result)) return setEngineError(err, result.error());
+                              toC(raw, out->raw_data);
+                              toC(full, out->full_data);
+                              return BCLIBCFFI_OK; }); }, err);
+    }
+
+    // ------------------------------------------------------------------------
+    // Solver building blocks
+    // ------------------------------------------------------------------------
+
+    int32_t BCLIBCFFI_error_at_distance_shot(
+        const BCLIBCFFI_Shot *shot, double angle_rad, double target_x_ft, double target_y_ft, double *out_error_ft,
+        BCLIBCFFI_BaseTrajData *out_hit, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        { return runFixed(shot, err, [&](BCLIBC_BaseEngine &eng) -> int32_t
+                                          { return opErrorAtDistance(eng, angle_rad, target_x_ft, target_y_ft,
+                                                                     out_error_ft, out_hit, err); }); }, err);
+    }
+
+    int32_t BCLIBCFFI_error_at_distance_adaptive_shot(
+        const BCLIBCFFI_Shot *shot, int32_t method, double relative_tolerance, double absolute_tolerance,
+        double angle_rad, double target_x_ft, double target_y_ft, double *out_error_ft,
+        BCLIBCFFI_BaseTrajData *out_hit, BCLIBCFFI_StepStats *out_stats, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        { return dispatchAdaptive(method, shot, relative_tolerance, absolute_tolerance, err,
+                                                  [&](BCLIBC_BaseEngine &eng, auto &integ) -> int32_t
+                                                  {
+                              const int32_t st = opErrorAtDistance(eng, angle_rad, target_x_ft, target_y_ft,
+                                                                   out_error_ft, out_hit, err);
+                              storeStats(integ, out_stats);
+                              return st; }); }, err);
+    }
+
+    int32_t BCLIBCFFI_range_for_angle_shot(
+        const BCLIBCFFI_Shot *shot, double angle_rad, double *out_slant_range_ft, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        { return runFixed(shot, err, [&](BCLIBC_BaseEngine &eng) -> int32_t
+                                          { return opRangeForAngle(eng, angle_rad, out_slant_range_ft); }); }, err);
+    }
+
+    int32_t BCLIBCFFI_range_for_angle_adaptive_shot(
+        const BCLIBCFFI_Shot *shot, int32_t method, double relative_tolerance, double absolute_tolerance,
+        double angle_rad, double *out_slant_range_ft, BCLIBCFFI_StepStats *out_stats, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        { return dispatchAdaptive(method, shot, relative_tolerance, absolute_tolerance, err,
+                                                  [&](BCLIBC_BaseEngine &eng, auto &integ) -> int32_t
+                                                  {
+                              const int32_t st = opRangeForAngle(eng, angle_rad, out_slant_range_ft);
+                              storeStats(integ, out_stats);
+                              return st; }); }, err);
+    }
+
+    int32_t BCLIBCFFI_find_zero_angle_newton_shot(
+        const BCLIBCFFI_Shot *shot, double distance_ft, double *out_angle_rad, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        { return runFixed(shot, err, [&](BCLIBC_BaseEngine &eng) -> int32_t
+                                          { return opZeroNewton(eng, distance_ft, out_angle_rad, err); }); }, err);
+    }
+
+    int32_t BCLIBCFFI_find_zero_angle_newton_adaptive_shot(
+        const BCLIBCFFI_Shot *shot, int32_t method, double relative_tolerance, double absolute_tolerance,
+        double distance_ft, double *out_angle_rad, BCLIBCFFI_StepStats *out_stats, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        { return dispatchAdaptive(method, shot, relative_tolerance, absolute_tolerance, err,
+                                                  [&](BCLIBC_BaseEngine &eng, auto &integ) -> int32_t
+                                                  {
+                              const int32_t st = opZeroNewton(eng, distance_ft, out_angle_rad, err);
+                              storeStats(integ, out_stats);
+                              return st; }); }, err);
+    }
+
+    int32_t BCLIBCFFI_zero_init_shot(
+        const BCLIBCFFI_Shot *shot, double distance_ft, BCLIBCFFI_ZeroInit *out, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        { return runFixed(shot, err, [&](BCLIBC_BaseEngine &eng) -> int32_t
+                                          { return opZeroInit(eng, distance_ft, out, err); }); }, err);
+    }
+
+    int32_t BCLIBCFFI_zero_init_adaptive_shot(
+        const BCLIBCFFI_Shot *shot, int32_t method, double relative_tolerance, double absolute_tolerance,
+        double distance_ft, BCLIBCFFI_ZeroInit *out, BCLIBCFFI_StepStats *out_stats, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        { return dispatchAdaptive(method, shot, relative_tolerance, absolute_tolerance, err,
+                                                  [&](BCLIBC_BaseEngine &eng, auto &integ) -> int32_t
+                                                  {
+                              const int32_t st = opZeroInit(eng, distance_ft, out, err);
+                              storeStats(integ, out_stats);
+                              return st; }); }, err);
+    }
+
+    // ------------------------------------------------------------------------
+    // Working with dense output
+    // ------------------------------------------------------------------------
+
+    int32_t BCLIBCFFI_dense_get_at(
+        const BCLIBCFFI_DenseStep *steps, int32_t count, int32_t key, double value, double start_from_time,
+        BCLIBCFFI_DenseStep *out, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        {
+            if (!steps || count < 1)
+            {
+                setError(err, BCLIBCFFI_ERR_GENERIC, "dense output is empty");
+                return BCLIBCFFI_ERR_GENERIC;
+            }
+            const BCLIBC_BaseTrajSeq seq = denseSeq(steps, count);
+            BCLIBC_BaseTrajData hit;
+            const auto r = seq.get_at(static_cast<BCLIBC_BaseTrajData_InterpKey>(key), value, start_from_time, hit);
+            if (has_error(r)) return setEngineError(err, r.error());
+            toC(hit, *out);
+            return BCLIBCFFI_OK; }, err);
+    }
+
+    int32_t BCLIBCFFI_dense_get_at_slant_height(
+        const BCLIBCFFI_DenseStep *steps, int32_t count, double look_angle_rad, double value,
+        BCLIBCFFI_DenseStep *out, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        {
+            if (!steps || count < 1)
+            {
+                setError(err, BCLIBCFFI_ERR_GENERIC, "dense output is empty");
+                return BCLIBCFFI_ERR_GENERIC;
+            }
+            const BCLIBC_BaseTrajSeq seq = denseSeq(steps, count);
+            BCLIBC_BaseTrajData hit;
+            const auto r = seq.get_at_slant_height(look_angle_rad, value, hit);
+            if (has_error(r)) return setEngineError(err, r.error());
+            toC(hit, *out);
+            return BCLIBCFFI_OK; }, err);
+    }
+
+    int32_t BCLIBCFFI_trajectory_data_from_step_shot(
+        const BCLIBCFFI_Shot *shot, const BCLIBCFFI_DenseStep *step, int32_t flag, BCLIBCFFI_TrajectoryData *out,
+        BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        { return runFixed(shot, err, [&](BCLIBC_BaseEngine &eng) -> int32_t
+                                          {
+            const auto traj = BCLIBC_TrajectoryData::from_base(eng.shot, fromC(*step), static_cast<BCLIBC_TrajFlag>(flag));
+            if (has_error(traj))
+            {
+                setError(err, BCLIBCFFI_ERR_GENERIC, traj.error().what());
+                return BCLIBCFFI_ERR_GENERIC;
+            }
+            toC(traj.value(), *out);
+            return BCLIBCFFI_OK; }); }, err);
+    }
+
     // ============================================================================
     // ABI layout introspection
     //
@@ -918,6 +1470,30 @@ extern "C"
             (int32_t)offsetof(BCLIBCFFI_Error, f64_1),
             (int32_t)offsetof(BCLIBCFFI_Error, f64_2),
             (int32_t)offsetof(BCLIBCFFI_Error, i32_0),
+        };
+        constexpr int32_t count = (int32_t)(sizeof(vals) / sizeof(vals[0]));
+        if (out_len < count)
+            return -1;
+        std::memcpy(out, vals, sizeof(vals));
+        return count;
+    }
+
+    int32_t BCLIBCFFI_get_layout_ext(int32_t *out, int32_t out_len)
+    {
+        const int32_t vals[] = {
+            // StepStats
+            (int32_t)sizeof(BCLIBCFFI_StepStats),
+            (int32_t)offsetof(BCLIBCFFI_StepStats, accepted),
+            (int32_t)offsetof(BCLIBCFFI_StepStats, rejected),
+            // ZeroInit
+            (int32_t)sizeof(BCLIBCFFI_ZeroInit),
+            (int32_t)offsetof(BCLIBCFFI_ZeroInit, status),
+            (int32_t)offsetof(BCLIBCFFI_ZeroInit, reserved),
+            (int32_t)offsetof(BCLIBCFFI_ZeroInit, look_angle_rad),
+            (int32_t)offsetof(BCLIBCFFI_ZeroInit, slant_range_ft),
+            (int32_t)offsetof(BCLIBCFFI_ZeroInit, target_x_ft),
+            (int32_t)offsetof(BCLIBCFFI_ZeroInit, target_y_ft),
+            (int32_t)offsetof(BCLIBCFFI_ZeroInit, start_height_ft),
         };
         constexpr int32_t count = (int32_t)(sizeof(vals) / sizeof(vals[0]));
         if (out_len < count)

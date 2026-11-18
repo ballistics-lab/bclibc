@@ -10,7 +10,7 @@ ifeq ($(OS),Windows_NT)
     # generator name breaks the moment GitHub/local toolchain migrates
     # to a newer VS (e.g. "Visual Studio 17 2022" -> "Visual Studio 18 2026").
     CMAKE_GENERATOR_FLAG :=
-    MAKE_COMMAND := cmake --build build --config Release
+    BUILD_COMMAND := cmake --build build --config Release
     LIB_PREFIX :=
     LIB_SUFFIX := .dll
     LIB_DIR := build/bin/Release
@@ -30,7 +30,8 @@ else
         LIB_SUFFIX := .so
     endif
 
-    MAKE_COMMAND := cd build && $(MAKE) -j$(NPROC)
+    # Not MAKE_COMMAND: that is GNU make's own variable ($(MAKE) is defined as $(MAKE_COMMAND)), overriding it breaks $(MAKE).
+    BUILD_COMMAND := cd build && $(MAKE) -j$(NPROC)
 endif
 
 all: build
@@ -44,7 +45,7 @@ cmake-configure:
 	@echo "CMake configured for $(DETECTED_OS)"
 
 build: cmake-configure
-	$(MAKE_COMMAND)
+	$(BUILD_COMMAND)
 	@echo "Build complete for $(DETECTED_OS)"
 	@echo "Library location: $(LIB_DIR)/$(LIB_PREFIX)bclibc_ffi$(LIB_SUFFIX)"
 
@@ -62,7 +63,7 @@ ffi: cmake-configure
 test:
 	mkdir -p build
 	cd build && cmake $(CMAKE_GENERATOR_FLAG) -DCMAKE_BUILD_TYPE=Release -DBCLIBC_BUILD_TESTS=ON ..
-	$(MAKE_COMMAND)
+	$(BUILD_COMMAND)
 	cd build && ctest --output-on-failure -C Release
 	@echo "All tests passed"
 
@@ -106,14 +107,14 @@ windows-debug:
 # Linux Specific Targets
 # ============================================================================
 linux: cmake-configure
-	cd build && $(MAKE) -j$(NPROC)
+	$(BUILD_COMMAND)
 	@echo "Linux build complete"
 
 # ============================================================================
 # macOS Specific Targets
 # ============================================================================
 macos: cmake-configure
-	cd build && $(MAKE) -j$(NPROC)
+	$(BUILD_COMMAND)
 	@echo "macOS build complete"
 
 clean:
