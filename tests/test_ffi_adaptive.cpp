@@ -204,6 +204,87 @@ static void test_lofted_and_integrate_at()
     CHECK(st.accepted > 0);
 }
 
+static void test_all_methods_and_lofted_adaptive()
+{
+    const int32_t methods[] = {BCLIBCFFI_INTEGRATION_CASH_KARP, BCLIBCFFI_INTEGRATION_DORMAND_PRINCE,
+                               BCLIBCFFI_INTEGRATION_TSITOURAS};
+    double first = 0.0;
+    for (int i = 0; i < 3; ++i)
+    {
+        BCLIBCFFI_Shot s = make_shot(methods[i]);
+        BCLIBCFFI_Error err;
+        BCLIBCFFI_StepStats st{0, 0};
+
+        // Zero angle and zero point agree with each other and across the three methods.
+        double angle = 0.0;
+        CHECK(BCLIBCFFI_find_zero_angle_adaptive_shot(&s, methods[i], 1e-8, 1e-8, 300.0 * 3.28084, &angle, &st,
+                                                      &err) == BCLIBCFFI_OK);
+        if (i == 0) first = angle;
+        CHECK(std::fabs(angle - first) < 1e-4);
+
+        BCLIBCFFI_ZeroPointResult zp;
+        st = {0, 0};
+        CHECK(BCLIBCFFI_find_zero_point_adaptive_shot(&s, methods[i], 1e-8, 1e-8, 300.0 * 3.28084, &zp, &st,
+                                                      &err) == BCLIBCFFI_OK);
+        CHECK(std::fabs(zp.angle_rad - angle) < 1e-6);
+        CHECK(st.accepted > 0);
+
+        // Lower (lofted == 0) variants match the plain adaptive solvers.
+        double lo = 0.0;
+        CHECK(BCLIBCFFI_find_zero_angle_lofted_adaptive_shot(&s, methods[i], 1e-8, 1e-8, 300.0 * 3.28084, 0, &lo,
+                                                             &st, &err) == BCLIBCFFI_OK);
+        CHECK(std::fabs(lo - angle) < 1e-6);
+        CHECK(BCLIBCFFI_find_zero_point_lofted_adaptive_shot(&s, methods[i], 1e-8, 1e-8, 300.0 * 3.28084, 0, &zp,
+                                                             &st, &err) == BCLIBCFFI_OK);
+        CHECK(std::fabs(zp.angle_rad - angle) < 1e-6);
+
+        // Max range: positive range at a sensible angle.
+        BCLIBCFFI_MaxRangeResult mr;
+        CHECK(BCLIBCFFI_find_max_range_adaptive_shot(&s, methods[i], 1e-6, 1e-6, 0.0, 90.0, &mr, &st, &err) ==
+              BCLIBCFFI_OK);
+        CHECK(mr.max_range_ft > 1000.0 && mr.angle_at_max_rad > 0.0 && mr.angle_at_max_rad < 1.6);
+    }
+
+    // The lofted solvers report their error through the same status codes and still fill the stats.
+    BCLIBCFFI_Shot s = make_shot(BCLIBCFFI_INTEGRATION_TSITOURAS);
+    BCLIBCFFI_Error err;
+    BCLIBCFFI_StepStats st{-1, -1};
+    double angle = 0.0;
+    CHECK(BCLIBCFFI_find_zero_angle_lofted_adaptive_shot(&s, BCLIBCFFI_INTEGRATION_TSITOURAS, 1e-6, 1e-6,
+                                                         300.0 * 3.28084, 1, &angle, &st, &err) !=
+          BCLIBCFFI_OK);
+    CHECK(st.accepted >= 0 && st.rejected >= 0);
+}
+
+static void test_invalid_arguments()
+{
+    BCLIBCFFI_Shot s = make_shot(BCLIBCFFI_INTEGRATION_DORMAND_PRINCE);
+    BCLIBCFFI_Error err;
+    double angle = 0.0;
+    const double d = 300.0 * 3.28084;
+    // Unknown method, zero / NaN / negative tolerances.
+    CHECK(BCLIBCFFI_find_zero_angle_adaptive_shot(&s, 999, 1e-6, 1e-6, d, &angle, nullptr, &err) ==
+          BCLIBCFFI_ERR_GENERIC);
+    CHECK(BCLIBCFFI_find_zero_angle_adaptive_shot(&s, BCLIBCFFI_INTEGRATION_DORMAND_PRINCE, 0.0, 1e-6, d, &angle,
+                                                  nullptr, &err) == BCLIBCFFI_ERR_GENERIC);
+    CHECK(BCLIBCFFI_find_zero_angle_adaptive_shot(&s, BCLIBCFFI_INTEGRATION_DORMAND_PRINCE, std::nan(""), 1e-6, d,
+                                                  &angle, nullptr, &err) == BCLIBCFFI_ERR_GENERIC);
+    CHECK(BCLIBCFFI_find_zero_angle_adaptive_shot(&s, BCLIBCFFI_INTEGRATION_DORMAND_PRINCE, 1e-6, -1.0, d, &angle,
+                                                  nullptr, &err) == BCLIBCFFI_ERR_GENERIC);
+
+    // On failure the integrate outputs are NULL/0, so an unconditional free is safe.
+    BCLIBCFFI_TrajectoryRequest req{1000.0, 1000.0, 0.0, 0};
+    BCLIBCFFI_TrajectoryData *recs = reinterpret_cast<BCLIBCFFI_TrajectoryData *>(0x1);
+    BCLIBCFFI_DenseStep *dense = reinterpret_cast<BCLIBCFFI_DenseStep *>(0x1);
+    int32_t n = -1, dn = -1, reason = -1;
+    CHECK(BCLIBCFFI_integrate_adaptive_shot(&s, BCLIBCFFI_INTEGRATION_RK4, 1e-6, 1e-6, &req, 1, &recs, &n, &dense,
+                                            &dn, &reason, nullptr, &err) == BCLIBCFFI_ERR_GENERIC);
+    CHECK(dense == nullptr && dn == 0);
+    // Freeing NULL is a no-op.
+    BCLIBCFFI_free_base_trajectory(nullptr);
+    BCLIBCFFI_free_trajectory(nullptr);
+}
+
 int main()
 {
     test_status_codes();
@@ -212,6 +293,8 @@ int main()
     test_zero_and_apex();
     test_fixed_dense();
     test_lofted_and_integrate_at();
+    test_all_methods_and_lofted_adaptive();
+    test_invalid_arguments();
     if (failures)
     {
         std::fprintf(stderr, "%d check(s) failed\n", failures);

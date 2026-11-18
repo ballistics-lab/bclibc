@@ -459,6 +459,10 @@ static int32_t writeIntegration(BCLIBC_BaseEngine &eng, const BCLIBCFFI_Trajecto
     std::vector<BCLIBC_TrajectoryData> records;
     BCLIBC_TerminationReason reason;
     BCLIBC_BaseTrajSeq dense;
+    // Leave the outputs defined on failure so a caller that frees them unconditionally is safe.
+    *out_records = nullptr;
+    *out_count = 0;
+    *out_reason = 0;
     const auto res = eng.integrate_filtered(
         request->range_limit_ft, request->range_step_ft, request->time_step,
         static_cast<BCLIBC_TrajFlag>(request->filter_flags),

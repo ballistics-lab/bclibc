@@ -358,6 +358,31 @@ The public C API is declared in `include/bclibc/ffi/bclibc_ffi.h`. All symbols a
 | `BCLIBCFFI_integrate_shot()` | Full trajectory, filtered by step/flags |
 | `BCLIBCFFI_integrate_at_shot()` | Single interpolated point at key value |
 
+**Adaptive integrators and lofted solvers (per-call tolerances, `BCLIBCFFI_Shot`-based):**
+
+Each `*_adaptive_shot` call builds its own Cash-Karp / Dormand-Prince / Tsitouras integrator from `method`
+(`BCLIBCFFI_INTEGRATION_CASH_KARP`, `_DORMAND_PRINCE`, `_TSITOURAS`; anything else returns `BCLIBCFFI_ERR_GENERIC`),
+so tolerances and step counts are per call with no shared or thread-local state. `shot->method` is ignored.
+Relative tolerance must be finite and positive, absolute finite and non-negative. `out_stats` (optional) receives
+accepted/rejected step counts, also when the call fails.
+
+| Function | Description |
+|---|---|
+| `BCLIBCFFI_integrate_adaptive_shot()` | Full trajectory; `want_dense != 0` also returns the accepted-step stream |
+| `BCLIBCFFI_integrate_dense_shot()` | Same outputs for the fixed-step RK4 / Euler / Velocity Verlet methods |
+| `BCLIBCFFI_free_base_trajectory()` | Free the dense-output array |
+| `BCLIBCFFI_find_zero_angle_adaptive_shot()` | Zero elevation with per-call tolerances |
+| `BCLIBCFFI_find_zero_point_adaptive_shot()` | Zero elevation and its terminal point |
+| `BCLIBCFFI_find_max_range_adaptive_shot()` | Maximum range and angle |
+| `BCLIBCFFI_find_apex_adaptive_shot()` | Apex point |
+| `BCLIBCFFI_integrate_at_adaptive_shot()` | Interpolated point at a key value |
+| `BCLIBCFFI_find_zero_angle_lofted_shot()` / `BCLIBCFFI_find_zero_point_lofted_shot()` | Lower (`lofted == 0`) or higher (`lofted != 0`) zero, fixed-step |
+| `BCLIBCFFI_find_zero_angle_lofted_adaptive_shot()` / `BCLIBCFFI_find_zero_point_lofted_adaptive_shot()` | Lofted solvers with per-call tolerances |
+
+On success `*out_records` / `*out_dense` are `malloc`ed arrays: release them with `BCLIBCFFI_free_trajectory()` and
+`BCLIBCFFI_free_base_trajectory()`. On failure they are set to `NULL` / `0`; `*out_dense` is also `NULL` when
+`want_dense == 0`.
+
 `BCLIBCFFI_Shot` accepts raw user-facing units (`temp_c`, `pressure_hpa`, `latitude_deg`, `azimuth_deg`, parallel `mach_data`/`cd_data` arrays). All atmosphere density, Coriolis trig, PCHIP drag curve, and cant pre-computation are performed inside C++ by `BCLIBC_Shot::to_shot_props()`.
 
 **Key types:**
@@ -370,6 +395,8 @@ The public C API is declared in `include/bclibc/ffi/bclibc_ffi.h`. All symbols a
 | `BCLIBCFFI_TrajectoryRequest` | Step / range / filter config for `integrate` |
 | `BCLIBCFFI_Interception` | Single interpolated point from `integrate_at` |
 | `BCLIBCFFI_MaxRangeResult` | Max range + angle from `find_max_range` |
+| `BCLIBCFFI_StepStats` | Accepted / rejected step counts of an adaptive call |
+| `BCLIBCFFI_DenseStep` | One accepted step (dense output); same layout as `BCLIBCFFI_BaseTrajData` |
 | `BCLIBCFFI_Error` | Error code + message + typed extra fields |
 
 ### Symbol visibility
