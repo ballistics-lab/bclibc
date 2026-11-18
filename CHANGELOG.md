@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on Linux and macOS (`build.sh`, the Makefile targets, and `cmake/check_package.sh`, which installs `bclibc` and
   `tiny_bclibc` and builds, links and runs a `find_package` consumer of each at `-O0`), and a Windows job for
   `build.ps1` and `build.bat`.
+- `tests/wasm_parity/parity.py` covers the new entry points too (adaptive integrators with step statistics, dense
+  output and its helpers, the lofted and Newton solvers, `error_at_distance`, `range_for_angle`, `zero_init`, error
+  paths): 204 cases, identical between the native library and the wasi-sdk and zig modules (angles within a few ulp).
 
 ### Fixed
 - `BCLIBC_BaseEngine::range_for_angle` located the line-of-sight crossing by linear interpolation between two
@@ -36,7 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tiny_bclibc` already do, so every method gives the same answer. `find_max_range` uses it, but its landing crossing
   is steep: for a G7 2750 fps shot (about 18,420 ft) the maximum range moves by hundredths of a foot and the angle of the
   maximum by up to 0.06 degrees (adaptive methods), RK4 only at the milli-foot level. The py-ballisticcalc test suite
-  (all six Cython engines) passes unchanged.
+  (all six Cython engines) passes unchanged, and the `tiny_bclibc` identity test now also compares `find_max_range`
+  (bclibc and `tiny_bclibc` agree to rounding).
 - The `BCLIBCFFI_integrate_*` calls that return dense output now set their output pointers to `NULL`/`0` on failure
   instead of leaving them untouched.
 - `make linux` and `make macos` failed (`cd build && cd build`): the Makefile's `MAKE_COMMAND` is GNU make's own variable
