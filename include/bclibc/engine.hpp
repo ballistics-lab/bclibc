@@ -198,8 +198,13 @@ namespace bclibc
          * @param target_x_ft Horizontal distance to target in feet.
          * @param target_y_ft Target height in feet.
          *
-         * @return Vertical error in feet, corrected for horizontal offset; or a
-         * BCLIBC_RuntimeError if trajectory data is invalid or too short.
+         * @param hit_out Optional. The interpolated point at target_x_ft, or the last point of a trajectory that ended
+         * before it.
+         *
+         * @return Vertical error in feet, corrected for horizontal offset. A trajectory that ends before the target
+         * (a limit, the minimum velocity) is measured at its last point: the error stays finite and signed (a shot that
+         * falls short is negative), so a zero search can bracket with it. A BCLIBC_SolverRuntimeError only when nothing
+         * was integrated, a BCLIBC_RuntimeError if the trajectory data is invalid.
          */
         BCLIBC_Result<double> error_at_distance(
             double angle_rad,

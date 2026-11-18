@@ -388,8 +388,10 @@ fixed-step form (`shot->method`) and an `_adaptive_` form with per-call toleranc
 | `BCLIBCFFI_dense_get_at_slant_height()` | Step where the height above the line of sight reaches a value |
 | `BCLIBCFFI_trajectory_data_from_step_shot()` | Full trajectory record (distance, drop, windage, energy, ...) of one dense step |
 
-`BCLIBCFFI_error_at_distance_*` fails with `BCLIBCFFI_ERR_SOLVER_RUNTIME` when the trajectory ends (minimum velocity,
-maximum drop or minimum altitude) before the target.
+When the trajectory ends before the target (minimum velocity, maximum drop or minimum altitude), `BCLIBCFFI_error_at_distance_*`
+measures the miss at its last point: a finite, signed error (a shot that falls short is negative), which is what a zero
+search brackets with. It fails with `BCLIBCFFI_ERR_SOLVER_RUNTIME` only when nothing was integrated. The shot's limits apply as
+given; the zero solvers widen `cMaximumDrop` and `cMinimumAltitude` and drop `cMinimumVelocity` for their own searches.
 
 `BCLIBCFFI_get_layout_ext()` reports the layout of `BCLIBCFFI_StepStats` and `BCLIBCFFI_ZeroInit` for WASM/JS readers.
 It is separate from `BCLIBCFFI_get_layout()`, whose size is frozen so existing readers keep working.
