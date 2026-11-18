@@ -35,10 +35,10 @@ fi
 # 4. Validating
 echo -e "${GREEN}------------------------------------------${NC}"
 if [[ "$OS" == "Darwin" ]]; then
-    LIB_CORE="libbclibc_core.a"
+    LIB_CORE="lib/libbclibc_core.a"  # ARCHIVE_OUTPUT_DIRECTORY is build/lib
     LIB_FFI="libbclibc_ffi.dylib"
 elif [[ "$OS" == "Linux" ]]; then
-    LIB_CORE="libbclibc_core.a"
+    LIB_CORE="lib/libbclibc_core.a"  # ARCHIVE_OUTPUT_DIRECTORY is build/lib
     LIB_FFI="libbclibc_ffi.so"
 else
     echo -e "${RED}Unsupported OS: $OS${NC}"

@@ -7,7 +7,6 @@ param(
 Write-Host ">>> Building bclibc for Windows..." -ForegroundColor Green
 
 $BuildDir = "build"
-$Generator = "Visual Studio 17 2022"
 $Arch = "x64"
 
 # Create build directory
@@ -19,7 +18,8 @@ Push-Location $BuildDir
 
 # Configure CMake
 Write-Host "--- Configuring project ---" -ForegroundColor Green
-cmake -G $Generator -A $Arch -DCMAKE_BUILD_TYPE=$Configuration ..
+# No -G: CMake picks the newest installed Visual Studio (a hardcoded "Visual Studio 17 2022" breaks on newer ones)
+cmake -A $Arch -DCMAKE_BUILD_TYPE=$Configuration ..
 
 # Build
 Write-Host "--- Building targets (Core & FFI) ---" -ForegroundColor Green

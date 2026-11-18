@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `BCLIBCFFI_get_layout()`, whose size is unchanged, so existing WASM/JS readers keep working.
 - `tests/test_ffi_adaptive.cpp`: C ABI tests for all of the above (status codes, tolerances, step statistics, dense
   output, every integration method, error paths), run by CTest.
+- CI (`pr-check.yml`): an ASan + UBSan job (the C++ tests and the `tiny_bclibc` identity test), a packaging job
+  on Linux and macOS (`build.sh`, the Makefile targets, and `cmake/check_package.sh`, which installs `bclibc` and
+  `tiny_bclibc` and builds, links and runs a `find_package` consumer of each at `-O0`), and a Windows job for
+  `build.ps1` and `build.bat`.
 
 ### Fixed
 - `BCLIBC_BaseEngine::range_for_angle` located the line-of-sight crossing by linear interpolation between two
@@ -35,6 +39,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (all six Cython engines) passes unchanged.
 - The `BCLIBCFFI_integrate_*` calls that return dense output now set their output pointers to `NULL`/`0` on failure
   instead of leaving them untouched.
+- `make linux` and `make macos` failed (`cd build && cd build`): the Makefile's `MAKE_COMMAND` is GNU make's own variable
+  (`$(MAKE)` is defined as `$(MAKE_COMMAND)`), so overriding it broke `$(MAKE)`. Renamed to `BUILD_COMMAND`.
+- `cmake --install` left out `result.hpp`, `error.hpp` and `velocity_verlet.hpp`, so `#include <bclibc.hpp>` from the
+  installed tree did not compile; the whole header tree is installed now instead of a hand-kept list.
+- The installed `bclibc::bclibc_core` and `bclibc::bclibc_ffi` targets carried no include directory (`CMAKE_INSTALL_INCLUDEDIR`
+  was still empty where the targets were declared), so `find_package(bclibc)` consumers could not find the headers.
+  `bclibc_ffi` also exports its public include directory now.
+- `build.sh` reported "libraries not found" after a successful build: it looked for `libbclibc_core.a` in `build/`, where
+  CMake puts it in `build/lib/`.
+- `build.bat` and `build.ps1` no longer hardcode the `Visual Studio 17 2022` generator (CMake picks the newest installed
+  one, as the Makefile already does); not run on Windows here.
+- `tiny_bclibc` as a `find_package` package: the short target names of the README (`tiny_bclibc::headers`, `::baremetal`,
+  `::static`, `::shared`) now exist there (and `::shared` in a subdirectory build); the exported long names are unchanged.
+  `libm` is propagated to consumers, which compile the header-only math calls themselves, so linking the shared library
+  or the headers no longer fails with undefined `sin`/`cos`/`atan2`.
 
 ## [2.0.0] - 2026-10-03
 

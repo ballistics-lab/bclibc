@@ -5,4 +5,19 @@ include(CMakeFindDependencyMacro)
 # Provide the header-only target
 include("${CMAKE_CURRENT_LIST_DIR}/tiny_bclibc-targets.cmake")
 
+# The short names of the README (tiny_bclibc::headers, ::baremetal, ::static, ::shared), as add_subdirectory() gives
+# them. The exported targets keep their long names; these are interface targets that forward to them.
+foreach(_tiny_pair "headers;tiny_bclibc_headers" "baremetal;tiny_bclibc_baremetal"
+                   "static;tiny_bclibc_static" "shared;tiny_bclibc")
+    list(GET _tiny_pair 0 _tiny_short)
+    list(GET _tiny_pair 1 _tiny_long)
+    if(TARGET tiny_bclibc::${_tiny_long} AND NOT TARGET tiny_bclibc::${_tiny_short})
+        add_library(tiny_bclibc::${_tiny_short} INTERFACE IMPORTED)
+        target_link_libraries(tiny_bclibc::${_tiny_short} INTERFACE tiny_bclibc::${_tiny_long})
+    endif()
+endforeach()
+unset(_tiny_pair)
+unset(_tiny_short)
+unset(_tiny_long)
+
 check_required_components(tiny_bclibc)

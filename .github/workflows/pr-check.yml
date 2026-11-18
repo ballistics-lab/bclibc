@@ -60,6 +60,82 @@ jobs:
           cmake --build build/identity -j"$(nproc)"
           build/identity/tests/test_identity
 
+  sanitizers:
+    name: ASan + UBSan
+    runs-on: ubuntu-latest
+    env:
+      SANITIZE: -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined
+      ASAN_OPTIONS: detect_leaks=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      # The C ABI hands raw arrays and malloc'ed buffers across the boundary: leaks, overruns and UB show up here
+      # and nowhere else (Release hides them, assert() is compiled out).
+      - name: C++ tests under ASan and UBSan
+        run: |
+          cmake -S . -B build/san -DCMAKE_BUILD_TYPE=Debug -DBCLIBC_BUILD_TESTS=ON \
+            -DCMAKE_CXX_FLAGS="$SANITIZE" -DCMAKE_EXE_LINKER_FLAGS="$SANITIZE" -DCMAKE_SHARED_LINKER_FLAGS="$SANITIZE"
+          cmake --build build/san -j"$(nproc)"
+          ctest --test-dir build/san --output-on-failure
+
+      - name: tiny_bclibc identity test under ASan and UBSan
+        run: |
+          cmake -S tiny_bclibc -B build/san-identity -DCMAKE_BUILD_TYPE=Debug -DTINY_BCLIBC_BUILD_IDENTITY_TEST=ON \
+            -DCMAKE_C_FLAGS="$SANITIZE" -DCMAKE_CXX_FLAGS="$SANITIZE" -DCMAKE_EXE_LINKER_FLAGS="$SANITIZE"
+          cmake --build build/san-identity -j"$(nproc)"
+          build/san-identity/tests/test_identity
+
+  packaging:
+    name: Packaging (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            make_target: linux
+          - os: macos-latest
+            make_target: macos
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      # The documented entry points of the repo, none of which the other jobs run.
+      - name: build.sh
+        run: ./build.sh
+
+      - name: Makefile targets
+        run: |
+          make build
+          make core
+          make ffi
+          make ${{ matrix.make_target }}
+          make test
+
+      # Installs bclibc and tiny_bclibc and builds a consumer of each through find_package() (at -O0): the install
+      # rules, the include directories of the exported targets, the short target names, libm.
+      - name: Installed packages work for consumers
+        run: cmake/check_package.sh
+
+  windows-scripts:
+    name: Windows build scripts
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: build.ps1
+        shell: pwsh
+        run: ./build.ps1 -Configuration Release
+
+      - name: build.bat
+        shell: cmd
+        run: |
+          rmdir /s /q build
+          call build.bat Debug
+
   no-exceptions:
     name: No exceptions or RTTI in the core
     runs-on: ubuntu-latest
