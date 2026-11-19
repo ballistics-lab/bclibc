@@ -26,7 +26,7 @@ thing readers of the ABI have to know, under "Changed".
   of `BCLIBCFFI_Error` (`f64_0..f64_2`, `i32_0`) are described per code in a table in the header; `OUT_OF_BOUNDS` carries the
   requested value and the allowed minimum and maximum, `DOMAIN` the two values (for example the first two equal keys).
 - `BCLIBC_FFI_PARSE_ONLY`: a macro for binding generators that read the header without a preprocessor (cffi, autopxd2); with it
-  `BCLIBC_API` expands to nothing.
+  `BCLIBC_API` expands to nothing. Defining it together with `BCLIBC_FFI_EXPORT` (the build of the library) is an `#error`: a DLL built that way would export nothing.
 - `tests/test_ffi_adaptive.cpp`: the error kinds and their fields, the buffer (growth, free, reuse), the interpolation (by every
   kind of key, negative index, the ends, equality with `BCLIBCFFI_dense_get_at`), and the new layout block.
 

@@ -21,6 +21,9 @@
 // front of it, defines BCLIBC_FFI_PARSE_ONLY first: BCLIBC_API then expands to nothing, and the header holds
 // only declarations the generators understand. The library itself is never built with it.
 // ============================================================================
+#if defined(BCLIBC_FFI_PARSE_ONLY) && defined(BCLIBC_FFI_EXPORT)
+#error "BCLIBC_FFI_PARSE_ONLY empties BCLIBC_API, so a library built with it exports nothing on Windows: do not define it with BCLIBC_FFI_EXPORT"
+#endif
 #if defined(BCLIBC_FFI_PARSE_ONLY)
 #define BCLIBC_API
 #elif defined(_WIN32)
