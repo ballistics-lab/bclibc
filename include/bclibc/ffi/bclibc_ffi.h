@@ -16,8 +16,14 @@
 
 // ============================================================================
 // Symbol visibility
+//
+// A binding generator (cffi, autopxd2, SWIG, ...) that parses this header itself, without a C preprocessor in
+// front of it, defines BCLIBC_FFI_PARSE_ONLY first: BCLIBC_API then expands to nothing, and the header holds
+// only declarations the generators understand. The library itself is never built with it.
 // ============================================================================
-#ifdef _WIN32
+#if defined(BCLIBC_FFI_PARSE_ONLY)
+#define BCLIBC_API
+#elif defined(_WIN32)
 #ifdef BCLIBC_FFI_EXPORT
 #define BCLIBC_API __declspec(dllexport)
 #else
@@ -49,18 +55,37 @@ extern "C"
         BCLIBCFFI_ERR_ZERO_FINDING = 3,
         BCLIBCFFI_ERR_INTERCEPTION = 4,
         BCLIBCFFI_ERR_GENERIC = 5,
+        /* The kinds of BCLIBC_Error that do not belong to a solver; before they all came back as BCLIBCFFI_ERR_GENERIC.
+         * A caller that tells the codes apart by `switch` with `default:` for BCLIBCFFI_ERR_GENERIC has to handle them. */
+        BCLIBCFFI_ERR_DOMAIN = 6,           /**< BCLIBC_DomainError: inputs the operation cannot work with (a degenerate interpolation segment, too few points). */
+        BCLIBCFFI_ERR_INVALID_ARGUMENT = 7, /**< BCLIBC_InvalidArgumentError: an argument is not acceptable (a drag table of fewer than 2 points, an unknown key). */
+        BCLIBCFFI_ERR_OUT_OF_BOUNDS = 8,    /**< BCLIBC_OutOfRangeError (not a solver's): an index or a value outside the data (a key beyond the trajectory, an index outside [1, n-2]). */
+        BCLIBCFFI_ERR_LOGIC = 9,            /**< BCLIBC_LogicError: a defect inside the library. */
+        BCLIBCFFI_ERR_RUNTIME = 10,         /**< BCLIBC_RuntimeError: any other failure at run time (out of memory in BCLIBCFFI_base_traj_buf_append). */
     } BCLIBCFFI_Status;
 
-    /** Error output struct – filled by every function on failure. */
+    /**
+     * Error output struct – filled by every function on failure.
+     *
+     * What f64_0, f64_1, f64_2 and i32_0 hold depends on `code`; the fields a code does not use are 0:
+     *
+     * | code                              | f64_0                    | f64_1                      | f64_2           | i32_0            |
+     * |-----------------------------------|--------------------------|----------------------------|-----------------|------------------|
+     * | BCLIBCFFI_ERR_OUT_OF_RANGE        | requested_distance_ft    | max_range_ft               | look_angle_rad  |                  |
+     * | BCLIBCFFI_ERR_ZERO_FINDING        | zero_finding_error       | last_barrel_elevation_rad  |                 | iterations_count |
+     * | BCLIBCFFI_ERR_OUT_OF_BOUNDS       | requested value or index | minimum allowed            | maximum allowed |                  |
+     * | BCLIBCFFI_ERR_DOMAIN              | lhs (first value)        | rhs (second value)         |                 |                  |
+     * | the other codes                   |                          |                            |                 |                  |
+     */
     typedef struct BCLIBCFFI_Error
     {
         int32_t code;      /**< BCLIBCFFI_Status */
         char message[512]; /**< Null-terminated error message */
-        /* Extra fields for typed errors */
-        double f64_0;  /**< OutOfRange: requested_distance_ft / ZeroFinding: zero_finding_error */
-        double f64_1;  /**< OutOfRange: max_range_ft          / ZeroFinding: last_barrel_elevation_rad */
-        double f64_2;  /**< OutOfRange: look_angle_rad */
-        int32_t i32_0; /**< ZeroFinding: iterations_count */
+        /* Extra fields for typed errors: see the table above */
+        double f64_0;
+        double f64_1;
+        double f64_2;
+        int32_t i32_0;
     } BCLIBCFFI_Error;
 
     // ============================================================================
@@ -282,6 +307,13 @@ extern "C"
         double mach;
     } BCLIBCFFI_BaseTrajData;
 
+    /**
+     * One record of a trajectory: 15 doubles and an int32 flag. Its size is what the compiler makes of that:
+     * 128 bytes where a double is aligned to 8 (x86-64, aarch64, armv7l, Windows, ppc64le, s390x, riscv64) and 124 on
+     * 32-bit x86 Linux (the i386 ABI aligns a double to 4, so there is no tail padding). A binding that reads the
+     * struct as bytes takes the size from BCLIBCFFI_get_layout() (the value after the TrajectoryData block starts), or
+     * checks its own against it when the library is loaded, and does not count it itself.
+     */
     typedef struct BCLIBCFFI_TrajectoryData
     {
         double time;
@@ -891,6 +923,71 @@ extern "C"
         BCLIBCFFI_Error *err);
 
     // ============================================================================
+    // Growable buffer of base trajectory points and interpolation over points
+    //
+    // What BCLIBC_BaseTrajSeq and BCLIBC_BaseTrajData::interpolate / BCLIBC_BaseTrajSeq::interpolate_at give C++ code,
+    // so that a binding does not rewrite them: the results are the C++ ones (same code). `key` is
+    // BCLIBCFFI_BaseTrajInterpKey; an unknown key fails with BCLIBCFFI_ERR_INVALID_ARGUMENT. Indices are int64_t (the
+    // counts of the older calls are int32_t, and stay so).
+    //
+    // The memory of a BCLIBCFFI_BaseTrajBuf belongs to the library: it is allocated by BCLIBCFFI_base_traj_buf_append
+    // and released by BCLIBCFFI_base_traj_buf_free, both in this library (a module with another C runtime, on Windows,
+    // must not free it itself). The arrays from the integrate calls are released with BCLIBCFFI_free_base_trajectory
+    // instead, and the two are not interchangeable.
+    // ============================================================================
+
+    /** A growing array of points. A zero-initialised one (data NULL, count 0, capacity 0) is empty and ready to use. */
+    typedef struct BCLIBCFFI_BaseTrajBuf
+    {
+        BCLIBCFFI_BaseTrajData *data;
+        int32_t count;    /**< Points in use. */
+        int32_t capacity; /**< Points that fit without growing. */
+    } BCLIBCFFI_BaseTrajBuf;
+
+    /** Releases the memory; the buffer is empty again and can be reused. NULL is ignored. */
+    BCLIBC_API void BCLIBCFFI_base_traj_buf_free(BCLIBCFFI_BaseTrajBuf *buf);
+
+    /**
+     * Appends a copy of *item; the capacity doubles when the buffer is full.
+     * @return BCLIBCFFI_OK; BCLIBCFFI_ERR_INVALID_ARGUMENT for a NULL buf or item; BCLIBCFFI_ERR_RUNTIME when the memory
+     * cannot be had or the count would exceed INT32_MAX (the buffer is left as it was).
+     */
+    BCLIBC_API int32_t BCLIBCFFI_base_traj_buf_append(
+        BCLIBCFFI_BaseTrajBuf *buf,
+        const BCLIBCFFI_BaseTrajData *item,
+        BCLIBCFFI_Error *err);
+
+    /**
+     * The point where `key` is `value`, through three points (BCLIBC_BaseTrajData::interpolate): every field is
+     * interpolated (PCHIP), except time and mach, which are set to `value` when they are the key.
+     * @return BCLIBCFFI_OK, BCLIBCFFI_ERR_DOMAIN when two of the points have the same key value (f64_0, f64_1 are
+     * the first two key values), BCLIBCFFI_ERR_INVALID_ARGUMENT for a NULL point or an unknown key.
+     */
+    BCLIBC_API int32_t BCLIBCFFI_base_traj_interpolate(
+        int32_t key,
+        double value,
+        const BCLIBCFFI_BaseTrajData *p0,
+        const BCLIBCFFI_BaseTrajData *p1,
+        const BCLIBCFFI_BaseTrajData *p2,
+        BCLIBCFFI_BaseTrajData *out,
+        BCLIBCFFI_Error *err);
+
+    /**
+     * The same through the points idx-1, idx, idx+1 of `steps` (BCLIBC_BaseTrajSeq::interpolate_at). A negative idx
+     * counts from the end; the valid range is [1, count-2].
+     * @return BCLIBCFFI_OK, BCLIBCFFI_ERR_OUT_OF_BOUNDS for an idx outside it (f64_0 = idx after the correction of a
+     * negative one, f64_1 = 1, f64_2 = count-2), BCLIBCFFI_ERR_DOMAIN for equal key values.
+     */
+    BCLIBC_API int32_t BCLIBCFFI_base_traj_interpolate_at(
+        const BCLIBCFFI_BaseTrajData *steps,
+        int32_t count,
+        int64_t idx,
+        int32_t key,
+        double value,
+        BCLIBCFFI_BaseTrajData *out,
+        BCLIBCFFI_Error *err);
+
+    // ============================================================================
     // ABI layout introspection (WASM/JS interop only — unused by dart:ffi,
     // which derives struct layout at ffigen-generation time instead).
     // ============================================================================
@@ -903,7 +1000,8 @@ extern "C"
      * layout. See bclibc_ffi.cpp for the fixed field order this fills: the
      * structs in the order they were added to the ABI, each as its size and the
      * offsets of its fields, the newest at the end (BCLIBCFFI_StepStats,
-     * BCLIBCFFI_ZeroInit). A struct added later is appended, so no offset moves.
+     * BCLIBCFFI_ZeroInit, BCLIBCFFI_BaseTrajBuf). A struct added later is appended, so no offset moves.
+     * The size of BCLIBCFFI_TrajectoryData in it is the one to use: it is 128 or 124 bytes by the platform.
      *
      * @param out      Caller-allocated buffer of at least BCLIBCFFI_LAYOUT_FIELD_COUNT int32s.
      * @param out_len  Capacity of `out`, in int32 elements.
