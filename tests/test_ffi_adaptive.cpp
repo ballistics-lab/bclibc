@@ -6,6 +6,7 @@
 #include "bclibc/ffi/bclibc_ffi.h"
 
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -75,8 +76,8 @@ static void test_status_codes()
 
     // Negative relative tolerance: rejected by the integrator.
     CHECK(BCLIBCFFI_integrate_adaptive_shot(&s, BCLIBCFFI_INTEGRATION_DORMAND_PRINCE, -1.0, 1e-6, &req, 0, &recs,
-                                            &n, &dense, &dn, &reason, nullptr, &err) == BCLIBCFFI_ERR_GENERIC);
-    CHECK(err.code == BCLIBCFFI_ERR_GENERIC);
+                                            &n, &dense, &dn, &reason, nullptr, &err) == BCLIBCFFI_ERR_INVALID_ARGUMENT);
+    CHECK(err.code == BCLIBCFFI_ERR_INVALID_ARGUMENT);
 }
 
 static void test_tolerance_and_stats()
@@ -282,11 +283,11 @@ static void test_invalid_arguments()
     CHECK(BCLIBCFFI_find_zero_angle_adaptive_shot(&s, 999, 1e-6, 1e-6, d, &angle, nullptr, &err) ==
           BCLIBCFFI_ERR_GENERIC);
     CHECK(BCLIBCFFI_find_zero_angle_adaptive_shot(&s, BCLIBCFFI_INTEGRATION_DORMAND_PRINCE, 0.0, 1e-6, d, &angle,
-                                                  nullptr, &err) == BCLIBCFFI_ERR_GENERIC);
+                                                  nullptr, &err) == BCLIBCFFI_ERR_INVALID_ARGUMENT);
     CHECK(BCLIBCFFI_find_zero_angle_adaptive_shot(&s, BCLIBCFFI_INTEGRATION_DORMAND_PRINCE, std::nan(""), 1e-6, d,
-                                                  &angle, nullptr, &err) == BCLIBCFFI_ERR_GENERIC);
+                                                  &angle, nullptr, &err) == BCLIBCFFI_ERR_INVALID_ARGUMENT);
     CHECK(BCLIBCFFI_find_zero_angle_adaptive_shot(&s, BCLIBCFFI_INTEGRATION_DORMAND_PRINCE, 1e-6, -1.0, d, &angle,
-                                                  nullptr, &err) == BCLIBCFFI_ERR_GENERIC);
+                                                  nullptr, &err) == BCLIBCFFI_ERR_INVALID_ARGUMENT);
 
     // On failure the integrate outputs are NULL/0, so an unconditional free is safe.
     BCLIBCFFI_TrajectoryRequest req{1000.0, 1000.0, 0.0, 0};
@@ -370,7 +371,7 @@ static void test_error_at_distance_and_range()
     CHECK(BCLIBCFFI_error_at_distance_adaptive_shot(&s, BCLIBCFFI_INTEGRATION_RK4, 1e-6, 1e-6, 0.01, d, 0.0, &e,
                                                     nullptr, nullptr, &err) == BCLIBCFFI_ERR_GENERIC);
     CHECK(BCLIBCFFI_range_for_angle_adaptive_shot(&s, BCLIBCFFI_INTEGRATION_TSITOURAS, -1.0, 1e-6, 0.01, &e,
-                                                  nullptr, &err) == BCLIBCFFI_ERR_GENERIC);
+                                                  nullptr, &err) == BCLIBCFFI_ERR_INVALID_ARGUMENT);
 }
 
 static void test_newton_and_zero_init()
@@ -464,8 +465,8 @@ static void test_dense_helpers()
               BCLIBCFFI_OK);
         // Empty input is rejected.
         CHECK(BCLIBCFFI_dense_get_at(nullptr, 0, BCLIBCFFI_INTERP_KEY_TIME, 0.5, 0.0, &none, &err) ==
-              BCLIBCFFI_ERR_GENERIC);
-        CHECK(BCLIBCFFI_dense_get_at_slant_height(dense, 0, 0.0, 0.0, &none, &err) == BCLIBCFFI_ERR_GENERIC);
+              BCLIBCFFI_ERR_DOMAIN);
+        CHECK(BCLIBCFFI_dense_get_at_slant_height(dense, 0, 0.0, 0.0, &none, &err) == BCLIBCFFI_ERR_DOMAIN);
 
         // A step becomes a full record: it matches the record the integrate call itself produced at that range
         // (3 x 100 m = 984.252 ft is one of the requested rows).
@@ -501,16 +502,205 @@ static void test_layout()
     // the web layer of dart-bclibc) have to follow it.
     int32_t buf[256];
     const int32_t count = BCLIBCFFI_get_layout(buf, 256);
-    CHECK(count == 96);
+    CHECK(count == 100);
     CHECK(BCLIBCFFI_get_layout(buf, count - 1) == -1); // one value short: refused, nothing half-written is "success"
-    CHECK(BCLIBCFFI_get_layout(buf, 85) == -1);        // the size of the layout before StepStats and ZeroInit joined it
+    CHECK(BCLIBCFFI_get_layout(buf, 96) == -1);        // the size of the layout before BaseTrajBuf joined it
+    CHECK(BCLIBCFFI_get_layout(buf, 85) == -1);        // and before StepStats and ZeroInit
     CHECK(BCLIBCFFI_get_layout(buf, count) == count);
     // the tail: StepStats (size, accepted, rejected), ZeroInit (size, 7 fields)
     CHECK(buf[85] == (int32_t)sizeof(BCLIBCFFI_StepStats) && buf[86] == 0 && buf[87] == 4);
     CHECK(buf[88] == (int32_t)sizeof(BCLIBCFFI_ZeroInit) && buf[89] == 0 && buf[90] == 4 && buf[91] == 8 && buf[92] == 16 &&
           buf[93] == 24 && buf[94] == 32 && buf[95] == 40);
+    // BaseTrajBuf (size, data, count, capacity) is the new last block; the tail before it did not move
+    CHECK(buf[96] == (int32_t)sizeof(BCLIBCFFI_BaseTrajBuf) && buf[97] == 0 && buf[98] == (int32_t)sizeof(void *) &&
+          buf[99] == (int32_t)sizeof(void *) + 4);
+    // TrajectoryData: the layout reports the size of this platform (128, or 124 on 32-bit x86 Linux), which is what a
+    // binding that reads the struct as bytes has to use
+    CHECK(buf[(int32_t)(0)] == (int32_t)sizeof(BCLIBCFFI_Config));
+    {
+        int32_t td = -1;
+        for (int32_t i = 0; i + 16 < count; ++i)
+            if (buf[i] == (int32_t)sizeof(BCLIBCFFI_TrajectoryData) && buf[i + 1] == 0 && buf[i + 16] == (int32_t)offsetof(BCLIBCFFI_TrajectoryData, flag))
+            {
+                td = i;
+                break;
+            }
+        CHECK(td >= 0);
+    }
     // and the head is still where readers built before expect it: Config first, its size then its first offset
     CHECK(buf[0] == (int32_t)sizeof(BCLIBCFFI_Config) && buf[1] == 0);
+}
+
+static BCLIBCFFI_BaseTrajData pt(double t)
+{
+    // a smooth path: x = 100 t, y = 10 t - 4.9 t^2 (enough to tell the 3-point interpolation from a copy)
+    BCLIBCFFI_BaseTrajData p{};
+    p.time = t;
+    p.px = 100.0 * t;
+    p.py = 10.0 * t - 4.9 * t * t;
+    p.pz = 0.5 * t;
+    p.vx = 100.0;
+    p.vy = 10.0 - 9.8 * t;
+    p.vz = 0.5;
+    p.mach = 2.0 - 0.1 * t;
+    return p;
+}
+
+static void test_error_kinds()
+{
+    // Every kind of BCLIBC_Error has a code of its own now, with its fields (the table at BCLIBCFFI_Error).
+    BCLIBCFFI_Error err;
+    BCLIBCFFI_BaseTrajData a = pt(0.0), b = pt(1.0), c = pt(1.0), out;
+
+    // Domain: two equal key values (a degenerate segment); f64_0, f64_1 are the first two key values.
+    CHECK(BCLIBCFFI_base_traj_interpolate(BCLIBCFFI_INTERP_KEY_TIME, 0.5, &a, &b, &c, &out, &err) == BCLIBCFFI_ERR_DOMAIN);
+    CHECK(err.code == BCLIBCFFI_ERR_DOMAIN && err.f64_0 == 0.0 && err.f64_1 == 1.0 && err.message[0] != '\0');
+
+    // Out of bounds (not a solver's out of range): requested index, minimum and maximum allowed.
+    BCLIBCFFI_BaseTrajData three[3] = {pt(0.0), pt(1.0), pt(2.0)};
+    CHECK(BCLIBCFFI_base_traj_interpolate_at(three, 3, 2, BCLIBCFFI_INTERP_KEY_TIME, 1.5, &out, &err) ==
+          BCLIBCFFI_ERR_OUT_OF_BOUNDS);
+    CHECK(err.code == BCLIBCFFI_ERR_OUT_OF_BOUNDS && err.f64_0 == 2.0 && err.f64_1 == 1.0 && err.f64_2 == 1.0);
+    CHECK(BCLIBCFFI_base_traj_interpolate_at(three, 3, -3, BCLIBCFFI_INTERP_KEY_TIME, 1.5, &out, &err) ==
+          BCLIBCFFI_ERR_OUT_OF_BOUNDS); // -3 counts from the end: index 0, which has no point before it
+    CHECK(err.f64_0 == 0.0);
+
+    // dense_get_at: a key beyond the stream is out of bounds with the range of the stream (it was the generic code);
+    // too few points are a domain error
+    const BCLIBCFFI_Shot s = make_shot(BCLIBCFFI_INTEGRATION_RK4);
+    BCLIBCFFI_TrajectoryRequest req{};
+    req.range_limit_ft = 1500.0;
+    req.range_step_ft = 500.0;
+    BCLIBCFFI_TrajectoryData *recs = nullptr;
+    BCLIBCFFI_DenseStep *dense = nullptr;
+    int32_t n = 0, dn = 0, reason = 0;
+    CHECK(BCLIBCFFI_integrate_dense_shot(&s, &req, 1, &recs, &n, &dense, &dn, &reason, &err) == BCLIBCFFI_OK);
+    if (dense && dn >= 3)
+    {
+        BCLIBCFFI_DenseStep none;
+        CHECK(BCLIBCFFI_dense_get_at(dense, dn, BCLIBCFFI_INTERP_KEY_TIME, 1e6, 0.0, &none, &err) ==
+              BCLIBCFFI_ERR_OUT_OF_BOUNDS);
+        CHECK(err.f64_0 == 1e6 && err.f64_1 == dense[0].time && err.f64_2 == dense[dn - 1].time);
+        CHECK(BCLIBCFFI_dense_get_at(dense, 2, BCLIBCFFI_INTERP_KEY_TIME, 0.0, 0.0, &none, &err) == BCLIBCFFI_ERR_DOMAIN);
+    }
+    BCLIBCFFI_free_base_trajectory(dense);
+    BCLIBCFFI_free_trajectory(recs);
+
+    // Invalid argument: an unknown key, a NULL pointer, a negative count, a drag table of one point.
+    CHECK(BCLIBCFFI_base_traj_interpolate(99, 0.5, &a, &b, &three[2], &out, &err) == BCLIBCFFI_ERR_INVALID_ARGUMENT);
+    CHECK(BCLIBCFFI_base_traj_interpolate(0, 0.5, nullptr, &b, &three[2], &out, &err) == BCLIBCFFI_ERR_INVALID_ARGUMENT);
+    CHECK(BCLIBCFFI_base_traj_interpolate_at(three, -1, 1, 0, 0.5, &out, &err) == BCLIBCFFI_ERR_INVALID_ARGUMENT);
+    CHECK(BCLIBCFFI_dense_get_at(nullptr, 3, 0, 0.5, 0.0, &out, &err) == BCLIBCFFI_ERR_INVALID_ARGUMENT);
+    BCLIBCFFI_Shot one = make_shot(BCLIBCFFI_INTEGRATION_RK4);
+    one.drag_table_size = 1;
+    double angle = 0.0;
+    CHECK(BCLIBCFFI_find_zero_angle_shot(&one, 300.0, &angle, &err) == BCLIBCFFI_ERR_INVALID_ARGUMENT);
+    CHECK(err.code == BCLIBCFFI_ERR_INVALID_ARGUMENT && err.message[0] != '\0');
+
+    // The solver kinds keep their codes and fields: out of range
+    BCLIBCFFI_Shot vertical = make_shot(BCLIBCFFI_INTEGRATION_RK4);
+    vertical.look_angle_rad = 1.5707963267948966;
+    vertical.barrel_elevation_rad = 1.5707963267948966;
+    BCLIBCFFI_ZeroInit zi;
+    CHECK(BCLIBCFFI_zero_init_shot(&vertical, 1e9, &zi, &err) == BCLIBCFFI_ERR_OUT_OF_RANGE);
+    CHECK(err.code == BCLIBCFFI_ERR_OUT_OF_RANGE);
+}
+
+static void test_base_traj_buf()
+{
+    BCLIBCFFI_Error err;
+    BCLIBCFFI_BaseTrajBuf buf = {nullptr, 0, 0}; // zero-initialised is empty
+    for (int32_t i = 0; i < 1000; ++i)
+    {
+        const BCLIBCFFI_BaseTrajData p = pt(0.01 * i);
+        CHECK(BCLIBCFFI_base_traj_buf_append(&buf, &p, &err) == BCLIBCFFI_OK);
+    }
+    CHECK(buf.count == 1000 && buf.capacity >= 1000 && buf.data != nullptr);
+    CHECK(buf.capacity == 1024); // 64, doubled 4 times
+    CHECK(buf.data[0].time == 0.0 && buf.data[999].time == 0.01 * 999 && buf.data[500].px == 100.0 * (0.01 * 500));
+
+    // interpolate_at over the buffer: the three points around the index, equal to interpolate() over them
+    BCLIBCFFI_BaseTrajData via_at, via_3;
+    CHECK(BCLIBCFFI_base_traj_interpolate_at(buf.data, buf.count, 500, BCLIBCFFI_INTERP_KEY_TIME, 4.999, &via_at, &err) ==
+          BCLIBCFFI_OK);
+    CHECK(BCLIBCFFI_base_traj_interpolate(BCLIBCFFI_INTERP_KEY_TIME, 4.999, &buf.data[499], &buf.data[500], &buf.data[501],
+                                          &via_3, &err) == BCLIBCFFI_OK);
+    CHECK(via_at.time == 4.999 && via_3.time == 4.999);
+    CHECK(std::fabs(via_at.px - via_3.px) < 1e-9 && std::fabs(via_at.py - via_3.py) < 1e-9 &&
+          std::fabs(via_at.vy - via_3.vy) < 1e-9);
+    // the path is a quadratic in time: PCHIP through three points is exact to a fraction of a millimetre here
+    CHECK(std::fabs(via_at.px - 499.9) < 1e-9);
+    CHECK(std::fabs(via_at.py - (10.0 * 4.999 - 4.9 * 4.999 * 4.999)) < 1e-3);
+
+    // by another key (position x), where mach is interpolated and the key is exact
+    BCLIBCFFI_BaseTrajData byx;
+    CHECK(BCLIBCFFI_base_traj_interpolate_at(buf.data, buf.count, 500, BCLIBCFFI_INTERP_KEY_POS_X, 499.9, &byx, &err) ==
+          BCLIBCFFI_OK);
+    CHECK(std::fabs(byx.px - 499.9) < 1e-12 && std::fabs(byx.time - 4.999) < 1e-9);
+    // by mach: the key is set to the value as it is
+    BCLIBCFFI_BaseTrajData bym;
+    CHECK(BCLIBCFFI_base_traj_interpolate_at(buf.data, buf.count, 500, BCLIBCFFI_INTERP_KEY_MACH, 1.9995, &bym, &err) ==
+          BCLIBCFFI_OK);
+    CHECK(bym.mach == 1.9995);
+    // negative index: -2 is the one before the last (998), whose neighbours exist
+    BCLIBCFFI_BaseTrajData neg, pos;
+    CHECK(BCLIBCFFI_base_traj_interpolate_at(buf.data, buf.count, -2, BCLIBCFFI_INTERP_KEY_TIME, 9.975, &neg, &err) ==
+          BCLIBCFFI_OK);
+    CHECK(BCLIBCFFI_base_traj_interpolate_at(buf.data, buf.count, 998, BCLIBCFFI_INTERP_KEY_TIME, 9.975, &pos, &err) ==
+          BCLIBCFFI_OK);
+    CHECK(neg.px == pos.px && neg.py == pos.py);
+    // the ends have no neighbour on one side
+    CHECK(BCLIBCFFI_base_traj_interpolate_at(buf.data, buf.count, 0, 0, 0.0, &neg, &err) == BCLIBCFFI_ERR_OUT_OF_BOUNDS);
+    CHECK(BCLIBCFFI_base_traj_interpolate_at(buf.data, buf.count, 999, 0, 0.0, &neg, &err) == BCLIBCFFI_ERR_OUT_OF_BOUNDS);
+
+    // free: empty again and usable again; freeing twice, or NULL, is harmless
+    BCLIBCFFI_base_traj_buf_free(&buf);
+    CHECK(buf.data == nullptr && buf.count == 0 && buf.capacity == 0);
+    BCLIBCFFI_base_traj_buf_free(&buf);
+    BCLIBCFFI_base_traj_buf_free(nullptr);
+    const BCLIBCFFI_BaseTrajData p = pt(1.0);
+    CHECK(BCLIBCFFI_base_traj_buf_append(&buf, &p, &err) == BCLIBCFFI_OK && buf.count == 1 && buf.capacity == 64);
+    CHECK(BCLIBCFFI_base_traj_buf_append(nullptr, &p, &err) == BCLIBCFFI_ERR_INVALID_ARGUMENT);
+    CHECK(BCLIBCFFI_base_traj_buf_append(&buf, nullptr, &err) == BCLIBCFFI_ERR_INVALID_ARGUMENT);
+    BCLIBCFFI_base_traj_buf_free(&buf);
+}
+
+static void test_interpolate_matches_dense_get_at()
+{
+    // The interpolation of the buffer functions is the one inside dense_get_at (BCLIBC_BaseTrajSeq::get_at), so the two
+    // give the same point from the same three steps.
+    BCLIBCFFI_Error err;
+    const BCLIBCFFI_Shot s = make_shot(BCLIBCFFI_INTEGRATION_RK4);
+    BCLIBCFFI_TrajectoryRequest req{};
+    req.range_limit_ft = 1500.0;
+    req.range_step_ft = 500.0;
+    BCLIBCFFI_TrajectoryData *recs = nullptr;
+    BCLIBCFFI_DenseStep *dense = nullptr;
+    int32_t n = 0, dn = 0, reason = 0;
+    CHECK(BCLIBCFFI_integrate_dense_shot(&s, &req, 1, &recs, &n, &dense, &dn, &reason, &err) == BCLIBCFFI_OK);
+    CHECK(dense != nullptr && dn >= 5);
+    if (dense && dn >= 5)
+    {
+        const double x = 0.5 * (dense[2].px + dense[3].px);
+        BCLIBCFFI_DenseStep got, want;
+        CHECK(BCLIBCFFI_dense_get_at(dense, dn, BCLIBCFFI_INTERP_KEY_POS_X, x, 0.0, &want, &err) == BCLIBCFFI_OK);
+        // the stream's own search picks the three points; find the one it used by the index nearest the value
+        int32_t idx = 1;
+        while (idx + 1 < dn - 1 && dense[idx].px < x)
+            ++idx;
+        bool same = false;
+        for (int32_t i = idx - 1; i <= idx + 1 && !same; ++i)
+        {
+            if (i < 1 || i > dn - 2)
+                continue;
+            if (BCLIBCFFI_base_traj_interpolate_at(dense, dn, i, BCLIBCFFI_INTERP_KEY_POS_X, x, &got, &err) == BCLIBCFFI_OK &&
+                got.time == want.time && got.py == want.py && got.vy == want.vy)
+                same = true;
+        }
+        CHECK(same);
+    }
+    BCLIBCFFI_free_base_trajectory(dense);
+    BCLIBCFFI_free_trajectory(recs);
 }
 
 int main()
@@ -526,6 +716,9 @@ int main()
     test_error_at_distance_and_range();
     test_newton_and_zero_init();
     test_dense_helpers();
+    test_error_kinds();
+    test_base_traj_buf();
+    test_interpolate_matches_dense_get_at();
     test_layout();
     if (failures)
     {

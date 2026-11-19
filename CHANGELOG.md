@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-11-19
+
+Closes the gaps a Cython prototype over the C ABI and `py_ballisticcalc.ctypes` found in `bclibc_ffi.h`: the pieces of the C++
+API a binding had to rewrite (a trajectory buffer, interpolation over points) and the error kinds the ABI merged into one code. One
+thing readers of the ABI have to know, under "Changed".
+
+### Added
+- C ABI for a growable buffer of base trajectory points: `BCLIBCFFI_BaseTrajBuf`, `BCLIBCFFI_base_traj_buf_append` and
+  `BCLIBCFFI_base_traj_buf_free` (what `BCLIBC_BaseTrajSeq` is in C++). The memory is allocated and released by the library, next to
+  `BCLIBCFFI_free_base_trajectory`, so a module with another C runtime (Windows) does not free it itself.
+- C ABI for interpolation over points: `BCLIBCFFI_base_traj_interpolate` (`BCLIBC_BaseTrajData::interpolate`, three points) and
+  `BCLIBCFFI_base_traj_interpolate_at` (`BCLIBC_BaseTrajSeq::interpolate_at`, the points around an index, a negative index counts
+  from the end). The results are those of the C++ code; an unknown key fails with `BCLIBCFFI_ERR_INVALID_ARGUMENT`. Indices of the
+  new calls are `int64_t` (the counts of the older ones stay `int32_t`).
+- Status codes for the error kinds the ABI did not tell apart: `BCLIBCFFI_ERR_DOMAIN`, `BCLIBCFFI_ERR_INVALID_ARGUMENT`,
+  `BCLIBCFFI_ERR_OUT_OF_BOUNDS` (an index or a value outside the data), `BCLIBCFFI_ERR_LOGIC`, `BCLIBCFFI_ERR_RUNTIME`. The fields
+  of `BCLIBCFFI_Error` (`f64_0..f64_2`, `i32_0`) are described per code in a table in the header; `OUT_OF_BOUNDS` carries the
+  requested value and the allowed minimum and maximum, `DOMAIN` the two values (for example the first two equal keys).
+- `BCLIBC_FFI_PARSE_ONLY`: a macro for binding generators that read the header without a preprocessor (cffi, autopxd2); with it
+  `BCLIBC_API` expands to nothing.
+- `tests/test_ffi_adaptive.cpp`: the error kinds and their fields, the buffer (growth, free, reuse), the interpolation (by every
+  kind of key, negative index, the ends, equality with `BCLIBCFFI_dense_get_at`), and the new layout block.
+
+### Changed
+- **`BCLIBCFFI_get_layout()` returns 100 values (was 96):** `BCLIBCFFI_BaseTrajBuf` (its size and 3 offsets) is appended at the end, so
+  no earlier offset moves. A reader that checks the exact count (js-ballistics, the web layer of dart-bclibc) must raise its
+  expected count with the library.
+- **A failed call no longer returns `BCLIBCFFI_ERR_GENERIC` for every kind of error that is not a solver's.** `setEngineError` maps
+  all kinds of `BCLIBC_Error` (it translated only the `Solver*` ones), and the places that returned `GENERIC` for an engine error
+  (the drag curve and shot properties of a shot, the trajectory record of the apex or of a dense step) go through it too. A drag
+  table of fewer than 2 points is now `INVALID_ARGUMENT`; a tolerance that is not finite and positive, `INVALID_ARGUMENT`; a key outside
+  the dense output, `OUT_OF_BOUNDS` (with the range of the stream); too few steps for an interpolation, `DOMAIN`. A caller that
+  tested for `GENERIC` has to handle the new codes (a binding with a `default:` branch needs nothing). `GENERIC` stays for the
+  checks of the C layer (a method that does not fit the call, no memory for a result array).
+- `BCLIBCFFI_dense_get_at` and `BCLIBCFFI_dense_get_at_slant_height` no longer answer an empty stream with the text "dense output is
+  empty" and `GENERIC`: the C++ code decides, as it does for any stream of fewer than 3 steps (`DOMAIN`). A negative count or a NULL
+  array with a positive count is `INVALID_ARGUMENT`.
+- The header notes that `sizeof(BCLIBCFFI_TrajectoryData)` is 128 bytes on most platforms and 124 on 32-bit x86 Linux, and that the
+  size to use is the one `BCLIBCFFI_get_layout()` reports.
+
 ## [2.1.0] - 2026-11-18
 
 Adds the C ABI the bindings were missing (adaptive integrators, dense output, the pieces of the solvers) and makes the zero
@@ -870,7 +910,8 @@ same tag before publishing.
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/ballistics-lab/bclibc/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/ballistics-lab/bclibc/compare/v1.1.8...v2.0.0
 [2.0.0-rc.4]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0-rc.3...v2.0.0-rc.4

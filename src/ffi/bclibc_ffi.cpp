@@ -126,11 +126,41 @@ static int32_t setEngineError(BCLIBCFFI_Error *err, const BCLIBC_Error &error)
     case BCLIBC_Error::Kind::SolverRuntime:
         code = BCLIBCFFI_ERR_SOLVER_RUNTIME;
         break;
-    default:
+    case BCLIBC_Error::Kind::OutOfRange:
+    {
+        const auto *e = error.payload<BCLIBC_OutOfRangeError>();
+        if (err)
+        {
+            err->f64_0 = e->requested;
+            err->f64_1 = e->minimum;
+            err->f64_2 = e->maximum;
+        }
+        code = BCLIBCFFI_ERR_OUT_OF_BOUNDS;
+        break;
+    }
+    case BCLIBC_Error::Kind::Domain:
+    {
+        const auto *e = error.payload<BCLIBC_DomainError>();
+        if (err)
+        {
+            err->f64_0 = e->lhs;
+            err->f64_1 = e->rhs;
+        }
+        code = BCLIBCFFI_ERR_DOMAIN;
+        break;
+    }
+    case BCLIBC_Error::Kind::InvalidArgument:
+        code = BCLIBCFFI_ERR_INVALID_ARGUMENT;
+        break;
+    case BCLIBC_Error::Kind::Logic:
+        code = BCLIBCFFI_ERR_LOGIC;
+        break;
+    case BCLIBC_Error::Kind::Runtime:
+        code = BCLIBCFFI_ERR_RUNTIME;
         break;
     }
     setError(err, static_cast<BCLIBCFFI_Status>(code),
-              error.what());
+             error.what());
     return code;
 }
 
@@ -227,8 +257,7 @@ static int32_t initEngine(BCLIBC_BaseEngine &eng, const BCLIBCFFI_ShotProps *p, 
     if (has_error(curve_result))
     {
         const auto &error = curve_result.error();
-        setError(err, BCLIBCFFI_ERR_GENERIC, error.what());
-        return BCLIBCFFI_ERR_GENERIC;
+        return setEngineError(err, error);
     }
     eng.shot = BCLIBC_ShotProps(
         p->bc,
@@ -304,8 +333,7 @@ static int32_t initEngineFromShot(BCLIBC_BaseEngine &eng, const BCLIBCFFI_Shot *
     if (has_error(props_result))
     {
         const auto &error = props_result.error();
-        setError(err, BCLIBCFFI_ERR_GENERIC, error.what());
-        return BCLIBCFFI_ERR_GENERIC;
+        return setEngineError(err, error);
     }
     eng.shot = props_result.value();
     eng.integrate_func = selectIntegrateFunc(s->method);
@@ -619,8 +647,7 @@ extern "C"
             if (has_error(traj_result))
             {
                 const auto &error = traj_result.error();
-                setError(err, BCLIBCFFI_ERR_GENERIC, error.what());
-                return BCLIBCFFI_ERR_GENERIC;
+                return setEngineError(err, error);
             }
             toC(traj_result.value(), *out);
             return BCLIBCFFI_OK; }, err);
@@ -863,8 +890,7 @@ extern "C"
             if (has_error(traj_result))
             {
                 const auto &error = traj_result.error();
-                setError(err, BCLIBCFFI_ERR_GENERIC, error.what());
-                return BCLIBCFFI_ERR_GENERIC;
+                return setEngineError(err, error);
             }
             toC(traj_result.value(), *out);
             return BCLIBCFFI_OK; }, err);
@@ -1116,8 +1142,7 @@ extern "C"
                               auto traj = BCLIBC_TrajectoryData::from_base(eng.shot, apex, BCLIBC_TRAJ_FLAG_APEX);
                               if (has_error(traj))
                               {
-                                  setError(err, BCLIBCFFI_ERR_GENERIC, traj.error().what());
-                                  return BCLIBCFFI_ERR_GENERIC;
+                                  return setEngineError(err, traj.error());
                               }
                               toC(traj.value(), *out);
                               return BCLIBCFFI_OK; }); }, err);
@@ -1305,10 +1330,10 @@ extern "C"
     {
         return ffi_call([&]() -> int32_t
                         {
-            if (!steps || count < 1)
+            if (count < 0 || (!steps && count > 0))
             {
-                setError(err, BCLIBCFFI_ERR_GENERIC, "dense output is empty");
-                return BCLIBCFFI_ERR_GENERIC;
+                setError(err, BCLIBCFFI_ERR_INVALID_ARGUMENT, "dense output: negative count or NULL steps");
+                return BCLIBCFFI_ERR_INVALID_ARGUMENT;
             }
             const BCLIBC_BaseTrajSeq seq = denseSeq(steps, count);
             BCLIBC_BaseTrajData hit;
@@ -1324,10 +1349,10 @@ extern "C"
     {
         return ffi_call([&]() -> int32_t
                         {
-            if (!steps || count < 1)
+            if (count < 0 || (!steps && count > 0))
             {
-                setError(err, BCLIBCFFI_ERR_GENERIC, "dense output is empty");
-                return BCLIBCFFI_ERR_GENERIC;
+                setError(err, BCLIBCFFI_ERR_INVALID_ARGUMENT, "dense output: negative count or NULL steps");
+                return BCLIBCFFI_ERR_INVALID_ARGUMENT;
             }
             const BCLIBC_BaseTrajSeq seq = denseSeq(steps, count);
             BCLIBC_BaseTrajData hit;
@@ -1347,11 +1372,110 @@ extern "C"
             const auto traj = BCLIBC_TrajectoryData::from_base(eng.shot, fromC(*step), static_cast<BCLIBC_TrajFlag>(flag));
             if (has_error(traj))
             {
-                setError(err, BCLIBCFFI_ERR_GENERIC, traj.error().what());
-                return BCLIBCFFI_ERR_GENERIC;
+                return setEngineError(err, traj.error());
             }
             toC(traj.value(), *out);
             return BCLIBCFFI_OK; }); }, err);
+    }
+
+    // ------------------------------------------------------------------------
+    // Growable buffer of base trajectory points, interpolation over points
+    // ------------------------------------------------------------------------
+
+    static bool validKey(int32_t key)
+    {
+        return key >= BCLIBCFFI_INTERP_KEY_TIME && key <= BCLIBCFFI_INTERP_KEY_VEL_Z;
+    }
+
+    static int32_t failWith(BCLIBCFFI_Error *err, BCLIBCFFI_Status code, const char *msg)
+    {
+        setError(err, code, msg);
+        return code;
+    }
+
+    void BCLIBCFFI_base_traj_buf_free(BCLIBCFFI_BaseTrajBuf *buf)
+    {
+        if (!buf)
+            return;
+        std::free(buf->data);
+        buf->data = nullptr;
+        buf->count = 0;
+        buf->capacity = 0;
+    }
+
+    int32_t BCLIBCFFI_base_traj_buf_append(BCLIBCFFI_BaseTrajBuf *buf, const BCLIBCFFI_BaseTrajData *item, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        {
+            if (!buf || !item)
+                return failWith(err, BCLIBCFFI_ERR_INVALID_ARGUMENT, "NULL buffer or item");
+            if (buf->count == buf->capacity)
+            {
+                if (buf->capacity > INT32_MAX / 2)
+                    return failWith(err, BCLIBCFFI_ERR_RUNTIME, "Trajectory buffer is at its largest size");
+                const int32_t capacity = buf->capacity == 0 ? 64 : buf->capacity * 2;
+                void *grown = std::realloc(buf->data, static_cast<size_t>(capacity) * sizeof(BCLIBCFFI_BaseTrajData));
+                if (!grown)
+                    return failWith(err, BCLIBCFFI_ERR_RUNTIME, "Cannot grow the trajectory buffer: out of memory");
+                buf->data = static_cast<BCLIBCFFI_BaseTrajData *>(grown);
+                buf->capacity = capacity;
+            }
+            buf->data[buf->count++] = *item;
+            return BCLIBCFFI_OK; }, err);
+    }
+
+    int32_t BCLIBCFFI_base_traj_interpolate(
+        int32_t key, double value, const BCLIBCFFI_BaseTrajData *p0, const BCLIBCFFI_BaseTrajData *p1,
+        const BCLIBCFFI_BaseTrajData *p2, BCLIBCFFI_BaseTrajData *out, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        {
+            if (!p0 || !p1 || !p2 || !out)
+                return failWith(err, BCLIBCFFI_ERR_INVALID_ARGUMENT, "NULL point");
+            if (!validKey(key))
+                return failWith(err, BCLIBCFFI_ERR_INVALID_ARGUMENT, "Unknown interpolation key");
+            BCLIBC_BaseTrajData r;
+            const auto res = BCLIBC_BaseTrajData::interpolate(
+                static_cast<BCLIBC_BaseTrajData_InterpKey>(key), value, fromC(*p0), fromC(*p1), fromC(*p2), r);
+            if (has_error(res))
+                return setEngineError(err, res.error());
+            toC(r, *out);
+            return BCLIBCFFI_OK; }, err);
+    }
+
+    int32_t BCLIBCFFI_base_traj_interpolate_at(
+        const BCLIBCFFI_BaseTrajData *steps, int32_t count, int64_t idx, int32_t key, double value,
+        BCLIBCFFI_BaseTrajData *out, BCLIBCFFI_Error *err)
+    {
+        return ffi_call([&]() -> int32_t
+                        {
+            if (!out || count < 0 || (!steps && count > 0))
+                return failWith(err, BCLIBCFFI_ERR_INVALID_ARGUMENT, "NULL output or steps, or a negative count");
+            if (!validKey(key))
+                return failWith(err, BCLIBCFFI_ERR_INVALID_ARGUMENT, "Unknown interpolation key");
+            // Only the three points around idx are read: the array is not copied (BCLIBC_BaseTrajSeq::interpolate_at
+            // does the same range check and the same interpolation on its own buffer).
+            if (idx < 0)
+                idx += count;
+            if (idx < 1 || idx >= static_cast<int64_t>(count) - 1)
+            {
+                const BCLIBC_Error e{BCLIBC_OutOfRangeError{
+                    "Index outside valid interpolation range [1, n-2]",
+                    static_cast<double>(idx), 1.0, static_cast<double>(count) - 2.0}};
+                return setEngineError(err, e);
+            }
+            const auto k = static_cast<BCLIBC_BaseTrajData_InterpKey>(key);
+            const BCLIBC_BaseTrajData p0 = fromC(steps[idx - 1]), p1 = fromC(steps[idx]), p2 = fromC(steps[idx + 1]);
+            const double x0 = p0[k], x1 = p1[k], x2 = p2[k];
+            if (x0 == x1 || x0 == x2 || x1 == x2)
+            {
+                const BCLIBC_Error e{BCLIBC_DomainError{"Duplicate key values: cannot interpolate", x0, x1}};
+                return setEngineError(err, e);
+            }
+            BCLIBC_BaseTrajData r;
+            BCLIBC_BaseTrajData::interpolate3pt_vectorized(value, x0, x1, x2, p0, p1, p2, r, k);
+            toC(r, *out);
+            return BCLIBCFFI_OK; }, err);
     }
 
     // ============================================================================
@@ -1372,6 +1496,7 @@ extern "C"
     //   [ sizeof(Error),             6 field offsets ]
     //   [ sizeof(StepStats),         2 field offsets ]
     //   [ sizeof(ZeroInit),          7 field offsets ]
+    //   [ sizeof(BaseTrajBuf),       3 field offsets ]
     //
     // Append-only: a struct added to the ABI goes at the end, so every offset keeps its place and a reader that
     // knows the earlier ones only has to raise its expected count (BCLIBCFFI_get_layout() returns -1 when the
@@ -1489,6 +1614,11 @@ extern "C"
             (int32_t)offsetof(BCLIBCFFI_ZeroInit, target_x_ft),
             (int32_t)offsetof(BCLIBCFFI_ZeroInit, target_y_ft),
             (int32_t)offsetof(BCLIBCFFI_ZeroInit, start_height_ft),
+            // BaseTrajBuf
+            (int32_t)sizeof(BCLIBCFFI_BaseTrajBuf),
+            (int32_t)offsetof(BCLIBCFFI_BaseTrajBuf, data),
+            (int32_t)offsetof(BCLIBCFFI_BaseTrajBuf, count),
+            (int32_t)offsetof(BCLIBCFFI_BaseTrajBuf, capacity),
         };
         constexpr int32_t count = (int32_t)(sizeof(vals) / sizeof(vals[0]));
         if (out_len < count)

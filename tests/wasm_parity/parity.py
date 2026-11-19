@@ -49,6 +49,7 @@ SPECS = {
 SPECS["Interception"] = [("raw","BaseTrajData"),("full","TrajectoryData")]
 SPECS["ZeroPoint"] = [("angle_rad","d"),("point","TrajectoryData")]
 SPECS["StepStats"] = [("accepted","i"),("rejected","i")]
+SPECS["BaseTrajBuf"] = [("data","p"),("count","i"),("capacity","i")]
 SPECS["ZeroInit"] = [("status","i"),("reserved","i"),("look_angle_rad","d"),("slant_range_ft","d"),("target_x_ft","d"),("target_y_ft","d"),("start_height_ft","d")]
 
 def layout(name, P):
@@ -435,6 +436,11 @@ NEW_CASES += [
     ("dense_get_at outside the stream (error path)", "BCLIBCFFI_dense_get_at", sv, scenario_call(("arr", "BaseTrajData", STREAM), I_(len(STREAM)), I_(0), D_(50.0), D_(0.0), ("out", "BaseTrajData"), shot=False)),
     ("dense_get_at_slant_height 3 ft", "BCLIBCFFI_dense_get_at_slant_height", sv, scenario_call(("arr", "BaseTrajData", STREAM), I_(len(STREAM)), D_(0.0), D_(3.0), ("out", "BaseTrajData"), shot=False)),
     ("trajectory_data_from_step", "BCLIBCFFI_trajectory_data_from_step_shot", sv, scenario_call(("in", "BaseTrajData", STEP), I_(8), ("out", "TrajectoryData"))),
+    ("base_traj_interpolate time=0.25", "BCLIBCFFI_base_traj_interpolate", sv, scenario_call(I_(0), D_(0.25), ("in", "BaseTrajData", STREAM[1]), ("in", "BaseTrajData", STREAM[2]), ("in", "BaseTrajData", STREAM[3]), ("out", "BaseTrajData"), shot=False)),
+    ("base_traj_interpolate pos_x=900", "BCLIBCFFI_base_traj_interpolate", sv, scenario_call(I_(2), D_(900.0), ("in", "BaseTrajData", STREAM[1]), ("in", "BaseTrajData", STREAM[2]), ("in", "BaseTrajData", STREAM[3]), ("out", "BaseTrajData"), shot=False)),
+    ("base_traj_interpolate equal keys (domain error path)", "BCLIBCFFI_base_traj_interpolate", sv, scenario_call(I_(0), D_(0.25), ("in", "BaseTrajData", STREAM[1]), ("in", "BaseTrajData", STREAM[1]), ("in", "BaseTrajData", STREAM[3]), ("out", "BaseTrajData"), shot=False)),
+    ("base_traj_interpolate unknown key (invalid argument path)", "BCLIBCFFI_base_traj_interpolate", sv, scenario_call(I_(99), D_(0.25), ("in", "BaseTrajData", STREAM[1]), ("in", "BaseTrajData", STREAM[2]), ("in", "BaseTrajData", STREAM[3]), ("out", "BaseTrajData"), shot=False)),
+    ("dense_get_at one step (domain error path)", "BCLIBCFFI_dense_get_at", sv, scenario_call(("arr", "BaseTrajData", STREAM[:1]), I_(1), I_(0), D_(0.0), D_(0.0), ("out", "BaseTrajData"), shot=False)),
 ]
 # the zero search under the tight limits of issue #45 (cMaximumDrop = cMinimumAltitude = 0, "stop at muzzle level"): the
 # widened limits, the last-point error and the Newton -> Ridder fallback, on every method, with and without a sight height
@@ -465,7 +471,7 @@ CASES += NEW_CASES
 # (8 native, 4 wasm32), so every struct -- StepStats and ZeroInit, the newest, included -- is read back as the C
 # compiler laid it out.
 LAYOUT_ORDER = ["Config", "Wind", "Shot", "Request", "TrajectoryData", "MaxRange", "BaseTrajData", "Interception",
-                "ZeroPoint", "Error", "StepStats", "ZeroInit"]
+                "ZeroPoint", "Error", "StepStats", "ZeroInit", "BaseTrajBuf"]
 
 def expected_layout(P):
     out = []

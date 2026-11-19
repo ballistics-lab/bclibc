@@ -368,7 +368,7 @@ The public C API is declared in `include/bclibc/ffi/bclibc_ffi.h`. All symbols a
 **Adaptive integrators and lofted solvers (per-call tolerances, `BCLIBCFFI_Shot`-based):**
 
 Each `*_adaptive_shot` call builds its own Cash-Karp / Dormand-Prince / Tsitouras integrator from `method`
-(`BCLIBCFFI_INTEGRATION_CASH_KARP`, `_DORMAND_PRINCE`, `_TSITOURAS`; anything else returns `BCLIBCFFI_ERR_GENERIC`),
+(`BCLIBCFFI_INTEGRATION_CASH_KARP`, `_DORMAND_PRINCE`, `_TSITOURAS`; anything else returns `BCLIBCFFI_ERR_GENERIC`; a tolerance out of range, `BCLIBCFFI_ERR_INVALID_ARGUMENT`),
 so tolerances and step counts are per call with no shared or thread-local state. `shot->method` is ignored.
 Relative tolerance must be finite and positive, absolute finite and non-negative. `out_stats` (optional) receives
 accepted/rejected step counts, also when the call fails.
@@ -400,14 +400,26 @@ fixed-step form (`shot->method`) and an `_adaptive_` form with per-call toleranc
 | `BCLIBCFFI_dense_get_at()` | Step where a key (time, Mach, position, velocity) reaches a value, interpolated in a dense-output array |
 | `BCLIBCFFI_dense_get_at_slant_height()` | Step where the height above the line of sight reaches a value |
 | `BCLIBCFFI_trajectory_data_from_step_shot()` | Full trajectory record (distance, drop, windage, energy, ...) of one dense step |
+| `BCLIBCFFI_base_traj_buf_append()` / `_free()` | Growable buffer of base trajectory points (`BCLIBCFFI_BaseTrajBuf`; what `BCLIBC_BaseTrajSeq` is in C++) |
+| `BCLIBCFFI_base_traj_interpolate()` | The point where a key reaches a value, through three given points (`BCLIBC_BaseTrajData::interpolate`) |
+| `BCLIBCFFI_base_traj_interpolate_at()` | The same through the points around an index of an array (`BCLIBC_BaseTrajSeq::interpolate_at`) |
 
 When the trajectory ends before the target (minimum velocity, maximum drop or minimum altitude), `BCLIBCFFI_error_at_distance_*`
 measures the miss at its last point: a finite, signed error (a shot that falls short is negative), which is what a zero
 search brackets with. It fails with `BCLIBCFFI_ERR_SOLVER_RUNTIME` only when nothing was integrated. The shot's limits apply as
 given; the zero solvers widen `cMaximumDrop` and `cMinimumAltitude` and drop `cMinimumVelocity` for their own searches.
 
-`BCLIBCFFI_get_layout()` also reports `BCLIBCFFI_StepStats` and `BCLIBCFFI_ZeroInit` (appended at the end, so no earlier offset
-moves). A WASM/JS reader that checks the exact count has to raise it to match the library.
+`BCLIBCFFI_get_layout()` also reports `BCLIBCFFI_StepStats`, `BCLIBCFFI_ZeroInit` and `BCLIBCFFI_BaseTrajBuf` (appended at the
+end, so no earlier offset moves; 100 values). A WASM/JS reader that checks the exact count has to raise it to match the
+library. The size of `BCLIBCFFI_TrajectoryData` it reports is the one to use: it is 128 bytes where a `double` is aligned to 8
+and 124 on 32-bit x86 Linux, so a binding that reads the struct as bytes takes the size from `get_layout()`.
+
+**Errors.** A failed call returns a `BCLIBCFFI_Status` and fills `BCLIBCFFI_Error`. Every kind of error of the C++ API has a code
+of its own: the solver kinds (`_OUT_OF_RANGE`, `_ZERO_FINDING`, `_INTERCEPTION`, `_SOLVER_RUNTIME`) and `_DOMAIN`,
+`_INVALID_ARGUMENT`, `_OUT_OF_BOUNDS` (an index or a value outside the data), `_LOGIC`, `_RUNTIME`; `_GENERIC` is left for the
+checks of the C layer itself (a method that does not fit the call, no memory for a result array). What `f64_0`, `f64_1`, `f64_2`
+and `i32_0` hold for each code is the table at `BCLIBCFFI_Error` in the header. A binding that generates its declarations
+from the header without a C preprocessor defines `BCLIBC_FFI_PARSE_ONLY` first: `BCLIBC_API` is then empty.
 
 On success `*out_records` / `*out_dense` are `malloc`ed arrays: release them with `BCLIBCFFI_free_trajectory()` and
 `BCLIBCFFI_free_base_trajectory()`. On failure they are set to `NULL` / `0`; `*out_dense` is also `NULL` when
@@ -428,6 +440,7 @@ On success `*out_records` / `*out_dense` are `malloc`ed arrays: release them wit
 | `BCLIBCFFI_StepStats` | Accepted / rejected step counts of an adaptive call |
 | `BCLIBCFFI_DenseStep` | One accepted step (dense output); same layout as `BCLIBCFFI_BaseTrajData` |
 | `BCLIBCFFI_ZeroInit` | Starting data of a zero search from `zero_init` |
+| `BCLIBCFFI_BaseTrajBuf` | Growable array of `BCLIBCFFI_BaseTrajData` (data, count, capacity); zero-initialised is empty |
 | `BCLIBCFFI_Error` | Error code + message + typed extra fields |
 
 ### Symbol visibility
