@@ -1100,6 +1100,9 @@ extern "C"
                 return BCLIBCFFI_ERR_GENERIC;
             }
             BCLIBC_BaseEngine eng;
+            // the integrator sets the counter; a call that returns before it runs (Euler and Verlet with a non-positive
+            // step) must report 0, not an indeterminate value
+            eng.integration_step_count = 0;
             if (const auto status = initEngineFromShot(eng, shot, err); status != BCLIBCFFI_OK) return status;
             const int32_t st = writeIntegration(eng, request, want_dense, out_records, out_count, out_dense,
                                                 out_dense_count, out_reason, err);

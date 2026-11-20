@@ -593,7 +593,8 @@ extern "C"
     // or finite and non-negative (absolute); otherwise BCLIBCFFI_ERR_GENERIC is returned.
     // ============================================================================
 
-    /** Accepted and rejected step counts of the most recent adaptive call. */
+    /** Accepted and rejected step counts of the most recent call that reports them: an adaptive call, or
+     *  BCLIBCFFI_integrate_dense_shot_stats() (fixed-step, rejected is 0). */
     typedef struct BCLIBCFFI_StepStats
     {
         int32_t accepted; /**< Accepted steps. */

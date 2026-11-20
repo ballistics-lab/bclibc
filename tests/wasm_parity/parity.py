@@ -343,15 +343,17 @@ def scenario_call(*args, shot=True, rel_tol=None):
         return rc, res
     return dict(native=n, wasm=w, rel_tol=rel_tol)
 
-def scenario_integrate_dense(adaptive=None, req=REQ):
+def scenario_integrate_dense(adaptive=None, req=REQ, stats=False):
     """BCLIBCFFI_integrate_adaptive_shot (adaptive=(method, rtol, atol)) or BCLIBCFFI_integrate_dense_shot (None), with the
-    dense output requested: the records, the accepted steps and the step counts are all compared."""
+    dense output requested: the records, the accepted steps and the step counts are all compared. stats=True passes an
+    out_stats as well (BCLIBCFFI_integrate_dense_shot_stats with a fixed-step method): its StepStats is compared too."""
+    use_stats = bool(adaptive) or stats
     def n(fn, shot, err):
         r = CT["Request"].from_buffer_copy(pack("Request", req, 8)); recs, dense = PT(), PT(); cnt, dcnt, reason = I(), I(), I(); st = CT["StepStats"]()
         head = [ctypes.byref(shot)] + ([ctypes.c_int32(adaptive[0]), ctypes.c_double(adaptive[1]), ctypes.c_double(adaptive[2])] if adaptive else []) + [ctypes.byref(r), ctypes.c_int32(1), ctypes.byref(recs), ctypes.byref(cnt), ctypes.byref(dense), ctypes.byref(dcnt), ctypes.byref(reason)]
-        rc = fn(*head, *([ctypes.byref(st)] if adaptive else []), ctypes.byref(err))
+        rc = fn(*head, *([ctypes.byref(st)] if use_stats else []), ctypes.byref(err))
         out = [("count", cnt.value), ("dcount", dcnt.value), ("reason", reason.value)]
-        if adaptive: out += [("stats." + p, v) for p, v in doubles_of(bytes(st), "StepStats", 8)]
+        if use_stats: out += [("stats." + p, v) for p, v in doubles_of(bytes(st), "StepStats", 8)]
         if rc == 0:
             sz = ctypes.sizeof(CT["TrajectoryData"]); blob = ctypes.string_at(recs, sz * cnt.value)
             for i in range(cnt.value): out += [(f"[{i}].{p}", v) for p, v in doubles_of(blob, "TrajectoryData", 8, i * sz)]
@@ -363,10 +365,10 @@ def scenario_integrate_dense(adaptive=None, req=REQ):
         P = 4; r = wasm.alloc(pack("Request", req, P)); cells = [wasm.alloc(bytes(4)) for _ in range(5)]; recs, cnt, dense, dcnt, reason = cells
         stp = wasm.alloc(bytes(8))
         head = [shot] + (list(adaptive) if adaptive else []) + [r, 1, recs, cnt, dense, dcnt, reason]
-        rc = getattr(wasm.e, name)(*head, *([stp] if adaptive else []), err)
+        rc = getattr(wasm.e, name)(*head, *([stp] if use_stats else []), err)
         rd = lambda p: struct.unpack("<i", bytes(wasm.mem.read(p, 4)))[0]
         c, dc = rd(cnt), rd(dcnt); out = [("count", c), ("dcount", dc), ("reason", rd(reason))]
-        if adaptive: out += [("stats." + p, v) for p, v in doubles_of(bytes(wasm.mem.read(stp, 8)), "StepStats", P)]
+        if use_stats: out += [("stats." + p, v) for p, v in doubles_of(bytes(wasm.mem.read(stp, 8)), "StepStats", P)]
         if rc == 0:
             ptr, dptr = struct.unpack("<I", bytes(wasm.mem.read(recs, 4)))[0], struct.unpack("<I", bytes(wasm.mem.read(dense, 4)))[0]
             sz, bs = layout("TrajectoryData", P)[0], layout("BaseTrajData", P)[0]
@@ -414,6 +416,7 @@ for mname, m in METHODS.items():
     sv = shot_values(m)
     NEW_CASES += [
         (f"{mname:9} integrate_dense", "BCLIBCFFI_integrate_dense_shot", sv, scenario_integrate_dense(None)),
+        (f"{mname:9} integrate_dense_stats", "BCLIBCFFI_integrate_dense_shot_stats", sv, scenario_integrate_dense(None, stats=True)),
         (f"{mname:9} zero_angle_lofted low", "BCLIBCFFI_find_zero_angle_lofted_shot", sv, scenario_call(D_(D900), I_(0), ("outd",))),
         (f"{mname:9} zero_angle_lofted high", "BCLIBCFFI_find_zero_angle_lofted_shot", sv, scenario_call(D_(D900), I_(1), ("outd",))),
         (f"{mname:9} zero_point_lofted low", "BCLIBCFFI_find_zero_point_lofted_shot", sv, scenario_call(D_(D900), I_(0), ("out", "ZeroPoint"))),

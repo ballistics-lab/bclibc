@@ -109,11 +109,51 @@ static void test_adaptive_method_rejected()
     CHECK(stats.accepted == 0 && stats.rejected == 0);
 }
 
+// The count is per call: two calls on the same shot report the same steps (no state carried over from the first).
+static void test_count_is_per_call()
+{
+    BCLIBCFFI_Shot s = make_shot(BCLIBCFFI_INTEGRATION_RK4);
+    BCLIBCFFI_TrajectoryRequest req{1000.0, 1000.0, 0.0, 0};
+    int32_t counts[2] = {-1, -1};
+    for (int k = 0; k < 2; ++k)
+    {
+        BCLIBCFFI_TrajectoryData *recs = nullptr;
+        int32_t n = -1, reason = -1;
+        BCLIBCFFI_StepStats stats{-1, -1};
+        BCLIBCFFI_Error err;
+        CHECK(BCLIBCFFI_integrate_dense_shot_stats(&s, &req, 0, &recs, &n, nullptr, nullptr, &reason, &stats, &err) ==
+              BCLIBCFFI_OK);
+        counts[k] = stats.accepted;
+        BCLIBCFFI_free_trajectory(recs);
+    }
+    CHECK(counts[0] > 0 && counts[0] == counts[1]);
+}
+
+// A non-positive step makes Euler return success before it integrates (no step is taken): the count must be 0, not an
+// uninitialized value from the engine.
+static void test_zero_step_reports_zero()
+{
+    BCLIBCFFI_Shot s = make_shot(BCLIBCFFI_INTEGRATION_EULER);
+    s.config.cStepMultiplier = 0.0;
+    BCLIBCFFI_TrajectoryRequest req{1000.0, 1000.0, 0.0, 0};
+    BCLIBCFFI_TrajectoryData *recs = nullptr;
+    int32_t n = -1, reason = -1;
+    BCLIBCFFI_StepStats stats{-1, -1};
+    BCLIBCFFI_Error err;
+    const int32_t st = BCLIBCFFI_integrate_dense_shot_stats(&s, &req, 0, &recs, &n, nullptr, nullptr, &reason, &stats, &err);
+    CHECK(st == BCLIBCFFI_OK);
+    CHECK(stats.accepted == 0);
+    CHECK(stats.rejected == 0);
+    BCLIBCFFI_free_trajectory(recs);
+}
+
 int main()
 {
     test_same_records_and_step_count(BCLIBCFFI_INTEGRATION_RK4);
     test_same_records_and_step_count(BCLIBCFFI_INTEGRATION_EULER);
     test_same_records_and_step_count(BCLIBCFFI_INTEGRATION_VELOCITY_VERLET);
+    test_count_is_per_call();
+    test_zero_step_reports_zero();
     test_adaptive_method_rejected();
     if (failures)
     {
