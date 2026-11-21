@@ -377,6 +377,7 @@ accepted/rejected step counts, also when the call fails.
 |---|---|
 | `BCLIBCFFI_integrate_adaptive_shot()` | Full trajectory; `want_dense != 0` also returns the accepted-step stream |
 | `BCLIBCFFI_integrate_dense_shot()` | Same outputs for the fixed-step RK4 / Euler / Velocity Verlet methods |
+| `BCLIBCFFI_integrate_dense_shot_stats()` | The same, with `out_stats`: `accepted` is the step count of the call (fixed-step methods) |
 | `BCLIBCFFI_free_base_trajectory()` | Free the dense-output array |
 | `BCLIBCFFI_find_zero_angle_adaptive_shot()` | Zero elevation with per-call tolerances |
 | `BCLIBCFFI_find_zero_point_adaptive_shot()` | Zero elevation and its terminal point |

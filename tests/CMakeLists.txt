@@ -45,3 +45,14 @@ target_include_directories(bclibc_test_zero_limits PRIVATE "${BCLIBC_INCLUDE_DIR
 target_compile_features(bclibc_test_zero_limits PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_zero_limits COMMAND bclibc_test_zero_limits)
+
+# C ABI checks for BCLIBCFFI_integrate_dense_shot_stats(): the fixed-step records and their step count.
+add_executable(bclibc_test_ffi_fixed_stats
+    test_ffi_fixed_stats.cpp
+)
+
+target_link_libraries(bclibc_test_ffi_fixed_stats PRIVATE bclibc_ffi)
+target_include_directories(bclibc_test_ffi_fixed_stats PRIVATE "${BCLIBC_INCLUDE_DIR}")
+target_compile_features(bclibc_test_ffi_fixed_stats PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_ffi_fixed_stats COMMAND bclibc_test_ffi_fixed_stats)

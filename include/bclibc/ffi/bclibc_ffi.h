@@ -593,7 +593,8 @@ extern "C"
     // or finite and non-negative (absolute); otherwise BCLIBCFFI_ERR_GENERIC is returned.
     // ============================================================================
 
-    /** Accepted and rejected step counts of the most recent adaptive call. */
+    /** Accepted and rejected step counts of the most recent call that reports them: an adaptive call, or
+     *  BCLIBCFFI_integrate_dense_shot_stats() (fixed-step, rejected is 0). */
     typedef struct BCLIBCFFI_StepStats
     {
         int32_t accepted; /**< Accepted steps. */
@@ -689,6 +690,25 @@ extern "C"
         BCLIBCFFI_DenseStep **out_dense,
         int32_t *out_dense_count,
         int32_t *out_reason, /**< BCLIBCFFI_TerminationReason */
+        BCLIBCFFI_Error *err);
+
+    /**
+     * @brief BCLIBCFFI_integrate_dense_shot() that also reports its step count in out_stats (when given).
+     *
+     * out_stats->accepted is the number of integration steps of the call (the engine's integration_step_count, as the
+     * exts engine reports it); out_stats->rejected is 0, a fixed-step method rejects no step. Filled even when the
+     * integration fails, as for the adaptive entry points.
+     */
+    BCLIBC_API int32_t BCLIBCFFI_integrate_dense_shot_stats(
+        const BCLIBCFFI_Shot *shot,
+        const BCLIBCFFI_TrajectoryRequest *request,
+        int32_t want_dense,
+        BCLIBCFFI_TrajectoryData **out_records,
+        int32_t *out_count,
+        BCLIBCFFI_DenseStep **out_dense,
+        int32_t *out_dense_count,
+        int32_t *out_reason, /**< BCLIBCFFI_TerminationReason */
+        BCLIBCFFI_StepStats *out_stats,
         BCLIBCFFI_Error *err);
 
     /**

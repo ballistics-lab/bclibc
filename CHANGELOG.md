@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-11-21
+
+### Added
+- C ABI `BCLIBCFFI_integrate_dense_shot_stats()`: `BCLIBCFFI_integrate_dense_shot()` with an `out_stats`. For a fixed-step
+  method (RK4, Euler, Velocity Verlet) `accepted` is the engine's step count of the call, `rejected` is 0, so a binding can
+  report the step count the exts engine reports. The records and the status are those of `BCLIBCFFI_integrate_dense_shot()`.
+  `BCLIBCFFI_get_layout()` is unchanged: no struct is added (`BCLIBCFFI_StepStats` is already in it).
+
 ## [2.2.0] - 2026-11-19
 
 Closes the gaps a Cython prototype over the C ABI and `py_ballisticcalc.ctypes` found in `bclibc_ffi.h`: the pieces of the C++
@@ -910,7 +918,8 @@ same tag before publishing.
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/ballistics-lab/bclibc/compare/v2.2.1...HEAD
+[2.2.1]: https://github.com/ballistics-lab/bclibc/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/ballistics-lab/bclibc/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/ballistics-lab/bclibc/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/ballistics-lab/bclibc/compare/v1.1.8...v2.0.0

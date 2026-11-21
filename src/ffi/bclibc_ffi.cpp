@@ -1073,6 +1073,47 @@ extern "C"
                                     out_reason, err); }, err);
     }
 
+    int32_t BCLIBCFFI_integrate_dense_shot_stats(
+        const BCLIBCFFI_Shot *shot,
+        const BCLIBCFFI_TrajectoryRequest *request,
+        int32_t want_dense,
+        BCLIBCFFI_TrajectoryData **out_records,
+        int32_t *out_count,
+        BCLIBCFFI_DenseStep **out_dense,
+        int32_t *out_dense_count,
+        int32_t *out_reason,
+        BCLIBCFFI_StepStats *out_stats,
+        BCLIBCFFI_Error *err)
+    {
+        if (out_dense) *out_dense = nullptr;
+        if (out_dense_count) *out_dense_count = 0;
+        if (out_stats)
+        {
+            out_stats->accepted = 0;
+            out_stats->rejected = 0;
+        }
+        return ffi_call([&]() -> int32_t
+                        {
+            if (isAdaptiveMethod(shot->method))
+            {
+                setError(err, BCLIBCFFI_ERR_GENERIC, "adaptive method: use BCLIBCFFI_integrate_adaptive_shot");
+                return BCLIBCFFI_ERR_GENERIC;
+            }
+            BCLIBC_BaseEngine eng;
+            // the integrator sets the counter; a call that returns before it runs (Euler and Verlet with a non-positive
+            // step) must report 0, not an indeterminate value
+            eng.integration_step_count = 0;
+            if (const auto status = initEngineFromShot(eng, shot, err); status != BCLIBCFFI_OK) return status;
+            const int32_t st = writeIntegration(eng, request, want_dense, out_records, out_count, out_dense,
+                                                out_dense_count, out_reason, err);
+            if (out_stats)
+            {
+                out_stats->accepted = eng.integration_step_count;
+                out_stats->rejected = 0;
+            }
+            return st; }, err);
+    }
+
     void BCLIBCFFI_free_base_trajectory(BCLIBCFFI_DenseStep *steps)
     {
         std::free(steps);
