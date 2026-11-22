@@ -1509,7 +1509,8 @@ static inline void tiny_bclibc__set_error(const char *msg)
         real_t sh = -p.cant_cosine * p.sight_height;
         /* Mirror BCLIBC_BaseEngine::init_zero_calculation:
          * - ZERO_ERR_FT is ALLOWED_ZERO_ERROR_FEET (1e-2 ft), not 0.5 ft.
-         * - "very close shot" cutoff is 2 * max(|sh|, cStepMultiplier). */
+         * - "very close shot" cutoff is 2 * max(|sh|, calc_step); the angle is the straight line from the bore
+         *   (at height sh, the negative sight height) to the target: atan2(ty - sh, tx). */
         const real_t ZERO_ERR_FT = REAL_C(1e-2);
 
         if (TINY_BCLIBC_FABS(distance_ft) < ZERO_ERR_FT)
@@ -1517,9 +1518,9 @@ static inline void tiny_bclibc__set_error(const char *msg)
             *out_angle_rad = la;
             return TINY_BCLIBC_OK;
         }
-        if (TINY_BCLIBC_FABS(distance_ft) < REAL_C(2.0) * tiny_bclibc__fmax(TINY_BCLIBC_FABS(sh), p.cfg.cStepMultiplier))
+        if (TINY_BCLIBC_FABS(distance_ft) < REAL_C(2.0) * tiny_bclibc__fmax(TINY_BCLIBC_FABS(sh), p.calc_step))
         {
-            *out_angle_rad = TINY_BCLIBC_ATAN2(ty + sh, tx);
+            *out_angle_rad = TINY_BCLIBC_ATAN2(ty - sh, tx);
             return TINY_BCLIBC_OK;
         }
 
@@ -1827,9 +1828,9 @@ static inline void tiny_bclibc__set_error(const char *msg)
             *out_angle_rad = la;
             return TINY_BCLIBC_OK;
         }
-        if (TINY_BCLIBC_FABS(distance_ft) < REAL_C(2.0) * tiny_bclibc__fmax(TINY_BCLIBC_FABS(sh), props->cfg.cStepMultiplier))
+        if (TINY_BCLIBC_FABS(distance_ft) < REAL_C(2.0) * tiny_bclibc__fmax(TINY_BCLIBC_FABS(sh), props->calc_step))
         {
-            *out_angle_rad = TINY_BCLIBC_ATAN2(ty + sh, tx);
+            *out_angle_rad = TINY_BCLIBC_ATAN2(ty - sh, tx);
             return TINY_BCLIBC_OK;
         }
 

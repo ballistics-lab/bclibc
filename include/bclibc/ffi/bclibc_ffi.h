@@ -792,7 +792,7 @@ extern "C"
     {
         int32_t status;          /**< BCLIBCFFI_ZeroInitStatus */
         int32_t reserved;        /**< Padding, always 0. */
-        double look_angle_rad;   /**< Look angle; when status is DONE for a close shot, the barrel angle to use. */
+        double look_angle_rad;   /**< Look angle; when status is DONE for a close shot (closer than 2 * max(sight height, calc_step)), the barrel angle to use: the straight line from the bore up to the target, atan2(target_y - start_height_ft, target_x). */
         double slant_range_ft;   /**< Slant distance to the target. */
         double target_x_ft;      /**< Horizontal distance to the target. */
         double target_y_ft;      /**< Target height. */

@@ -384,7 +384,7 @@ namespace bclibc
      *
      * @return BCLIBC_SolverOutOfRangeError if apex_slant_ft < result.slant_range_ft.
      *
-     * Handles edge cases like very close or vertical shots.
+     * Handles edge cases like very close or vertical shots (see the header for the cutoff and the angle).
      */
     BCLIBC_Result<std::monostate> BCLIBC_BaseEngine::init_zero_calculation(
         double distance,
@@ -411,11 +411,16 @@ namespace bclibc
             return std::monostate{};
         }
 
-        // Edge case: Very close shot; ignore gravity and drag
+        // Edge case: Very close shot; ignore gravity and drag.
+        // The cutoff is twice the sight height, or the shot's calc_step if that is larger (as the Python engine does);
+        // it is a length compared with a step, not with the cStepMultiplier, which is a factor and not a length.
+        // The bullet starts at start_height_ft (the negative sight height) and must cross the line of sight at the
+        // target, so the angle is that of the straight line from the bore to the target: atan2(dy, dx) with
+        // dy = target_y - start_height (a bore below the sight line points up).
         if (std::fabs(result.slant_range_ft) < 2.0 * std::fmax(std::fabs(result.start_height_ft),
-                                                               this->config.cStepMultiplier))
+                                                               this->shot.calc_step))
         {
-            result.look_angle_rad = std::atan2(result.target_y_ft + result.start_height_ft, result.target_x_ft);
+            result.look_angle_rad = std::atan2(result.target_y_ft - result.start_height_ft, result.target_x_ft);
             return std::monostate{};
         }
 

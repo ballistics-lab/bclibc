@@ -56,3 +56,18 @@ target_include_directories(bclibc_test_ffi_fixed_stats PRIVATE "${BCLIBC_INCLUDE
 target_compile_features(bclibc_test_ffi_fixed_stats PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_ffi_fixed_stats COMMAND bclibc_test_ffi_fixed_stats)
+
+# The zero angle of a target closer than about twice the sight height: the shot fired with it must reach the line of
+# sight (C ABI and C++ core), and the zero of every farther target is unchanged (recorded values).
+# One binary holds both the C ABI layer (compiled in, not linked as the shared library) and the C++ core it wraps:
+# linking bclibc_ffi next to bclibc_core would load the core twice (an ODR violation under ASan).
+add_executable(bclibc_test_zero_close_target
+    test_zero_close_target.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_zero_close_target PRIVATE bclibc_core)
+target_include_directories(bclibc_test_zero_close_target PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_zero_close_target PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_zero_close_target COMMAND bclibc_test_zero_close_target)

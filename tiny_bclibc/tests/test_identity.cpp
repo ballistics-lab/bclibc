@@ -77,7 +77,8 @@ namespace
     }
 
     // Build a bclibc BCLIBC_ShotProps from G7_BASIC fixture (no wind).
-    bclibc::BCLIBC_ShotProps make_bclibc_shot_props(double barrel_elevation_rad = G7_BASIC::BARREL_EL_RAD)
+    bclibc::BCLIBC_ShotProps make_bclibc_shot_props(double barrel_elevation_rad = G7_BASIC::BARREL_EL_RAD,
+                                                    double sight_height_ft = G7_BASIC::SIGHT_HT_FT)
     {
         init_g7_arrays();
 
@@ -88,7 +89,7 @@ namespace
         shot.length_inch = G7_BASIC::LENGTH_IN;
         shot.muzzle_velocity_fps = G7_BASIC::MV_FPS;
         shot.stability_coefficient = 0.0;
-        shot.sight_height_ft = G7_BASIC::SIGHT_HT_FT;
+        shot.sight_height_ft = sight_height_ft;
         shot.twist_inch = G7_BASIC::TWIST_IN;
         shot.temp_c = G7_BASIC::TEMP_C;
         shot.pressure_hpa = G7_BASIC::PRESSURE_HPA;
@@ -206,7 +207,8 @@ namespace
     // Build tbclibc ShotProps from G7_BASIC (no wind).
     // curve_buf must be caller-allocated with >= kG7TableSize elements.
     int make_tiny_bclibc_shot_props(TINY_BCLIBC_ShotProps *out, TINY_BCLIBC_CurvePoint *curve_buf,
-                                    double barrel_elevation_rad = G7_BASIC::BARREL_EL_RAD)
+                                    double barrel_elevation_rad = G7_BASIC::BARREL_EL_RAD,
+                                    double sight_height_ft = G7_BASIC::SIGHT_HT_FT)
     {
         init_tb_g7_arrays();
 
@@ -225,7 +227,7 @@ namespace
         shot.diameter_inch = G7_BASIC::DIAMETER_IN;
         shot.length_inch = G7_BASIC::LENGTH_IN;
         shot.muzzle_velocity_fps = G7_BASIC::MV_FPS;
-        shot.sight_height_ft = G7_BASIC::SIGHT_HT_FT;
+        shot.sight_height_ft = sight_height_ft;
         shot.twist_inch = G7_BASIC::TWIST_IN;
         shot.temp_c = G7_BASIC::TEMP_C;
         shot.pressure_hpa = G7_BASIC::PRESSURE_HPA;
@@ -642,6 +644,70 @@ static bool test_g7_basic_zero_angle_tight_limits()
     return ok;
 }
 
+// A target closer than about twice the sight height: init_zero_calculation's "very close shot" shortcut, ported in
+// tiny_bclibc. The cutoff is 2 * max(sight height, calc_step) (a length, not the cStepMultiplier factor), and the angle
+// is the straight line from the bore (the negative sight height below the line of sight) up to the target. The shot
+// fired with the zero must reach the line of sight at the target in both engines, and both engines must agree.
+static bool test_close_target_zero()
+{
+    constexpr double APEX_MAX_RAD = 0.0003;
+    constexpr double ALLOWED_ERR = 1e-2;
+    constexpr double kFt = 3.28084;
+    constexpr double kMissTolFt = 1e-3; // the old angle missed by 2 * sight height >= 0.33 ft
+
+    bool ok = true;
+    for (const double sight_m : {0.05, 0.1, 0.5})
+        for (const double target_m : {0.05, 0.1, 0.2, 0.4, 0.6, 0.9, 2.0})
+        {
+            const double sight_ft = sight_m * kFt;
+            const double dist_ft = target_m * kFt;
+
+            bclibc::BCLIBC_BaseEngine bc_eng;
+            init_bclibc_engine(bc_eng, make_bclibc_shot_props(G7_BASIC::BARREL_EL_RAD, sight_ft));
+            auto bc_result = bc_eng.zero_angle(dist_ft, APEX_MAX_RAD, ALLOWED_ERR);
+            if (bclibc::has_error(bc_result))
+            {
+                std::printf("FAIL: bclibc zero_angle failed (sight %.2f m, target %.2f m)\n", sight_m, target_m);
+                ok = false;
+                continue;
+            }
+            const double bc_angle = bc_result.value();
+            auto bc_miss = bc_eng.error_at_distance(bc_angle, dist_ft, 0.0);
+
+            TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
+            TINY_BCLIBC_ShotProps tb_props;
+            if (make_tiny_bclibc_shot_props(&tb_props, tb_curve, G7_BASIC::BARREL_EL_RAD, sight_ft) != TINY_BCLIBC_OK)
+                return false;
+            double tb_angle = 0.0;
+            const int rc = tiny_bclibc_find_zero_angle(&tb_props, dist_ft, &tb_angle);
+            if (rc != TINY_BCLIBC_OK)
+            {
+                std::printf("FAIL: tiny_bclibc_find_zero_angle rc=%d (sight %.2f m, target %.2f m): %s\n", rc, sight_m,
+                            target_m, tiny_bclibc_last_error());
+                ok = false;
+                continue;
+            }
+            TINY_BCLIBC_ShotProps tb_fire = tb_props;
+            const double tb_miss = tiny_bclibc__error_at_distance(&tb_fire, tb_angle, dist_ft, 0.0);
+
+            std::printf("  sight %.2f m, target %.2f m: bclibc %.6f deg (miss %.2e ft), tiny_bclibc %.6f deg (miss %.2e ft)\n",
+                        sight_m, target_m, bc_angle * 57.29577951308232,
+                        bclibc::has_error(bc_miss) ? 1e9 : bc_miss.value(), tb_angle * 57.29577951308232, tb_miss);
+            ok &= identity::compare_scalar("close target: bclibc vs tiny_bclibc (rad)", bc_angle, tb_angle, 1e-6);
+            if (bclibc::has_error(bc_miss) || std::fabs(bc_miss.value()) >= kMissTolFt)
+            {
+                std::printf("FAIL: bclibc zero misses the line of sight\n");
+                ok = false;
+            }
+            if (std::fabs(tb_miss) >= kMissTolFt)
+            {
+                std::printf("FAIL: tiny_bclibc zero misses the line of sight by %.5f ft\n", tb_miss);
+                ok = false;
+            }
+        }
+    return ok;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // main
 // ═══════════════════════════════════════════════════════════════════════════
@@ -660,6 +726,7 @@ int main()
     all_pass &= test_g7_basic_find_apex();
     all_pass &= test_g7_basic_find_max_range();
     all_pass &= test_g7_basic_zero_angle_tight_limits();
+    all_pass &= test_close_target_zero();
 
     std::printf("\n%s\n", all_pass ? "ALL TESTS PASSED" : "SOME TESTS FAILED");
     return all_pass ? 0 : 1;

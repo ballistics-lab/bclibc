@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- The zero angle of a very close target (closer than about twice the sight height) is right now, and the cutoff of the
+  "very close shot" shortcut of `init_zero_calculation` (and `tiny_bclibc`'s `find_zero_angle`) is what it was meant to be.
+  The shortcut returns a straight-line angle without a search ("ignore gravity and drag") and had two defects:
+  - **The cutoff compared a length with a factor.** It was `2 * max(|sight height|, cStepMultiplier)`, and `cStepMultiplier` is
+    a dimensionless factor (1.0 by default), so the cutoff was about 2 ft (0.6 m) whatever the sight height. It is now
+    `2 * max(|sight height|, calc_step)`, with the shot's `calc_step`, as the Python engine does. A target a little closer
+    than 0.6 m with a low sight (for example 0.1 to 0.6 m with a 0.05 or 0.1 m sight) used to take the shortcut and is now searched
+    for like any other target.
+  - **The angle pointed the wrong way.** It was `atan2(target_y + start_height, target_x)`, but `start_height` is the *negative*
+    sight height (the bore is below the line of sight), so for a sight above the bore the angle was negative: the bore pointed
+    down, away from the line of sight, and the shot missed it by twice the sight height (0.2 m for a 0.1 m sight, 1 m for 0.5 m, at any
+    close target). It is now `atan2(target_y - start_height, target_x)`, the line from the bore up to the target.
+  The zero angle of a target closer than the cutoff **changes on purpose**: with a 0.1 m sight, a 0.2 m target is +26.565 deg
+  (it was -26.565 deg), 0.4 m is +14.036 deg, 0.6 m is +9.46 deg (found by the search now); with a 0.5 m sight, 0.2 / 0.4 / 0.6 m
+  give +68.2 / +51.3 / +39.8 deg (they were the negatives of these, a miss of 1 m). The shot fired with the zero reaches the line of sight
+  at the target within 0.3 mm. The zero of any target at or beyond the cutoff (every target 2 m and farther, whatever the sight) is
+  bit-for-bit what it was, and so is the answer for a target closer than 0.01 ft (the look angle) and for a vertical shot. For the
+  lofted (higher) arc of a target that was between the old and the new cutoff, `BCLIBCFFI_find_zero_*_lofted_*` with `lofted != 0`
+  now reports `BCLIBCFFI_ERR_ZERO_FINDING` (a flat shot has no higher arc) instead of the wrong shortcut angle, as for any
+  target beyond the cutoff.
+  `BCLIBCFFI_ZeroInit::look_angle_rad` of a `DONE` close shot is the corrected angle.
+  Tests: `tests/test_zero_close_target.cpp` (C ABI and C++ core: the miss of the zero shot for close targets over sight heights,
+  velocities, drag tables, look angles and integrators; the cutoff; recorded zeros of far targets), and the `tiny_bclibc` identity test.
+
 ## [2.2.1] - 2026-11-21
 
 ### Added

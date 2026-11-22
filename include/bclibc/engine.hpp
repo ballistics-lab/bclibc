@@ -222,7 +222,9 @@ namespace bclibc
          *
          * @return BCLIBC_SolverOutOfRangeError if apex_slant_ft < result.slant_range_ft.
          *
-         * Handles edge cases like very close or vertical shots.
+         * Handles edge cases like very close or vertical shots. A target closer than
+         * 2 * max(|sight height|, shot.calc_step) is answered without a search, with the straight-line angle from the
+         * bore (start_height_ft, the negative sight height) to the target, atan2(target_y - start_height, target_x).
          */
         BCLIBC_Result<std::monostate> init_zero_calculation(
             double distance,
