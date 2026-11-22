@@ -78,7 +78,8 @@ namespace
 
     // Build a bclibc BCLIBC_ShotProps from G7_BASIC fixture (no wind).
     bclibc::BCLIBC_ShotProps make_bclibc_shot_props(double barrel_elevation_rad = G7_BASIC::BARREL_EL_RAD,
-                                                    double sight_height_ft = G7_BASIC::SIGHT_HT_FT)
+                                                    double sight_height_ft = G7_BASIC::SIGHT_HT_FT,
+                                                    double look_angle_rad = G7_BASIC::LOOK_ANGLE_RAD)
     {
         init_g7_arrays();
 
@@ -100,7 +101,7 @@ namespace
         shot.drag_table_size = kG7TableSize;
         shot.winds = nullptr;
         shot.wind_count = 0;
-        shot.look_angle_rad = G7_BASIC::LOOK_ANGLE_RAD;
+        shot.look_angle_rad = look_angle_rad;
         shot.barrel_elevation_rad = barrel_elevation_rad;
         shot.barrel_azimuth_rad = G7_BASIC::BARREL_AZ_RAD;
         shot.cant_angle_rad = G7_BASIC::CANT_ANGLE_RAD;
@@ -208,7 +209,8 @@ namespace
     // curve_buf must be caller-allocated with >= kG7TableSize elements.
     int make_tiny_bclibc_shot_props(TINY_BCLIBC_ShotProps *out, TINY_BCLIBC_CurvePoint *curve_buf,
                                     double barrel_elevation_rad = G7_BASIC::BARREL_EL_RAD,
-                                    double sight_height_ft = G7_BASIC::SIGHT_HT_FT)
+                                    double sight_height_ft = G7_BASIC::SIGHT_HT_FT,
+                                    double look_angle_rad = G7_BASIC::LOOK_ANGLE_RAD)
     {
         init_tb_g7_arrays();
 
@@ -238,7 +240,7 @@ namespace
         shot.drag_table_size = kG7TableSize;
         shot.winds = nullptr;
         shot.wind_count = 0;
-        shot.look_angle_rad = G7_BASIC::LOOK_ANGLE_RAD;
+        shot.look_angle_rad = look_angle_rad;
         shot.barrel_elevation_rad = barrel_elevation_rad;
         shot.barrel_azimuth_rad = G7_BASIC::BARREL_AZ_RAD;
         shot.cant_angle_rad = G7_BASIC::CANT_ANGLE_RAD;
@@ -708,6 +710,103 @@ static bool test_close_target_zero()
     return ok;
 }
 
+
+// A downhill look angle. The maximum-range search (the bracket of the Ridder zero search) measures every shot by where it
+// comes down through the line of sight, which lies below the muzzle: the drop and altitude limits ended the shot before
+// the crossing and the search reported a maximum range of a few feet at about 90 degrees, so the Ridder path answered
+// OUT_OF_RANGE for any target. Both engines must (a) find the real maximum range (the same, and the same as a scan over
+// the elevation with no limits), and (b) solve the zero by the Ridder path, the shot fired with it reaching the target.
+static bool test_downhill_max_range_and_ridder_zero()
+{
+    constexpr double kFt = 3.28084;
+    constexpr double kMissTolFt = 0.00656; // 2 mm
+    constexpr double APEX_MAX_RAD = 0.0003;
+    constexpr double ALLOWED_ERR = 1e-2;
+
+    bool ok = true;
+    for (const double look_deg : {-5.0, -10.0, -20.0, -30.0, -45.0})
+        for (const double sight_m : {0.1, 0.5})
+        {
+            const double look = look_deg * 0.017453292519943295;
+            const double sight_ft = sight_m * kFt;
+
+            bclibc::BCLIBC_BaseEngine bc_eng;
+            init_bclibc_engine(bc_eng, make_bclibc_shot_props(G7_BASIC::BARREL_EL_RAD, sight_ft, look));
+            auto bc_mr = bc_eng.find_max_range(0.0, 90.0, 1.5707963267948966 * 0.99);
+
+            TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
+            TINY_BCLIBC_ShotProps tb_props;
+            if (make_tiny_bclibc_shot_props(&tb_props, tb_curve, G7_BASIC::BARREL_EL_RAD, sight_ft, look) != TINY_BCLIBC_OK)
+                return false;
+            double tb_range = 0.0, tb_angle = 0.0;
+            if (bclibc::has_error(bc_mr) ||
+                tiny_bclibc_find_max_range(&tb_props, 0.0, 90.0, &tb_range, &tb_angle) != TINY_BCLIBC_OK)
+            {
+                std::printf("FAIL: find_max_range failed (look %.0f, sight %.2f m)\n", look_deg, sight_m);
+                ok = false;
+                continue;
+            }
+            const double bc_range = bc_mr.value().max_range_ft;
+            std::printf("  look %.0f deg, sight %.2f m: max range bclibc %.1f ft @ %.2f deg, tiny_bclibc %.1f ft @ %.2f deg\n",
+                        look_deg, sight_m, bc_range, bc_mr.value().angle_at_max_rad * 57.29577951308232, tb_range,
+                        tb_angle * 57.29577951308232);
+
+            // A scan of the elevation with every limit lifted.
+            bc_eng.config.cMaximumDrop = -1e12;
+            bc_eng.config.cMinimumAltitude = -1e12;
+            bc_eng.config.cMinimumVelocity = 0.0;
+            double scan_max = 0.0;
+            for (double a = 1.0; a < 90.0; a += 1.0)
+                scan_max = std::fmax(scan_max, bc_eng.range_for_angle(a * 0.017453292519943295));
+            if (!(bc_range >= scan_max * (1.0 - 1e-6) && bc_range <= scan_max * 1.01 && tb_range >= scan_max * (1.0 - 1e-6) &&
+                  tb_range <= scan_max * 1.01))
+            {
+                std::printf("FAIL: max range is not the scanned maximum %.1f ft\n", scan_max);
+                ok = false;
+            }
+            ok &= identity::compare_scalar("downhill max_range (ft)", bc_range, tb_range, 1e-3);
+            // the range is flat at its maximum: the angle is only as good as the golden-section tolerance (1e-5 rad) of each
+            ok &= identity::compare_scalar("downhill angle_at_max (rad)", bc_mr.value().angle_at_max_rad, tb_angle, 1e-4);
+
+            // The Ridder path, called directly (tiny_bclibc_find_zero_angle only falls back to it).
+            for (const double target_m : {0.9, 2.0, 5.0, 10.0, 50.0, 300.0})
+            {
+                const double dist_ft = target_m * kFt;
+
+                bclibc::BCLIBC_BaseEngine eng;
+                init_bclibc_engine(eng, make_bclibc_shot_props(G7_BASIC::BARREL_EL_RAD, sight_ft, look));
+                auto bc_z = eng.find_zero_angle(dist_ft, 0, APEX_MAX_RAD, ALLOWED_ERR);
+
+                TINY_BCLIBC_ShotProps tb_z_props;
+                if (make_tiny_bclibc_shot_props(&tb_z_props, tb_curve, G7_BASIC::BARREL_EL_RAD, sight_ft, look) != TINY_BCLIBC_OK)
+                    return false;
+                double tb_z = 0.0;
+                const int rc = tiny_bclibc__find_zero_angle_ridders(&tb_z_props, dist_ft, &tb_z);
+                if (bclibc::has_error(bc_z) || rc != TINY_BCLIBC_OK)
+                {
+                    std::printf("FAIL: Ridder zero (look %.0f, sight %.2f m, target %.1f m): bclibc %s, tiny_bclibc rc=%d (%s)\n",
+                                look_deg, sight_m, target_m, bclibc::has_error(bc_z) ? "error" : "ok", rc,
+                                rc != TINY_BCLIBC_OK ? tiny_bclibc_last_error() : "");
+                    ok = false;
+                    continue;
+                }
+                const double la = look;
+                auto bc_miss = eng.error_at_distance(bc_z.value(), dist_ft * std::cos(la), dist_ft * std::sin(la));
+                TINY_BCLIBC_ShotProps tb_fire = tb_z_props;
+                const double tb_miss = tiny_bclibc__error_at_distance(&tb_fire, tb_z, dist_ft * std::cos(la), dist_ft * std::sin(la));
+                if (bclibc::has_error(bc_miss) || std::fabs(bc_miss.value()) >= kMissTolFt || std::fabs(tb_miss) >= kMissTolFt)
+                {
+                    std::printf("FAIL: Ridder zero misses (look %.0f, sight %.2f m, target %.1f m): bclibc %.5f ft, tiny_bclibc %.5f ft\n",
+                                look_deg, sight_m, target_m, bclibc::has_error(bc_miss) ? 1e9 : bc_miss.value(), tb_miss);
+                    ok = false;
+                }
+                // each solver stops within its own height tolerance of the root (both hit, checked above)
+                ok &= identity::compare_scalar("downhill Ridder zero (rad)", bc_z.value(), tb_z, 2e-4);
+            }
+        }
+    return ok;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // main
 // ═══════════════════════════════════════════════════════════════════════════
@@ -727,6 +826,7 @@ int main()
     all_pass &= test_g7_basic_find_max_range();
     all_pass &= test_g7_basic_zero_angle_tight_limits();
     all_pass &= test_close_target_zero();
+    all_pass &= test_downhill_max_range_and_ridder_zero();
 
     std::printf("\n%s\n", all_pass ? "ALL TESTS PASSED" : "SOME TESTS FAILED");
     return all_pass ? 0 : 1;

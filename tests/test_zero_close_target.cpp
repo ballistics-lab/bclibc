@@ -131,9 +131,9 @@ static void report(const char *what, int32_t method, const Table &t, double sigh
     } while (0)
 
 // The higher (lofted) arc of a close target: a flat shot has none (the search reports it, as it does for any far
-// target), but when it answers, the answer must hit. The same holds for the Ridder entry points on a downhill look
-// angle: its maximum-range bracket reports "out of range" for a target a few metres away (with or without the fix, for
-// any target the search handles), which is not what is tested here -- but a wrong angle is.
+// target), but when it answers, the answer must hit. The same is accepted for the Ridder entry points on a downhill
+// look angle, where the downhill maximum-range bracket used to report "out of range" for any target (see
+// test_zero_downhill.cpp, which requires them to hit now); a wrong angle is still a failure here.
 #define CHECK_LOFTED_ZERO(what, rc, angle, shot, d_ft)                                                  \
     do                                                                                                  \
     {                                                                                                   \

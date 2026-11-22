@@ -71,3 +71,17 @@ target_include_directories(bclibc_test_zero_close_target PRIVATE "${BCLIBC_INCLU
 target_compile_features(bclibc_test_zero_close_target PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_zero_close_target COMMAND bclibc_test_zero_close_target)
+
+# The zero angle (Ridder path) and the maximum range of a shot with a downhill look angle: the maximum-range search must
+# follow the shot down to a line of sight that lies below the muzzle (C ABI and C++ core), and the results that did not
+# depend on the defect are unchanged (recorded values).
+add_executable(bclibc_test_zero_downhill
+    test_zero_downhill.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_zero_downhill PRIVATE bclibc_core)
+target_include_directories(bclibc_test_zero_downhill PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_zero_downhill PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_zero_downhill COMMAND bclibc_test_zero_downhill)

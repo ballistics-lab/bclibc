@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- The zero angle of a shot with a **downhill look angle** no longer fails with `OutOfRangeError` / `BCLIBCFFI_ERR_OUT_OF_RANGE`
+  ("maximum possible range" of a few feet) for a target well within range. The Ridder zero search (`find_zero_angle_ridder`,
+  `find_zero_point`, `BCLIBCFFI_find_zero_{angle,point}_lofted_*` with `lofted == 0`, `BCLIBCFFI_find_max_range_*`, and `tiny_bclibc`'s
+  Ridder fallback and `tiny_bclibc_find_max_range`) first finds the maximum range with a golden-section search over the barrel
+  elevation, measuring each shot by the slant distance at which it comes back down through the line of sight. A downhill line of
+  sight lies *below* the muzzle (at 10 degrees down it is 0.17 ft lower per foot of range), so a shot crosses it far below the
+  muzzle altitude. The search ran with `cMaximumDrop = 0` ("stop at muzzle level"; in `tiny_bclibc` the caller's drop limit) and the
+  caller's `cMinimumAltitude`, so every shot was stopped at muzzle level (or at the altitude limit) before the crossing: `range_for_angle()`
+  answered 0 ("no crossing") for all but near-vertical elevations, the search converged on about 90 degrees with a maximum range of a few feet
+  (2.98 ft, 5.87 ft ...), and every farther target was "out of range". For a downhill look angle the search now lifts the two limits
+  (restored on return; the integration stops at the crossing). A level or uphill look angle is untouched, and so is every result that did
+  not depend on the defect: the Newton-first entry points (`BCLIBCFFI_find_zero_angle_shot`, `zero_angle`, `zero_angle_with_fallback`) worked
+  on every downhill shot tested, and their answers, the zeros of level and uphill shots and their maximum range are bit-for-bit what they were.
+  `find_max_range` of a downhill shot is now the real maximum slant range (for example 15262 ft at 33.5 degrees for a 5 degree downhill
+  shot of 2750 fps, G7 0.223) instead of a few feet at 89.9 degrees.
+  Tests: `tests/test_zero_downhill.cpp` (C ABI and C++ core: zero of downhill shots from -5 to -45 degrees, targets 0.5 to 300 m, must hit within
+  2 mm; the maximum range equals a brute-force scan; recorded values of unaffected results) and the `tiny_bclibc` identity test.
 - The zero angle of a very close target (closer than about twice the sight height) is right now, and the cutoff of the
   "very close shot" shortcut of `init_zero_calculation` (and `tiny_bclibc`'s `find_zero_angle`) is what it was meant to be.
   The shortcut returns a straight-line angle without a search ("ignore gravity and drag") and had two defects:
@@ -366,7 +383,7 @@ same tag before publishing.
   `BCLIBC_BaseEngine`s concurrently) — `set_relative_tolerance()` /
   `set_absolute_tolerance()` from one thread cannot race with a concurrent
   `operator()` or `get_stats()` call from another. `operator()` snapshots
-  both tolerances once at the start of its run, so one integration always
+  both tolerances once at the start of its run, so one integration worked
   sees one consistent tolerance pair even if changed mid-run from another
   thread. `get_stats()`'s two fields are read independently, so a
   concurrent run can still return a non-atomic pairing of them (e.g. a

@@ -1488,6 +1488,38 @@ static inline void tiny_bclibc__set_error(const char *msg)
         return ctx.found ? ctx.slant_dist : REAL_C(0.0);
     }
 
+    /* ── Maximum-range search of a downhill shot ──
+     * A downhill line of sight lies below the muzzle: a shot crosses it far below the muzzle altitude, so the drop and
+     * altitude limits would end every shot before the crossing and range_for_angle() would answer 0 ("no crossing") for
+     * all but near-vertical elevations. For such a look angle the two limits are lifted for the search; a level or
+     * uphill line of sight is untouched. Mirrors BCLIBC_BaseEngine::find_max_range in bclibc's engine.cpp. */
+    #define TINY_BCLIBC_DOWNHILL_NO_LIMIT_FT REAL_C(1e12)
+
+    typedef struct tiny_bclibc__SavedLimits
+    {
+        real_t max_drop, min_altitude;
+    } tiny_bclibc__SavedLimits;
+
+    static inline tiny_bclibc__SavedLimits tiny_bclibc__lift_limits_if_downhill(TINY_BCLIBC_ShotProps *p)
+    {
+        tiny_bclibc__SavedLimits saved;
+        saved.max_drop = p->cfg.cMaximumDrop;
+        saved.min_altitude = p->cfg.cMinimumAltitude;
+        if (p->look_angle < REAL_C(0.0))
+        {
+            p->cfg.cMaximumDrop = TINY_BCLIBC_DOWNHILL_NO_LIMIT_FT;
+            if (p->cfg.cMinimumAltitude > p->alt0 - TINY_BCLIBC_DOWNHILL_NO_LIMIT_FT)
+                p->cfg.cMinimumAltitude = p->alt0 - TINY_BCLIBC_DOWNHILL_NO_LIMIT_FT;
+        }
+        return saved;
+    }
+
+    static inline void tiny_bclibc__restore_limits(TINY_BCLIBC_ShotProps *p, tiny_bclibc__SavedLimits saved)
+    {
+        p->cfg.cMaximumDrop = saved.max_drop;
+        p->cfg.cMinimumAltitude = saved.min_altitude;
+    }
+
     /* ── find_zero_angle_ridders — UNCHANGED ── */
     TINY_BCLIBC_INTERNAL int32_t tiny_bclibc__find_zero_angle_ridders(
         const TINY_BCLIBC_ShotProps *props,
@@ -1542,6 +1574,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         p.calc_step *= REAL_C(8.0);
 #endif
 
+        const tiny_bclibc__SavedLimits gss_limits = tiny_bclibc__lift_limits_if_downhill(&p);
         yc = tiny_bclibc__range_for_angle(&p, c2);
         yd = tiny_bclibc__range_for_angle(&p, d);
         for (int32_t i = 0; i < 100; i++)
@@ -1569,6 +1602,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         }
         real_t angle_at_max = (a + b) / REAL_C(2.0);
         real_t max_range = tiny_bclibc__range_for_angle(&p, angle_at_max);
+        tiny_bclibc__restore_limits(&p, gss_limits);
 
 #ifdef TINY_BCLIBC_FAST_ZERO_FIND
         p.calc_step = gss_step_save;
@@ -1892,6 +1926,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
             return TINY_BCLIBC_ERR_INVALID_ARG;
         }
         TINY_BCLIBC_ShotProps p = *props;
+        (void)tiny_bclibc__lift_limits_if_downhill(&p); /* p is a copy: nothing to restore */
 
         real_t inv_phi = REAL_C(0.6180339887498949);
         real_t inv_phi_sq = REAL_C(0.38196601125010515);

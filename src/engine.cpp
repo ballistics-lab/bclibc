@@ -71,6 +71,9 @@ namespace bclibc
         return (alt0 - cMinimumAltitude) < required_drop_ft ? alt0 - required_drop_ft : cMinimumAltitude;
     }
 
+    /** Drop below the muzzle (and altitude below its own) that the maximum-range search of a downhill shot may follow. */
+    static constexpr double DOWNHILL_NO_LIMIT_FT = 1e12;
+
     /**
      * @brief Ensures the integration function is valid.
      *
@@ -800,12 +803,27 @@ namespace bclibc
             return BCLIBC_MaxRangeResult{sdist, look_angle_rad};
         }
 
+        // A downhill line of sight lies below the muzzle: a shot crosses it far below the muzzle altitude, so the usual
+        // "stop at muzzle level" (cMaximumDrop 0) and the caller's altitude limit would end every shot before the
+        // crossing and range_for_angle() would answer 0 (no crossing) for all but near-vertical elevations. For such a
+        // look angle the two limits are lifted for the search (restored on return); for a level or uphill line of sight
+        // nothing changes.
+        const bool downhill = look_angle_rad < 0.0;
+
         // Backup, adjust and restore constraints (emulate @with_max_drop_zero and @with_no_minimum_velocity)
         BCLIBC_ValueGuard<double> cMaximumDrop_guard(
             &this->config.cMaximumDrop,
-            this->config.cMaximumDrop != 0.0
-                ? 0.0
-                : this->config.cMaximumDrop);
+            downhill
+                ? DOWNHILL_NO_LIMIT_FT
+                : (this->config.cMaximumDrop != 0.0
+                       ? 0.0
+                       : this->config.cMaximumDrop));
+
+        BCLIBC_ValueGuard<double> cMinimumAltitude_guard(
+            &this->config.cMinimumAltitude,
+            downhill
+                ? std::fmin(this->config.cMinimumAltitude, this->shot.alt0 - DOWNHILL_NO_LIMIT_FT)
+                : this->config.cMinimumAltitude);
 
         BCLIBC_ValueGuard<double> cMinimumVelocity_guard(
             &this->config.cMinimumVelocity,
