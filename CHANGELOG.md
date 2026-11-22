@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   peak above it, `h0 + (v sin(elevation - look))^2 / (2 g cos(look))`, is not above it: this includes every elevation at or below
   the look angle, so a wide bracket such as (-90, 90) is cheap), and the flight is bounded to 600 s (a wind that carries a steep shot
   along the line of sight never lets it cross).
+  The 600 s is a bound on a single probe's flight time (realistic flights are under about 400 s); a probe that exceeds it reports "no
+  crossing", so for extreme inputs (for example look -20 degrees at 6000 fps in 0.05 hPa) `find_max_range` can return 0 ft instead of
+  hanging, and a later zero search then reports out of range.
   `tiny_bclibc_find_zero_point` also widens the drop and altitude limits for its intercept shot (a long downhill target, for example
   1500 m at -30 degrees, lies below the default altitude limit and used to end with "target intercept not found").
   Tests: `tests/test_zero_downhill.cpp` (C ABI and C++ core: zero of downhill shots from -5 to -45 degrees, targets 0.5 to 300 m, must hit within

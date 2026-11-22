@@ -1488,7 +1488,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         memset(&ctx, 0, sizeof(ctx));
         ctx.la_cos = TINY_BCLIBC_COS(props_mut->look_angle);
         ctx.la_sin = TINY_BCLIBC_SIN(props_mut->look_angle);
-        /* a downhill shot runs with the limits lifted (find_max_range): bound the flight of one that never crosses */
+        /* a downhill shot runs with the limits lifted (find_max_range): bound the flight of one that never crosses; 600 s bounds a single probe's flight (realistic flights are under ~400 s), a longer one reports no crossing */
         ctx.max_time = props_mut->look_angle < REAL_C(0.0) ? REAL_C(600.0) : REAL_C(0.0);
 
         TINY_BCLIBC_TrajectoryRequest req;

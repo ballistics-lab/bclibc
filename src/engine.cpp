@@ -75,6 +75,8 @@ namespace bclibc
     static constexpr double DOWNHILL_NO_LIMIT_FT = 1e6;
 
     /** Longest flight (s) the maximum-range search of a downhill shot follows in search of its crossing of the line of sight. */
+    /* A bound on a single probe's flight time (realistic flights are under ~400 s): a probe that exceeds it reports "no crossing", so for
+     * extreme inputs (e.g. look -20 deg at 6000 fps in 0.05 hPa) find_max_range can return 0 ft instead of hanging. */
     static constexpr double DOWNHILL_MAX_FLIGHT_TIME_S = 600.0;
 
     /**
