@@ -18,6 +18,10 @@
 #include <cstring>
 #include <limits>
 #include <vector>
+#ifndef _WIN32
+#include <unistd.h>
+#include <csignal>
+#endif
 
 // ── bclibc C++ headers ────────────────────────────────────────────────────
 #include "bclibc.hpp"
@@ -807,6 +811,44 @@ static bool test_downhill_max_range_and_ridder_zero()
     return ok;
 }
 
+
+// The maximum-range search of a downhill shot with the limits lifted must not hang: a shot launched at or below the
+// line of sight (or too little above it to rise by its sight height) has no crossing and is not integrated.
+#ifndef _WIN32
+static void on_alarm(int)
+{
+    static const char msg[] = "FAIL: tiny_bclibc_find_max_range did not finish in time (hang)\n";
+    (void)!write(2, msg, sizeof msg - 1);
+    _exit(1);
+}
+#endif
+static bool test_downhill_no_hang()
+{
+    bool ok = true;
+    struct Case { double look_deg, lo, hi; };
+    for (const Case c : {Case{-20.0, -90.0, 90.0}, Case{-0.001, 0.0, 0.0001}})
+    {
+        TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
+        TINY_BCLIBC_ShotProps tb_props;
+        if (make_tiny_bclibc_shot_props(&tb_props, tb_curve, G7_BASIC::BARREL_EL_RAD, 0.3281, c.look_deg * 0.017453292519943295) != TINY_BCLIBC_OK)
+            return false;
+        double range = -1.0, angle = 0.0;
+#ifndef _WIN32
+        std::signal(SIGALRM, on_alarm);
+        alarm(30);
+#endif
+        const int rc = tiny_bclibc_find_max_range(&tb_props, c.lo, c.hi, &range, &angle);
+#ifndef _WIN32
+        alarm(0);
+#endif
+        std::printf("  look %.3f, bracket (%g, %g): rc %d, range %.1f ft\n", c.look_deg, c.lo, c.hi, rc, range);
+        if (rc != TINY_BCLIBC_OK) { std::printf("FAIL: rc %d\n", rc); ok = false; }
+        if (c.look_deg > -0.01 && range != 0.0) { std::printf("FAIL: expected no crossing\n"); ok = false; }
+        if (c.look_deg < -1.0 && range < 5000.0) { std::printf("FAIL: wide bracket range too small\n"); ok = false; }
+    }
+    return ok;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // main
 // ═══════════════════════════════════════════════════════════════════════════
@@ -827,6 +869,7 @@ int main()
     all_pass &= test_g7_basic_zero_angle_tight_limits();
     all_pass &= test_close_target_zero();
     all_pass &= test_downhill_max_range_and_ridder_zero();
+    all_pass &= test_downhill_no_hang();
 
     std::printf("\n%s\n", all_pass ? "ALL TESTS PASSED" : "SOME TESTS FAILED");
     return all_pass ? 0 : 1;

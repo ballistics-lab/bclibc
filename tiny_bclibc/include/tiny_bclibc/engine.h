@@ -1425,6 +1425,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         real_t la_cos, la_sin;
         int32_t found;
         real_t slant_dist;
+        real_t max_time; /* stop without a crossing after this flight time (s); 0: no limit */
     } tiny_bclibc__ZeroCrossCtx;
 
     static inline int32_t tiny_bclibc__zero_cross_ck_on_first(
@@ -1442,6 +1443,8 @@ static inline void tiny_bclibc__set_error(const char *msg)
     {
         tiny_bclibc__ZeroCrossCtx *c = (tiny_bclibc__ZeroCrossCtx *)ctx_;
         if (c->found)
+            return 1;
+        if (c->max_time > REAL_C(0.0) && end->time > c->max_time)
             return 1;
 
         tiny_bclibc__SlantAux aux;
@@ -1469,10 +1472,24 @@ static inline void tiny_bclibc__set_error(const char *msg)
     static inline real_t tiny_bclibc__range_for_angle(TINY_BCLIBC_ShotProps *props_mut, real_t angle_rad)
     {
         props_mut->barrel_elevation = angle_rad;
+        /* A shot that cannot rise above a downhill line of sight has no crossing: see BCLIBC_BaseEngine::range_for_angle. */
+        if (props_mut->look_angle < REAL_C(0.0))
+        {
+            const real_t v_perp = props_mut->muzzle_velocity * TINY_BCLIBC_SIN(angle_rad - props_mut->look_angle);
+            const real_t h0 = -props_mut->cant_cosine * props_mut->sight_height * TINY_BCLIBC_COS(props_mut->look_angle);
+            const real_t g = TINY_BCLIBC_FABS(props_mut->cfg.cGravityConstant);
+            const real_t peak = (v_perp > REAL_C(0.0) && g > REAL_C(0.0))
+                                    ? h0 + v_perp * v_perp / (REAL_C(2.0) * g * TINY_BCLIBC_COS(props_mut->look_angle))
+                                    : h0;
+            if (peak <= REAL_C(0.0))
+                return REAL_C(0.0);
+        }
         tiny_bclibc__ZeroCrossCtx ctx;
         memset(&ctx, 0, sizeof(ctx));
         ctx.la_cos = TINY_BCLIBC_COS(props_mut->look_angle);
         ctx.la_sin = TINY_BCLIBC_SIN(props_mut->look_angle);
+        /* a downhill shot runs with the limits lifted (find_max_range): bound the flight of one that never crosses */
+        ctx.max_time = props_mut->look_angle < REAL_C(0.0) ? REAL_C(600.0) : REAL_C(0.0);
 
         TINY_BCLIBC_TrajectoryRequest req;
         req.range_limit_ft = TINY_BCLIBC_MAX_INTEGRATION_RANGE;
@@ -1493,7 +1510,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
      * altitude limits would end every shot before the crossing and range_for_angle() would answer 0 ("no crossing") for
      * all but near-vertical elevations. For such a look angle the two limits are lifted for the search; a level or
      * uphill line of sight is untouched. Mirrors BCLIBC_BaseEngine::find_max_range in bclibc's engine.cpp. */
-    #define TINY_BCLIBC_DOWNHILL_NO_LIMIT_FT REAL_C(1e12)
+    #define TINY_BCLIBC_DOWNHILL_NO_LIMIT_FT REAL_C(1e6)
 
     typedef struct tiny_bclibc__SavedLimits
     {

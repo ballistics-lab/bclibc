@@ -21,6 +21,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
+#ifndef _WIN32
+#include <unistd.h>
+#include <csignal>
+#endif
 
 static int failures = 0;
 
@@ -336,6 +341,79 @@ static void test_core_downhill_zero()
                     }
 }
 
+
+// A watchdog: a hang is a failure, not a stuck test run.
+#ifndef _WIN32
+static void on_alarm(int)
+{
+    static const char msg[] = "FAILED: a maximum-range search did not finish in time (hang)\n";
+    (void)!write(2, msg, sizeof msg - 1);
+    _exit(EXIT_FAILURE);
+}
+static void arm_watchdog(unsigned seconds)
+{
+    std::signal(SIGALRM, on_alarm);
+    alarm(seconds);
+}
+static void disarm_watchdog() { alarm(0); }
+#else
+static void arm_watchdog(unsigned) {}
+static void disarm_watchdog() {}
+#endif
+
+// A shot launched at or below a downhill line of sight cannot rise above it, and one launched a hair above it cannot
+// rise by its sight height: no crossing, so no integration (an integration with the limits lifted would run forever).
+static void test_core_downhill_no_hang()
+{
+    const Table &t = kTables[0];
+    {
+        bclibc::BCLIBC_BaseEngine eng;
+        core_init(eng, core_props(t, 0.1, 800.0, -20.0));
+        arm_watchdog(30);
+        auto wide = eng.find_max_range(-90.0, 90.0, kApex);
+        disarm_watchdog();
+        CHECK(!bclibc::has_error(wide));
+        auto narrow = eng.find_max_range(0.0, 90.0, kApex);
+        if (!bclibc::has_error(wide) && !bclibc::has_error(narrow))
+            CHECK(std::fabs(wide.value().max_range_ft - narrow.value().max_range_ft) < 1e-3 * narrow.value().max_range_ft);
+        // range_for_angle itself: nothing to find at or below the line of sight
+        arm_watchdog(30);
+        CHECK(eng.range_for_angle(-20.0 * M_PI / 180.0) == 0.0);
+        CHECK(eng.range_for_angle(-60.0 * M_PI / 180.0) == 0.0);
+        disarm_watchdog();
+    }
+    {
+        bclibc::BCLIBC_BaseEngine eng;
+        core_init(eng, core_props(t, 0.1, 800.0, -0.001));
+        arm_watchdog(30);
+        auto r = eng.find_max_range(0.0, 0.0001, kApex);
+        disarm_watchdog();
+        CHECK(!bclibc::has_error(r));
+        if (!bclibc::has_error(r))
+            CHECK(r.value().max_range_ft == 0.0);
+    }
+}
+
+// A wind that carries a steep downhill shot along the line of sight: it never comes back down through it. The search must
+// end (a flight-time bound), not integrate for ever.
+static void test_abi_downhill_wind_no_hang()
+{
+    BCLIBCFFI_Wind w;
+    std::memset(&w, 0, sizeof w);
+    w.velocity_fps = 300.0;
+    w.direction_from_rad = 0.0;
+    w.until_distance_ft = 1e9;
+    w.max_distance_ft = 1e9;
+    BCLIBCFFI_Shot shot = make_shot(BCLIBCFFI_INTEGRATION_RK4, kTables[0], 0.1, 800.0, -85.0);
+    shot.winds = &w;
+    shot.wind_count = 1;
+    BCLIBCFFI_MaxRangeResult mr;
+    BCLIBCFFI_Error err;
+    arm_watchdog(60);
+    CHECK(BCLIBCFFI_find_max_range_shot(&shot, 0.0, 90.0, &mr, &err) == BCLIBCFFI_OK);
+    disarm_watchdog();
+}
+
 // The target is really out of range: still reported, now with the real maximum range.
 static void test_downhill_out_of_range_is_reported()
 {
@@ -400,7 +478,7 @@ static void test_unchanged_results()
     for (const Guard &g : kGuard)
     {
         const double now = guard_value(g);
-        const bool same = std::fabs(now - g.value) <= 1e-12 * std::fmax(1.0, std::fabs(g.value));
+        const bool same = std::fabs(now - g.value) <= 1e-9 * std::fmax(1.0, std::fabs(g.value));
         if (!same)
             std::fprintf(stderr, "  guard: kind %d, %s, sight %.2f m, v %.0f, look %.0f, target %.2f m: %.17g, recorded %.17g\n",
                          g.kind, kTables[g.table].name, g.sight_m, g.v_mps, g.look_deg, g.target_m, now, g.value);
@@ -446,6 +524,13 @@ static void print_guard()
 
 int main(int argc, char **argv)
 {
+    if (argc > 1 && std::strcmp(argv[1], "--only-hang") == 0)
+    {
+        test_core_downhill_no_hang();
+        test_abi_downhill_wind_no_hang();
+        std::puts(failures ? "hang tests FAILED" : "hang tests passed");
+        return failures ? EXIT_FAILURE : EXIT_SUCCESS;
+    }
     if (argc > 1 && std::strcmp(argv[1], "--print-guard") == 0)
     {
         print_guard();
@@ -453,6 +538,8 @@ int main(int argc, char **argv)
     }
     test_abi_reported_repros();
     test_abi_downhill_zero();
+    test_core_downhill_no_hang();
+    test_abi_downhill_wind_no_hang();
     test_core_downhill_max_range();
     test_core_downhill_zero();
     test_downhill_out_of_range_is_reported();

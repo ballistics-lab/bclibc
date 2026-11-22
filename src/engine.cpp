@@ -72,7 +72,10 @@ namespace bclibc
     }
 
     /** Drop below the muzzle (and altitude below its own) that the maximum-range search of a downhill shot may follow. */
-    static constexpr double DOWNHILL_NO_LIMIT_FT = 1e12;
+    static constexpr double DOWNHILL_NO_LIMIT_FT = 1e6;
+
+    /** Longest flight (s) the maximum-range search of a downhill shot follows in search of its crossing of the line of sight. */
+    static constexpr double DOWNHILL_MAX_FLIGHT_TIME_S = 600.0;
 
     /**
      * @brief Ensures the integration function is valid.
@@ -752,12 +755,29 @@ namespace bclibc
 
         this->shot.barrel_elevation = angle_rad;
 
+        // A shot that cannot rise above a downhill line of sight has no crossing to find, and with the limits lifted by
+        // find_max_range it would be integrated until the range limit: answer "no crossing" without integrating. The
+        // highest the shot gets above the line of sight, in vacuum (drag only lowers it), is its start height over the
+        // line plus (v sin(elevation - look))^2 / (2 g cos(look)); it must reach the line. (Wind is not considered.)
+        if (this->shot.look_angle < 0.0)
+        {
+            const double v_perp = this->shot.muzzle_velocity * std::sin(angle_rad - this->shot.look_angle);
+            const double h0 = -this->shot.cant_cosine * this->shot.sight_height * std::cos(this->shot.look_angle);
+            const double g = std::fabs(this->config.cGravityConstant);
+            const double peak = (v_perp > 0.0 && g > 0.0) ? h0 + v_perp * v_perp / (2.0 * g * std::cos(this->shot.look_angle)) : h0;
+            if (peak <= 0.0)
+                return 0.0;
+        }
+
         BCLIBC_TerminationReason reason;
 
         // Use specialized zero-crossing handler
+        // For a downhill line of sight the limits are lifted (find_max_range), so a flight time bound ends a shot that
+        // never crosses.
         BCLIBC_ZeroCrossingHandler handler(
             this->shot.look_angle,
-            &reason);
+            &reason,
+            this->shot.look_angle < 0.0 ? DOWNHILL_MAX_FLIGHT_TIME_S : 0.0);
 
         this->integrate(this->MAX_INTEGRATION_RANGE, handler, reason);
 

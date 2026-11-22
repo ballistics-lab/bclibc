@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on every downhill shot tested, and their answers, the zeros of level and uphill shots and their maximum range are bit-for-bit what they were.
   `find_max_range` of a downhill shot is now the real maximum slant range (for example 15262 ft at 33.5 degrees for a 5 degree downhill
   shot of 2750 fps, G7 0.223) instead of a few feet at 89.9 degrees.
+  For a downhill look angle the search ignores the caller's `cMinimumAltitude` and `cMaximumDrop` (lifted to 1e6 ft, so the
+  reported maximum range can lie below the altitude floor the caller set), and two things keep that from running for ever:
+  `range_for_angle` answers "no crossing" without integrating for a launch that cannot rise above the line of sight (the vacuum
+  peak above it, `h0 + (v sin(elevation - look))^2 / (2 g cos(look))`, is not above it: this includes every elevation at or below
+  the look angle, so a wide bracket such as (-90, 90) is cheap), and the flight is bounded to 600 s (a wind that carries a steep shot
+  along the line of sight never lets it cross).
   Tests: `tests/test_zero_downhill.cpp` (C ABI and C++ core: zero of downhill shots from -5 to -45 degrees, targets 0.5 to 300 m, must hit within
   2 mm; the maximum range equals a brute-force scan; recorded values of unaffected results) and the `tiny_bclibc` identity test.
 - The zero angle of a very close target (closer than about twice the sight height) is right now, and the cutoff of the
@@ -383,7 +389,7 @@ same tag before publishing.
   `BCLIBC_BaseEngine`s concurrently) — `set_relative_tolerance()` /
   `set_absolute_tolerance()` from one thread cannot race with a concurrent
   `operator()` or `get_stats()` call from another. `operator()` snapshots
-  both tolerances once at the start of its run, so one integration worked
+  both tolerances once at the start of its run, so one integration always
   sees one consistent tolerance pair even if changed mid-run from another
   thread. `get_stats()`'s two fields are read independently, so a
   concurrent run can still return a non-atomic pairing of them (e.g. a

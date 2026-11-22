@@ -892,13 +892,14 @@ namespace bclibc
      * @param termination_reason_ptr Optional pointer to reason for early termination
      */
     BCLIBC_ZeroCrossingHandler::BCLIBC_ZeroCrossingHandler(
-        double look_angle_rad, BCLIBC_TerminationReason *termination_reason_ptr)
+        double look_angle_rad, BCLIBC_TerminationReason *termination_reason_ptr, double max_time_s)
         : look_angle_cos_(std::cos(look_angle_rad)),
           look_angle_sin_(std::sin(look_angle_rad)),
           is_found(false),
           result_slant_distance(0.0),
           has_prev_(false),
-          termination_reason_ptr(termination_reason_ptr) {};
+          termination_reason_ptr(termination_reason_ptr),
+          max_time_s_(max_time_s) {};
 
     BCLIBC_Result<std::monostate> BCLIBC_ZeroCrossingHandler::handle(const BCLIBC_BaseTrajData &data)
     {
@@ -949,6 +950,13 @@ namespace bclibc
                 *this->termination_reason_ptr = BCLIBC_TerminationReason::HANDLER_REQUESTED_STOP;
                 BCLIBC_INFO("BCLIBC_ZeroCrossingHandler requested early termination");
             }
+        }
+
+        // A shot that never comes back down (a wind that carries it along the line of sight) has no crossing to wait for.
+        if (this->max_time_s_ > 0.0 && data.time > this->max_time_s_ && !this->is_found)
+        {
+            if (this->termination_reason_ptr != nullptr)
+                *this->termination_reason_ptr = BCLIBC_TerminationReason::HANDLER_REQUESTED_STOP;
         }
 
         this->prev_point = data;

@@ -335,15 +335,17 @@ namespace bclibc
         bool has_prev_;
 
         BCLIBC_TerminationReason *termination_reason_ptr;
+        double max_time_s_;
 
     public:
         /**
          * @brief Constructs handler for zero-crossing detection.
          * @param look_angle_rad Look angle in radians (line of sight angle)
          * @param termination_reason_ptr Optional pointer to reason for early termination
+         * @param max_time_s Stop without a crossing once the flight lasts longer than this (0: no limit)
          */
         explicit BCLIBC_ZeroCrossingHandler(
-            double look_angle_rad, BCLIBC_TerminationReason *termination_reason_ptr);
+            double look_angle_rad, BCLIBC_TerminationReason *termination_reason_ptr, double max_time_s = 0.0);
 
         BCLIBC_Result<std::monostate> handle(const BCLIBC_BaseTrajData &data) override;
 
