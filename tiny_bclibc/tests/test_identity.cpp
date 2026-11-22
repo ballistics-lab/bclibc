@@ -849,6 +849,29 @@ static bool test_downhill_no_hang()
     return ok;
 }
 
+
+// A long downhill zero: the target (1500 m at -30 degrees) is 750 m below the muzzle, below the default altitude limit
+// (-1500 ft): find_zero_point's intercept shot used to stop short ("target intercept not found").
+static bool test_long_downhill_zero_point()
+{
+    constexpr double kFt = 3.28084;
+    const double look = -30.0 * 0.017453292519943295;
+    const double dist_ft = 1500.0 * kFt;
+    TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
+    TINY_BCLIBC_ShotProps tb_props;
+    if (make_tiny_bclibc_shot_props(&tb_props, tb_curve, G7_BASIC::BARREL_EL_RAD, 0.3281, look) != TINY_BCLIBC_OK)
+        return false;
+    TINY_BCLIBC_ZeroPointResult zp;
+    const int rc = tiny_bclibc_find_zero_point(&tb_props, dist_ft, &zp);
+    std::printf("  long downhill zero point: rc %d\n", rc);
+    if (rc != TINY_BCLIBC_OK)
+    {
+        std::printf("FAIL: %s\n", tiny_bclibc_last_error());
+        return false;
+    }
+    return true;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // main
 // ═══════════════════════════════════════════════════════════════════════════
@@ -870,6 +893,7 @@ int main()
     all_pass &= test_close_target_zero();
     all_pass &= test_downhill_max_range_and_ridder_zero();
     all_pass &= test_downhill_no_hang();
+    all_pass &= test_long_downhill_zero_point();
 
     std::printf("\n%s\n", all_pass ? "ALL TESTS PASSED" : "SOME TESTS FAILED");
     return all_pass ? 0 : 1;

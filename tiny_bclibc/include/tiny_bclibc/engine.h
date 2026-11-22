@@ -1915,6 +1915,9 @@ static inline void tiny_bclibc__set_error(const char *msg)
         solved_props.barrel_elevation = angle_rad;
         {
             real_t target_x_ft = distance_ft * TINY_BCLIBC_COS(props->look_angle);
+            /* the intercept shot must be able to fall as far as the search's shots did (a long downhill target is far
+             * below the muzzle: the default altitude limit stopped it short and no intercept was found) */
+            tiny_bclibc__zero_search_widen_limits(&solved_props, target_x_ft, distance_ft * TINY_BCLIBC_SIN(props->look_angle));
             TINY_BCLIBC_BaseTrajData raw;
             rc = tiny_bclibc_integrate_at(&solved_props, TINY_BCLIBC_KEY_POS_X,
                                           target_x_ft, &raw, &out->point);

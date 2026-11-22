@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   peak above it, `h0 + (v sin(elevation - look))^2 / (2 g cos(look))`, is not above it: this includes every elevation at or below
   the look angle, so a wide bracket such as (-90, 90) is cheap), and the flight is bounded to 600 s (a wind that carries a steep shot
   along the line of sight never lets it cross).
+  `tiny_bclibc_find_zero_point` also widens the drop and altitude limits for its intercept shot (a long downhill target, for example
+  1500 m at -30 degrees, lies below the default altitude limit and used to end with "target intercept not found").
   Tests: `tests/test_zero_downhill.cpp` (C ABI and C++ core: zero of downhill shots from -5 to -45 degrees, targets 0.5 to 300 m, must hit within
   2 mm; the maximum range equals a brute-force scan; recorded values of unaffected results) and the `tiny_bclibc` identity test.
 - The zero angle of a very close target (closer than about twice the sight height) is right now, and the cutoff of the
