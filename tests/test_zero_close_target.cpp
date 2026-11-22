@@ -62,7 +62,8 @@ static const double kVelocitiesMps[] = {300.0, 800.0};
 static const double kTargetsM[] = {0.05, 0.1, 0.2, 0.4, 0.6, 0.9};
 static const double kLooksDeg[] = {0.0, 10.0, -10.0};
 
-static BCLIBCFFI_Shot make_shot(int32_t method, const Table &t, double sight_m, double velocity_mps, double look_deg)
+static BCLIBCFFI_Shot make_shot(int32_t method, const Table &t, double sight_m, double velocity_mps, double look_deg,
+                                double cant_deg = 0.0, double step_multiplier = 1.0)
 {
     BCLIBCFFI_Shot s;
     std::memset(&s, 0, sizeof s);
@@ -80,9 +81,10 @@ static BCLIBCFFI_Shot make_shot(int32_t method, const Table &t, double sight_m, 
     s.cd_data = t.cd;
     s.drag_table_size = 4;
     s.look_angle_rad = look_deg * M_PI / 180.0;
+    s.cant_angle_rad = cant_deg * M_PI / 180.0;
     s.latitude_deg = std::nan("");
     s.azimuth_deg = std::nan("");
-    s.config.cStepMultiplier = 1.0;
+    s.config.cStepMultiplier = step_multiplier;
     s.config.cZeroFindingAccuracy = 5e-6;
     s.config.cMinimumVelocity = 50.0;
     s.config.cMaximumDrop = -15000.0;
@@ -213,7 +215,7 @@ static void test_abi_close_targets()
                         }
 }
 
-// The cutoff is twice the sight height (calc_step, 0.0025, is far below it): just inside it the geometric angle must
+// The cutoff is twice the sight height (calc_step, 0.0025, is far below it; see test_abi_calc_step_branch): just inside it the geometric angle must
 // hit, just outside it the search must. Both ends of the cutoff take the same hit, and the angles are continuous.
 static void test_abi_cutoff_is_twice_the_sight_height()
 {
@@ -241,6 +243,70 @@ static void test_abi_cutoff_is_twice_the_sight_height()
         CHECK(std::fabs(zi.look_angle_rad - std::atan2(shot.sight_height_ft, 0.5 * cutoff_ft)) < 1e-12);
         CHECK(zi.look_angle_rad > 0.0); // the bore points up to a sight above it
     }
+}
+
+// A canted rifle: start_height = -sight * cos(cant), so the angle (and the cutoff) depend on the cant. The shot fired
+// with the zero must still reach the line of sight.
+static void test_abi_cant()
+{
+    BCLIBCFFI_Error err;
+    const int32_t method = BCLIBCFFI_INTEGRATION_RK4;
+    const Table &t = kTables[0];
+    const double v = 800.0;
+    for (double cant : {30.0, 60.0})
+        for (double sight : {0.1, 0.5})
+            for (double look : {0.0, 10.0})
+                for (double target : {0.05, 0.1, 0.2, 0.4})
+                {
+                    const BCLIBCFFI_Shot shot = make_shot(method, t, sight, v, look, cant);
+                    const double d = target * kFt;
+                    double angle = 0.0;
+                    int32_t rc = BCLIBCFFI_find_zero_angle_shot(&shot, d, &angle, &err);
+                    CHECK_ZERO("cant find_zero_angle_shot", rc, angle, shot, d);
+                    BCLIBCFFI_ZeroPointResult zp;
+                    std::memset(&zp, 0, sizeof zp);
+                    rc = BCLIBCFFI_find_zero_point_shot(&shot, d, &zp, &err);
+                    CHECK_ZERO("cant find_zero_point_shot", rc, zp.angle_rad, shot, d);
+                }
+    // The shortcut itself: atan2(h * cos(cant), x) at look 0, and the cutoff is 2 * h * cos(cant).
+    for (double cant : {30.0, 60.0})
+    {
+        const BCLIBCFFI_Shot shot = make_shot(method, t, 0.5, v, 0.0, cant);
+        const double h = shot.sight_height_ft * std::cos(shot.cant_angle_rad);
+        BCLIBCFFI_ZeroInit zi;
+        std::memset(&zi, 0, sizeof zi);
+        CHECK(BCLIBCFFI_zero_init_shot(&shot, 1.8 * h, &zi, &err) == BCLIBCFFI_OK);
+        CHECK(zi.status == BCLIBCFFI_ZERO_INIT_DONE);
+        CHECK(std::fabs(zi.look_angle_rad - std::atan2(h, 1.8 * h)) < 1e-12);
+        CHECK(BCLIBCFFI_zero_init_shot(&shot, 2.2 * h, &zi, &err) == BCLIBCFFI_OK);
+        CHECK(zi.status == BCLIBCFFI_ZERO_INIT_CONTINUE);
+    }
+}
+
+// The cutoff is 2 * max(sight height, calc_step): the calc_step branch. With a large cStepMultiplier (RK4, 400:
+// calc_step 1.0, cutoff 2 ft) and with Euler (calc_step 0.5, cutoff 1 ft), a low sight leaves calc_step the larger one.
+// (The old cutoff, 2 * max(h, cStepMultiplier), was 800 ft for the first and 2 ft for the second.)
+static void test_abi_calc_step_branch()
+{
+    BCLIBCFFI_Error err;
+    const Table &t = kTables[0];
+    BCLIBCFFI_ZeroInit zi;
+    std::memset(&zi, 0, sizeof zi);
+    const double h_m = 0.05;
+
+    const BCLIBCFFI_Shot big = make_shot(BCLIBCFFI_INTEGRATION_RK4, t, h_m, 800.0, 0.0, 0.0, 400.0);
+    CHECK(BCLIBCFFI_zero_init_shot(&big, 0.5 * kFt, &zi, &err) == BCLIBCFFI_OK); // 1.64 ft < 2 ft
+    CHECK(zi.status == BCLIBCFFI_ZERO_INIT_DONE);
+    CHECK(std::fabs(zi.look_angle_rad - std::atan2(h_m * kFt, 0.5 * kFt)) < 1e-12);
+    CHECK(BCLIBCFFI_zero_init_shot(&big, 1.0 * kFt, &zi, &err) == BCLIBCFFI_OK); // 3.28 ft > 2 ft: a search
+    CHECK(zi.status == BCLIBCFFI_ZERO_INIT_CONTINUE);
+
+    const BCLIBCFFI_Shot euler = make_shot(BCLIBCFFI_INTEGRATION_EULER, t, h_m, 800.0, 0.0);
+    CHECK(BCLIBCFFI_zero_init_shot(&euler, 0.2 * kFt, &zi, &err) == BCLIBCFFI_OK); // 0.66 ft < 1 ft
+    CHECK(zi.status == BCLIBCFFI_ZERO_INIT_DONE);
+    CHECK(std::fabs(zi.look_angle_rad - std::atan2(h_m * kFt, 0.2 * kFt)) < 1e-12);
+    CHECK(BCLIBCFFI_zero_init_shot(&euler, 0.4 * kFt, &zi, &err) == BCLIBCFFI_OK); // 1.31 ft > 1 ft
+    CHECK(zi.status == BCLIBCFFI_ZERO_INIT_CONTINUE);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -419,6 +485,8 @@ int main(int argc, char **argv)
     }
     test_abi_close_targets();
     test_abi_cutoff_is_twice_the_sight_height();
+    test_abi_cant();
+    test_abi_calc_step_branch();
     test_core_close_targets();
     test_far_targets_unchanged();
     if (failures)

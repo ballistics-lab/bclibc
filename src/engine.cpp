@@ -412,8 +412,10 @@ namespace bclibc
         }
 
         // Edge case: Very close shot; ignore gravity and drag.
-        // The cutoff is twice the sight height, or the shot's calc_step if that is larger (as the Python engine does);
-        // it is a length compared with a step, not with the cStepMultiplier, which is a factor and not a length.
+        // The cutoff is twice the sight height, or the shot's calc_step if that is larger. This follows the Python
+        // reference (props.calc_step); calc_step is a time step in seconds for RK4, Velocity Verlet and the adaptive
+        // methods (distance-like only for Euler), so it is not a dimensionally clean comparison, and in practice the
+        // cutoff is 2 * sight height. (The old code used cStepMultiplier, a factor, which made the cutoff about 2 ft.)
         // The bullet starts at start_height_ft (the negative sight height) and must cross the line of sight at the
         // target, so the angle is that of the straight line from the bore to the target: atan2(dy, dx) with
         // dy = target_y - start_height (a bore below the sight line points up).

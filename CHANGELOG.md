@@ -11,11 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The zero angle of a very close target (closer than about twice the sight height) is right now, and the cutoff of the
   "very close shot" shortcut of `init_zero_calculation` (and `tiny_bclibc`'s `find_zero_angle`) is what it was meant to be.
   The shortcut returns a straight-line angle without a search ("ignore gravity and drag") and had two defects:
-  - **The cutoff compared a length with a factor.** It was `2 * max(|sight height|, cStepMultiplier)`, and `cStepMultiplier` is
-    a dimensionless factor (1.0 by default), so the cutoff was about 2 ft (0.6 m) whatever the sight height. It is now
-    `2 * max(|sight height|, calc_step)`, with the shot's `calc_step`, as the Python engine does. A target a little closer
-    than 0.6 m with a low sight (for example 0.1 to 0.6 m with a 0.05 or 0.1 m sight) used to take the shortcut and is now searched
-    for like any other target.
+  - **The cutoff used the wrong quantity.** It was `2 * max(|sight height|, cStepMultiplier)`, and `cStepMultiplier` is a
+    dimensionless factor (1.0 by default), so the cutoff was about 2 ft (0.6 m) whatever the sight height. It is now
+    `2 * max(|sight height|, calc_step)` with the shot's `calc_step`, following the Python reference (`props.calc_step`).
+    This is not a dimensional fix: `calc_step` is a time step in seconds for RK4, Velocity Verlet and the adaptive methods
+    (distance-like only for Euler, 0.5), so in practice the cutoff is 2 * sight height. A target closer than 0.6 m with a low
+    sight (for example 0.1 to 0.6 m with a 0.05 or 0.1 m sight) used to take the shortcut and is now searched for like any
+    other target (a target exactly at the cutoff, such as 0.2 m with a 0.1 m sight, is searched: the test is `<`).
   - **The angle pointed the wrong way.** It was `atan2(target_y + start_height, target_x)`, but `start_height` is the *negative*
     sight height (the bore is below the line of sight), so for a sight above the bore the angle was negative: the bore pointed
     down, away from the line of sight, and the shot missed it by twice the sight height (0.2 m for a 0.1 m sight, 1 m for 0.5 m, at any
