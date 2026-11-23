@@ -239,9 +239,12 @@ static const GuardCase kGuardCases[] = {
 };
 static const double kGuardElevations[] = {1.0, 3.0};
 
-static bool near(double a, double b)
+// Fixed-step results are reproduced to rounding. The adaptive step-size controller amplifies the last-bit differences of
+// other platforms (FMA contraction, libm), so its recorded values are compared to 1e-6 relative (the first-step fix moves a
+// later crossing by far more than that, if it moves it at all).
+static bool near(double a, double b, double rel)
 {
-    return std::fabs(a - b) <= 1e-12 * std::fmax(1.0, std::fabs(b));
+    return std::fabs(a - b) <= rel * std::fmax(1.0, std::fabs(b));
 }
 
 static void test_later_crossings_unchanged()
@@ -258,8 +261,10 @@ static void test_later_crossings_unchanged()
         if (rc != BCLIBCFFI_OK)
             continue;
         const BCLIBCFFI_BaseTrajData &a = r.raw_data;
-        const bool same = near(a.time, g.time) && near(a.px, g.px) && near(a.py, g.py) && near(a.pz, g.pz) &&
-                          near(a.vx, g.vx) && near(a.vy, g.vy) && near(a.vz, g.vz) && near(a.mach, g.mach);
+        const double rel = e.adaptive ? 1e-6 : 1e-12;
+        const bool same = near(a.time, g.time, rel) && near(a.px, g.px, rel) && near(a.py, g.py, rel) &&
+                          near(a.pz, g.pz, rel) && near(a.vx, g.vx, rel) && near(a.vy, g.vy, rel) &&
+                          near(a.vz, g.vz, rel) && near(a.mach, g.mach, rel);
         if (!same)
             std::fprintf(stderr, "  guard: %s el %.1f key %d target %g: t %.17g (rec %.17g) px %.17g (rec %.17g)\n", e.name,
                          g.elevation_deg, g.key, g.target, a.time, g.time, a.px, g.px);
