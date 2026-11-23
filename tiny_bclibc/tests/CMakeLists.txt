@@ -63,6 +63,40 @@ target_compile_features(test_identity PRIVATE cxx_std_17)
 enable_testing()
 add_test(NAME identity COMMAND test_identity)
 
+# ── test_ridder_unconverged ───────────────────────────────────────────────
+# The Ridder loop of tiny_bclibc__find_zero_angle_ridders has a fixed cap (`int32_t max_iter = 50;`, it does not read
+# cfg.cMaxIterations) and converges in a few iterations, so the "not converged" exit cannot be reached with the stock
+# cap. This test is built against a copy of the headers whose cap is lowered to TINY_RIDDER_ITER_CAP; the library
+# headers are not modified. TINY_RIDDER_HEADER_DIR may point at another tiny_bclibc include directory (e.g. an older
+# tree) to check the test against it.
+set(TINY_RIDDER_ITER_CAP 2)
+set(TINY_RIDDER_HEADER_DIR "${TINY_BCLIBC_ROOT}/include" CACHE PATH "tiny_bclibc include dir that test_ridder_unconverged patches")
+set(TINY_RIDDER_PATCHED_DIR "${CMAKE_CURRENT_BINARY_DIR}/ridder_capped_include")
+file(GLOB TINY_RIDDER_HEADERS "${TINY_RIDDER_HEADER_DIR}/tiny_bclibc/*.h")
+foreach(hdr IN LISTS TINY_RIDDER_HEADERS)
+    get_filename_component(hdr_name "${hdr}" NAME)
+    file(READ "${hdr}" hdr_text)
+    if(hdr_name STREQUAL "engine.h")
+        string(REPLACE "int32_t max_iter = 50;" "int32_t max_iter = ${TINY_RIDDER_ITER_CAP};" patched_text "${hdr_text}")
+        if(patched_text STREQUAL hdr_text)
+            message(FATAL_ERROR "test_ridder_unconverged: 'int32_t max_iter = 50;' not found in ${hdr} (the Ridder loop changed; update this test)")
+        endif()
+        set(hdr_text "${patched_text}")
+    endif()
+    file(GENERATE OUTPUT "${TINY_RIDDER_PATCHED_DIR}/tiny_bclibc/${hdr_name}" CONTENT "${hdr_text}")
+endforeach()
+
+add_executable(test_ridder_unconverged test_ridder_unconverged.cpp)
+target_include_directories(test_ridder_unconverged PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${TINY_RIDDER_PATCHED_DIR}"
+    "${TINY_BCLIBC_ROOT}/generated"
+)
+target_link_libraries(test_ridder_unconverged PRIVATE bclibc_identity_lib)
+target_compile_definitions(test_ridder_unconverged PRIVATE TINY_RIDDER_ITER_CAP=${TINY_RIDDER_ITER_CAP})
+target_compile_features(test_ridder_unconverged PRIVATE cxx_std_17)
+add_test(NAME ridder_unconverged COMMAND test_ridder_unconverged)
+
 message(STATUS "tiny_bclibc identity test configured")
 message(STATUS "  bclibc root : ${BCLIBC_ROOT}")
 message(STATUS "  tiny_bclibc root: ${TINY_BCLIBC_ROOT}")

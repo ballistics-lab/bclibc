@@ -823,6 +823,60 @@ static bool test_downhill_max_range_and_ridder_zero()
 }
 
 
+// The unconverged exit of the Ridder zero search (test_ridder_unconverged.cpp, built with the iteration cap lowered)
+// fails with a zero-finding error; here the same searches run with the default iterations: both engines converge and the
+// shot fired with the zero hits the target.
+static bool test_ridder_default_iterations_converge()
+{
+    constexpr double kFt = 3.28084;
+    constexpr double kMissTolFt = 0.00656; // 2 mm
+    constexpr double APEX_MAX_RAD = 1.5707963267948966 * 0.99;
+    constexpr double ALLOWED_ERR = 1e-2;
+    struct Case
+    {
+        double look_deg, sight_m, target_m;
+    };
+    const Case cases[] = {{0.0, 0.05, 2000.0}, {-10.0, 0.05, 1500.0}, {-10.0, 0.05, 2000.0}, {-10.0, 0.1, 1500.0},
+                          {-10.0, 0.1, 2000.0}};
+    bool ok = true;
+    for (const Case &c : cases)
+    {
+        const double look = c.look_deg * 0.017453292519943295;
+        const double sight_ft = c.sight_m * kFt;
+        const double dist_ft = c.target_m * kFt;
+
+        bclibc::BCLIBC_BaseEngine bc_eng;
+        init_bclibc_engine(bc_eng, make_bclibc_shot_props(G7_BASIC::BARREL_EL_RAD, sight_ft, look));
+        auto bc_z = bc_eng.find_zero_angle(dist_ft, 0, APEX_MAX_RAD, ALLOWED_ERR);
+
+        TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
+        TINY_BCLIBC_ShotProps tb_props;
+        if (make_tiny_bclibc_shot_props(&tb_props, tb_curve, G7_BASIC::BARREL_EL_RAD, sight_ft, look) != TINY_BCLIBC_OK)
+            return false;
+        double tb_z = 0.0;
+        const int rc = tiny_bclibc__find_zero_angle_ridders(&tb_props, dist_ft, &tb_z);
+        if (bclibc::has_error(bc_z) || rc != TINY_BCLIBC_OK)
+        {
+            std::printf("FAIL: default-iteration Ridder zero (look %.0f, sight %.2f m, target %.0f m): bclibc %s, tiny_bclibc rc=%d\n",
+                        c.look_deg, c.sight_m, c.target_m, bclibc::has_error(bc_z) ? "error" : "ok", rc);
+            ok = false;
+            continue;
+        }
+        auto bc_miss = bc_eng.error_at_distance(bc_z.value(), dist_ft * std::cos(look), dist_ft * std::sin(look));
+        TINY_BCLIBC_ShotProps fire = tb_props;
+        const double tb_miss = tiny_bclibc__error_at_distance(&fire, tb_z, dist_ft * std::cos(look), dist_ft * std::sin(look));
+        std::printf("  default-iteration Ridder zero look %.0f, sight %.2f m, target %.0f m: bclibc %.5f rad, tiny_bclibc %.5f rad (miss %.5f ft)\n",
+                    c.look_deg, c.sight_m, c.target_m, bc_z.value(), tb_z, tb_miss);
+        if (bclibc::has_error(bc_miss) || std::fabs(bc_miss.value()) >= kMissTolFt || std::fabs(tb_miss) >= kMissTolFt)
+        {
+            std::printf("FAIL: default-iteration Ridder zero misses the target\n");
+            ok = false;
+        }
+        ok &= identity::compare_scalar("default-iteration Ridder zero (rad)", bc_z.value(), tb_z, 2e-4);
+    }
+    return ok;
+}
+
 // The maximum-range search of a downhill shot with the limits lifted must not hang: a shot launched at or below the
 // line of sight (or too little above it to rise by its sight height) has no crossing and is not integrated.
 #ifndef _WIN32
@@ -904,6 +958,7 @@ int main()
     all_pass &= test_g7_basic_zero_angle_tight_limits();
     all_pass &= test_close_target_zero();
     all_pass &= test_downhill_max_range_and_ridder_zero();
+    all_pass &= test_ridder_default_iterations_converge();
     all_pass &= test_downhill_no_hang();
     all_pass &= test_long_downhill_zero_point();
 
