@@ -121,6 +121,8 @@ BCLIBC_Result<std::monostate> BCLIBC_integrateRK4(
         BCLIBC_DEBUG("Gravity initialized: %f\n", gravity_vector.y);
 
         // Get initial wind conditions
+        // Every integration starts at the first wind segment (the previous one left the sock past its own range)
+        eng.shot.wind_sock.reset();
         wind_vector = eng.shot.wind_sock.current_vector();
         BCLIBC_DEBUG("Wind vector: %f, %f, %f\n", wind_vector.x, wind_vector.y, wind_vector.z);
 

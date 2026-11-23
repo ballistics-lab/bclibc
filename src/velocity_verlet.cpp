@@ -94,6 +94,8 @@ BCLIBC_Result<std::monostate> BCLIBC_integrateVELOCITY_VERLET(
         gravity_vector.y = eng.config.cGravityConstant;
         gravity_vector.z = 0.0;
 
+        // Every integration starts at the first wind segment (the previous one left the sock past its own range)
+        eng.shot.wind_sock.reset();
         // Get initial wind conditions
         wind_vector = eng.shot.wind_sock.current_vector();
 

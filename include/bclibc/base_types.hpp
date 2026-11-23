@@ -317,6 +317,14 @@ namespace bclibc
         void update_cache();
 
         /**
+         * @brief Rewinds the sock to the first wind segment.
+         *
+         * Every integration walks the sock down the list of segments as the projectile passes their ends, so each one
+         * must start from the first segment again (Python builds a fresh sock per integration).
+         */
+        void reset();
+
+        /**
          * @brief Returns the wind vector for the currently active wind segment.
          *
          * The vector is pre-calculated and stored in the cache.

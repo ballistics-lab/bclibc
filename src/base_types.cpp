@@ -779,6 +779,12 @@ namespace bclibc
         }
     }
 
+    void BCLIBC_WindSock::reset()
+    {
+        this->current = 0;
+        this->update_cache();
+    }
+
     /**
      * @brief Gets the current wind vector, updating to the next segment if necessary.
      *

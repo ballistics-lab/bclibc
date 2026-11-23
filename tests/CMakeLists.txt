@@ -85,3 +85,17 @@ target_include_directories(bclibc_test_zero_downhill PRIVATE "${BCLIBC_INCLUDE_D
 target_compile_features(bclibc_test_zero_downhill PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_zero_downhill COMMAND bclibc_test_zero_downhill)
+
+# The wind sock is rewound at the start of every integration: the trial shots of a zero or max-range solve with a wind of
+# more than one segment (or one finite segment) must not start with the sock the previous trial left behind.
+# C ABI compiled in with the C++ core, as test_zero_close_target (one copy of the core).
+add_executable(bclibc_test_windsock_reset
+    test_windsock_reset.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_windsock_reset PRIVATE bclibc_core)
+target_include_directories(bclibc_test_windsock_reset PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_windsock_reset PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_windsock_reset COMMAND bclibc_test_windsock_reset)

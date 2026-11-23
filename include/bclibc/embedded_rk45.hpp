@@ -81,6 +81,8 @@ namespace bclibc
             double dt = base_dt;
 
             const BCLIBC_V3dT gravity{0.0, eng.config.cGravityConstant, 0.0};
+            // Every integration starts at the first wind segment (the previous one left the sock past its own range)
+            eng.shot.wind_sock.reset();
             BCLIBC_V3dT wind = eng.shot.wind_sock.current_vector();
             BCLIBC_V3dT pos{0.0, -eng.shot.cant_cosine * eng.shot.sight_height,
                            -eng.shot.cant_sine * eng.shot.sight_height};
