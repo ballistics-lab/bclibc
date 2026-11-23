@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.13)
 
+# M_PI and friends are not defined by <cmath> on MSVC unless asked for.
+if(MSVC)
+    add_compile_definitions(_USE_MATH_DEFINES)
+endif()
+
 find_package(Threads REQUIRED)
 
 add_executable(bclibc_tests
