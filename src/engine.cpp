@@ -1034,25 +1034,18 @@ namespace bclibc
         // Prepare variables for Ridder's method
         double mid_angle, s, next_angle, f_mid, f_next;
         BCLIBC_BaseTrajData low_hit, high_hit, mid_hit, next_hit;
-        BCLIBC_BaseTrajData *last_hit = nullptr;
-        double last_angle = 0.0;
-        int converged = 0;
 
         {
             const auto f_low_result = this->error_at_distance(low_angle, target_x_ft, target_y_ft, &low_hit);
             if (has_error(f_low_result)) return f_low_result.error();
             f_low = f_low_result.value();
         }
-        last_hit = &low_hit;
-        last_angle = low_angle;
 
         {
             const auto f_high_result = this->error_at_distance(high_angle, target_x_ft, target_y_ft, &high_hit);
             if (has_error(f_high_result)) return f_high_result.error();
             f_high = f_high_result.value();
         }
-        last_hit = &high_hit;
-        last_angle = high_angle;
 
         if (f_low * f_high >= 0)
         {
@@ -1093,14 +1086,11 @@ namespace bclibc
                 if (has_error(f_mid_result)) return f_mid_result.error();
                 f_mid = f_mid_result.value();
             }
-            last_hit = &mid_hit;
-            last_angle = mid_angle;
 
             // Check if we found exact solution at midpoint
             if (std::fabs(f_mid) < this->config.cZeroFindingAccuracy)
             {
                 BCLIBC_DEBUG("Ridder: found exact solution at mid_angle=%.6f", mid_angle);
-                converged = 1;
                 return return_with_point(mid_angle, mid_hit);
             }
 
@@ -1136,20 +1126,16 @@ namespace bclibc
                 if (has_error(f_next_result)) return f_next_result.error();
                 f_next = f_next_result.value();
             }
-            last_hit = &next_hit;
-            last_angle = next_angle;
 
             // Check if we found exact solution at next_angle
             if (std::fabs(f_next) < this->config.cZeroFindingAccuracy)
             {
                 BCLIBC_DEBUG("Ridder: found exact solution at next_angle=%.6f", next_angle);
-                converged = 1;
                 return return_with_point(next_angle, next_hit);
             }
 
             if (std::fabs(next_angle - mid_angle) < kRiddersAngleTolRad)
             {
-                converged = 1;
                 return return_with_point(next_angle, next_hit);
             }
 
@@ -1158,22 +1144,18 @@ namespace bclibc
             {
                 low_angle = mid_angle;
                 f_low = f_mid;
-                low_hit = mid_hit;
                 high_angle = next_angle;
                 f_high = f_next;
-                high_hit = next_hit;
             }
             else if (f_low * f_next < 0)
             {
                 high_angle = next_angle;
                 f_high = f_next;
-                high_hit = next_hit;
             }
             else if (f_high * f_next < 0)
             {
                 low_angle = next_angle;
                 f_low = f_next;
-                low_hit = next_hit;
             }
             else
             {
@@ -1184,7 +1166,6 @@ namespace bclibc
 
             if (std::fabs(high_angle - low_angle) < kRiddersAngleTolRad)
             {
-                converged = 1;
                 if (result_out != nullptr)
                 {
                     return return_with_point(next_angle, next_hit);
@@ -1194,52 +1175,15 @@ namespace bclibc
             }
         }
 
-        // If we exited the loop without convergence
-        if (!converged)
-        {
-            // Try fallback strategies before giving up
-
-            // If we have a very small bracket, consider it converged
-            if (std::fabs(high_angle - low_angle) < 10.0 * kRiddersAngleTolRad)
-            {
-                double result = (low_angle + high_angle) / 2.0;
-                BCLIBC_DEBUG("Ridder: accepting solution from small bracket: %.6f", result);
-                if (result_out != nullptr && last_hit != nullptr)
-                {
-                    return return_with_point(last_angle, *last_hit);
-                }
-                return result;
-            }
-
-            // If we have very small errors, consider it converged
-            if (std::fabs(f_low) < 10.0 * this->config.cZeroFindingAccuracy)
-            {
-                double result = low_angle;
-                BCLIBC_DEBUG("Ridder: accepting low_angle due to small f_low: %.6f", result);
-                return return_with_point(result, low_hit);
-            }
-            if (std::fabs(f_high) < 10.0 * this->config.cZeroFindingAccuracy)
-            {
-                double result = high_angle;
-                BCLIBC_DEBUG("Ridder: accepting high_angle due to small f_high: %.6f", result);
-                return return_with_point(result, high_hit);
-            }
-
-            // All fallback strategies failed
-            return BCLIBC_Error{BCLIBC_SolverZeroFindingError{
-                "Ridder's method failed to converge.",
-                target_y_ft,
-                this->config.cMaxIterations,
-                (low_angle + high_angle) / 2.0}};
-        }
-
-        // converged == true but loop exited without an explicit return
-        // (e.g. via h < 1e-5 in a previous iteration); return best estimate.
-        if (result_out != nullptr && last_hit != nullptr)
-        {
-            return return_with_point(last_angle, *last_hit);
-        }
-        return (low_angle + high_angle) / 2.0;
+        // The loop ran out of iterations (or broke out of an unusable bracket) without a converged exit: every
+        // converging exit returns from inside the loop. Report the failure, as the Python reference does
+        // (ZeroFindingError "Ridder's method failed to converge."), instead of accepting a bracket or an end error that
+        // is merely small: the angle of such a result can miss by feet at a lofted zero.
+        return BCLIBC_Error{BCLIBC_SolverZeroFindingError{
+            "Ridder's method failed to converge.",
+            target_y_ft,
+            this->config.cMaxIterations,
+            (low_angle + high_angle) / 2.0}};
     };
 
     BCLIBC_Result<double> BCLIBC_BaseEngine::zero_angle(

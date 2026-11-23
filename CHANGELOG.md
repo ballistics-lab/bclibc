@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   failed with "No apex flagged", and `integrate_at(time, t)` failed for every `t` before the end of the first step, `t = 0` included. The
   segment is now tested once, when the third point arrives, with the same three-point interpolation as the later steps; crossings in later steps
   are unchanged (recorded-value guard). `tiny_bclibc` had the same defect and is fixed the same way (identity test added).
+- The Ridder zero search **fails when it runs out of iterations** instead of accepting an unconverged result. After the loop
+  `find_zero_angle_ridder` accepted a bracket narrower than 10 angle tolerances, or a bracket end whose error was below
+  10 * `cZeroFindingAccuracy`, so a search that had not converged returned an angle that could miss by feet (a lofted zero changes
+  its miss by up to 6e6 ft per radian). It now returns `BCLIBC_SolverZeroFindingError` ("Ridder's method failed to converge.",
+  `BCLIBCFFI_ERR_ZERO_FINDING`), as the Python reference raises `ZeroFindingError`. The accepting paths (which returned the bracket midpoint
+  without a point and the last angle with one) and the unreachable "converged but no return" block are removed. `tiny_bclibc` fails the same way
+  (`TINY_BCLIBC_ERR_ZERO_FINDING`, "not converged"). A search that converged is unchanged; one that used to be accepted on the fallback now
+  fails and needs a larger `cMaxIterations`.
 - The **wind sock is rewound at the start of every integration** (`BCLIBC_WindSock::reset()`, called by RK4, Euler, Velocity Verlet and the
   embedded RK45 engines). Every integration used to continue from the wind segment the previous one had ended on, so the trial shots of a
   zero or maximum-range search (`find_zero_angle`, `find_zero_point`, `find_max_range`, a lofted zero, Newton's `zero_angle` with more than

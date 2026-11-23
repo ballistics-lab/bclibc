@@ -1689,7 +1689,6 @@ static inline void tiny_bclibc__set_error(const char *msg)
          * precision is a separate decision. */
         const real_t angle_tol = REAL_C(1e-5);
         real_t mid_angle, f_mid, s, next_angle, f_next;
-        int32_t converged = 0;
         int32_t max_iter = 50;
 
         for (int32_t i = 0; i < max_iter; i++)
@@ -1698,7 +1697,6 @@ static inline void tiny_bclibc__set_error(const char *msg)
             f_mid = tiny_bclibc__error_at_distance(&p, mid_angle, tx, ty);
             if (TINY_BCLIBC_FABS(f_mid) < acc)
             {
-                converged = 1;
                 p.barrel_elevation = mid_angle;
                 *out_angle_rad = mid_angle;
                 return TINY_BCLIBC_OK;
@@ -1716,7 +1714,6 @@ static inline void tiny_bclibc__set_error(const char *msg)
             f_next = tiny_bclibc__error_at_distance(&p, next_angle, tx, ty);
             if (TINY_BCLIBC_FABS(f_next) < acc)
             {
-                converged = 1;
                 p.barrel_elevation = next_angle;
                 *out_angle_rad = next_angle;
                 return TINY_BCLIBC_OK;
@@ -1724,7 +1721,6 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
             if (TINY_BCLIBC_FABS(next_angle - mid_angle) < angle_tol)
             {
-                converged = 1;
                 p.barrel_elevation = next_angle;
                 *out_angle_rad = next_angle;
                 return TINY_BCLIBC_OK;
@@ -1750,7 +1746,6 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
             if (TINY_BCLIBC_FABS(high_angle - low_angle) < angle_tol)
             {
-                converged = 1;
                 /* The angle of the last evaluation, as BCLIBC_BaseEngine::find_zero_angle_ridder returns it (the point
                  * of find_zero_point is fired at it), not the midpoint of the bracket. */
                 p.barrel_elevation = next_angle;
@@ -1759,19 +1754,11 @@ static inline void tiny_bclibc__set_error(const char *msg)
             }
         }
 
-        if (!converged)
-        {
-            if (TINY_BCLIBC_FABS(high_angle - low_angle) < REAL_C(10.0) * acc)
-            {
-                *out_angle_rad = (low_angle + high_angle) / REAL_C(2.0);
-                p.barrel_elevation = *out_angle_rad;
-                return TINY_BCLIBC_OK;
-            }
-            tiny_bclibc__set_error("tiny_bclibc_find_zero_angle: not converged");
-            return TINY_BCLIBC_ERR_ZERO_FINDING;
-        }
-        *out_angle_rad = (low_angle + high_angle) / REAL_C(2.0);
-        return TINY_BCLIBC_OK;
+        /* Every converging exit returns from inside the loop; running out of iterations (or an unusable bracket) is a
+         * failure, as in BCLIBC_BaseEngine::find_zero_angle_ridder and the Python reference. A bracket merely narrower
+         * than 10 * acc is not accepted: at a lofted zero its angle can miss by feet. */
+        tiny_bclibc__set_error("tiny_bclibc_find_zero_angle: not converged");
+        return TINY_BCLIBC_ERR_ZERO_FINDING;
     }
 
     /* ── zero_angle_newton — UNCHANGED (uses integrate_at, now Cash-Karp) ── */

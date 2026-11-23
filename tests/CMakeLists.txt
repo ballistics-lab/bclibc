@@ -154,3 +154,16 @@ target_include_directories(bclibc_test_single_point_first_step PRIVATE "${BCLIBC
 target_compile_features(bclibc_test_single_point_first_step PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_single_point_first_step COMMAND bclibc_test_single_point_first_step)
+
+# The Ridder zero search fails (BCLIBCFFI_ERR_ZERO_FINDING) when it runs out of iterations instead of accepting a narrow
+# bracket or a small end error; with the default iterations the same searches converge. C ABI compiled in, as above.
+add_executable(bclibc_test_zero_ridder_unconverged
+    test_zero_ridder_unconverged.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_zero_ridder_unconverged PRIVATE bclibc_core)
+target_include_directories(bclibc_test_zero_ridder_unconverged PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_zero_ridder_unconverged PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_zero_ridder_unconverged COMMAND bclibc_test_zero_ridder_unconverged)
