@@ -69,6 +69,8 @@ extern "C"
         real_t cZeroFindingAccuracy;
         real_t cMinimumVelocity;
         real_t cMaximumDrop;
+        /* Kept for config compatibility with bclibc, NOT read by the zero search: tiny_bclibc uses fixed iteration
+         * limits on purpose (embedded subset): 50 for Ridder's method and 40 for the Newton iteration. */
         int32_t cMaxIterations;
         real_t cGravityConstant;
         real_t cMinimumAltitude;

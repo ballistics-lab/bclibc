@@ -396,6 +396,19 @@ real_t tiny_bclibc_calculate_ogw(real_t weight_grain, real_t vel_fps);     // â†
 | `TINY_BCLIBC_NO_THREAD_LOCAL` | Disable TLS error buffer (bare-metal, RTOS) |
 | `TINY_BCLIBC_NO_ERR_BUF` | No error string at all (natmod / BSS=0 targets) |
 
+## Deliberate differences from bclibc
+
+tiny_bclibc is an embedded subset; it matches bclibc's results (the identity test checks it) but not its configurability:
+
+| Aspect | bclibc | tiny_bclibc |
+|--------|--------|-------------|
+| `cMaxIterations` | Limits the iterations of the zero search (Ridder, Newton) | Stored in the config but **not read**: fixed limits of 50 (Ridder) and 40 (Newton), so it needs no per-call state |
+| Ridder angle tolerance | 1e-7 rad (as the Python reference) | 1e-5 rad: a 1e-7 bracket cannot be resolved by single-precision floats above 1 rad |
+| Lofted zero search | `lofted` argument, upper bound 89.9 deg | Low (non-lofted) zero only |
+| Errors | `BCLIBC_Error` with payload | Integer codes (`TINY_BCLIBC_ERR_*`) and an optional error string |
+
+When the iterations run out, both fail with a zero-finding error (`TINY_BCLIBC_ERR_ZERO_FINDING` here); neither accepts an unconverged bracket.
+
 ## Error handling
 
 All public functions return `int32_t` (`TINY_BCLIBC_OK = 0` on success).
