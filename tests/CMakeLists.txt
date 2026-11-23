@@ -229,6 +229,20 @@ target_compile_features(bclibc_test_hermite_single_point PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_hermite_single_point COMMAND bclibc_test_hermite_single_point)
 
+# The golden-section search for the maximum range follows the Python reference (cMaxIterations iterations, stop at a
+# bracket of 1e-6 rad): the maximum range and its angle equal the recorded Python values. C ABI compiled in with the C++
+# core, as bclibc_test_zero_close_target (one copy of the core).
+add_executable(bclibc_test_max_range_iterations
+    test_max_range_iterations.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_max_range_iterations PRIVATE bclibc_core)
+target_include_directories(bclibc_test_max_range_iterations PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_max_range_iterations PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_max_range_iterations COMMAND bclibc_test_max_range_iterations)
+
 # These tests compile src/ffi/bclibc_ffi.cpp into the executable (one copy of the core, no DLL): on Windows the header
 # must declare its functions dllexport (a definition of a dllimport function is an error on MSVC).
 if(WIN32)
@@ -244,7 +258,8 @@ if(WIN32)
         bclibc_test_single_point_first_step
         bclibc_test_zero_ridder_unconverged
         bclibc_test_rk4_coriolis_stage
-        bclibc_test_hermite_single_point)
+        bclibc_test_hermite_single_point
+        bclibc_test_max_range_iterations)
         if(TARGET ${_t})
             target_compile_definitions(${_t} PRIVATE BCLIBC_FFI_EXPORT)
         endif()

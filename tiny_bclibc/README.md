@@ -402,7 +402,7 @@ tiny_bclibc is an embedded subset; it matches bclibc's results (the identity tes
 
 | Aspect | bclibc | tiny_bclibc |
 |--------|--------|-------------|
-| `cMaxIterations` | Limits the iterations of the zero search (Ridder, Newton) | Stored in the config but **not read**: fixed limits of 50 (Ridder) and 40 (Newton), so it needs no per-call state |
+| `cMaxIterations` | Limits the iterations of the zero search (Ridder, Newton) and of the golden-section maximum-range search (which stops at a bracket of 1e-6 rad, as the Python reference) | Stored in the config but **not read**: fixed limits of 50 (Ridder), 40 (Newton) and 100 iterations with a 1e-5 rad bracket (maximum range), so it needs no per-call state |
 | Ridder angle tolerance | 1e-7 rad (as the Python reference) | 1e-5 rad: a 1e-7 bracket cannot be resolved by single-precision floats above 1 rad |
 | Lofted zero search | `lofted` argument, upper bound 89.9 deg | Low (non-lofted) zero only |
 | Errors | `BCLIBC_Error` with payload | Integer codes (`TINY_BCLIBC_ERR_*`) and an optional error string |

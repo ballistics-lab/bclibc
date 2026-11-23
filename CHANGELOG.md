@@ -37,6 +37,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ### Fixed
+- The **golden-section search for the maximum range follows the Python reference**: `cMaxIterations` iterations, stopping when the bracket is
+  narrower than 1e-6 rad. The C++ core ran a fixed 100 iterations and stopped at 1e-5 rad. With the default config the angle of maximum range
+  moves by up to 4e-6 rad and the maximum range by up to 0.1 ft when the maximum lies at an edge of the bracket (12144.611 -> 12144.710 ft for
+  the bracket 0..10 deg, as Python); with `cMaxIterations` 0, 1 or 5 the result is now the coarse Python one (17726 ft instead of 18098 ft at 0,
+  the centre of the initial bracket). The search is the bracket of the lofted/low Ridder zero search too, so `last_barrel_elevation` in zero-finding
+  errors and the bracket of the zero search follow Python; the zero angles move only within the zeroing accuracy. `tiny_bclibc` keeps its fixed limits
+  (see its README, "Deliberate differences from bclibc").
 - `find_apex` equals the `APEX` row of the filter for every integration method. For Euler it did not: on a vertical shot (89.99 degrees,
   G7 0.31, 800 m/s) `find_apex` returned 23.846668 s and the filter row 23.790163 s (the Python Euler engine: 23.790193 s), 6e-2 s apart, and on
   a 5 degree shot 2.4e-4 s and 0.23 ft of range.

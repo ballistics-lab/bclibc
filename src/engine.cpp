@@ -865,10 +865,11 @@ namespace bclibc
         yc = this->range_for_angle(c);
         yd = this->range_for_angle(d);
 
-        // Golden-section search
-        for (int i = 0; i < 100; i++)
+        // Golden-section search: cMaxIterations iterations, stopping when the bracket is narrower than 1e-6 rad (angle
+        // tolerance), as the Python reference. With cMaxIterations 0 the angle is the centre of the initial bracket.
+        for (int i = 0; i < this->config.cMaxIterations; i++)
         {
-            if (h < 1e-5)
+            if (h < 1e-6)
             {
                 break;
             }

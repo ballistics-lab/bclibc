@@ -702,7 +702,9 @@ static bool test_g7_basic_find_max_range()
     std::printf("\n=== G7_BASIC / find_max_range / 0..90 deg ===\n");
     // Same search, same crossing: they agree to rounding (with a chord in bclibc they were 0.03 ft / 4e-4 rad apart).
     return identity::compare_scalar("max_range (ft)", bc_result.value().max_range_ft, tb_range, 1e-6) &&
-           identity::compare_scalar("angle_at_max (rad)", bc_result.value().angle_at_max_rad, tb_angle, 1e-6);
+           // bclibc stops the golden-section search at 1e-6 rad (as the Python reference), tiny_bclibc at 1e-5 (single-precision
+           // floats; see "Deliberate differences from bclibc" in tiny_bclibc/README.md): the angles agree to the larger one.
+           identity::compare_scalar("angle_at_max (rad)", bc_result.value().angle_at_max_rad, tb_angle, 1e-5);
 }
 
 static bool test_g7_basic_zero_angle_tight_limits()
