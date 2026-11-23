@@ -1045,6 +1045,89 @@ static bool test_long_downhill_zero_point()
     return true;
 }
 
+// The Ridder-only entries (tiny_bclibc_find_zero_angle_ridder / _point_ridder) against bclibc's find_zero_angle_ridder /
+// find_zero_point (lofted == 0): the same status and, when OK, the same angle. Unlike the Newton-first entries they run the
+// maximum-range search first, so a start below cMinimumAltitude (level look, alt 0, limit 100 ft) and a target beyond the
+// maximum range are OUT_OF_RANGE in both engines.
+static bool test_ridder_only_entries()
+{
+    constexpr double kFt = 3.28084;
+    constexpr double APEX_MAX_RAD = 0.0003;
+    constexpr double ALLOWED_ERR = 1e-2;
+    struct Case { const char *name; double look_deg, target_m, min_alt_ft; bool expect_ok; };
+    const Case cases[] = {
+        {"start below limit", 0.0, 300.0, 100.0, false},
+        {"beyond max range", 0.0, 30000.0, -1500.0, false},
+        {"normal", 0.0, 300.0, -1500.0, true},
+        {"downhill -10", -10.0, 300.0, -1500.0, true},
+        {"uphill +10", 10.0, 300.0, -1500.0, true},
+    };
+
+    bool ok = true;
+    for (const Case &c : cases)
+    {
+        const double look = c.look_deg * 0.017453292519943295;
+        const double dist_ft = c.target_m * kFt;
+        std::printf("\n=== Ridder-only entries / %s ===\n", c.name);
+
+        bclibc::BCLIBC_BaseEngine bc_eng;
+        init_bclibc_engine(bc_eng, make_bclibc_shot_props(G7_BASIC::BARREL_EL_RAD, 0.3281, look));
+        bc_eng.config.cMinimumAltitude = c.min_alt_ft;
+        auto bc_a = bc_eng.find_zero_angle(dist_ft, 0, APEX_MAX_RAD, ALLOWED_ERR);
+
+        bclibc::BCLIBC_BaseEngine bc_eng_p;
+        init_bclibc_engine(bc_eng_p, make_bclibc_shot_props(G7_BASIC::BARREL_EL_RAD, 0.3281, look));
+        bc_eng_p.config.cMinimumAltitude = c.min_alt_ft;
+        auto bc_p = bc_eng_p.find_zero_point(dist_ft, 0, APEX_MAX_RAD, ALLOWED_ERR);
+
+        TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
+        TINY_BCLIBC_ShotProps tb_props;
+        if (make_tiny_bclibc_shot_props(&tb_props, tb_curve, G7_BASIC::BARREL_EL_RAD, 0.3281, look) != TINY_BCLIBC_OK)
+            return false;
+        tb_props.cfg.cMinimumAltitude = c.min_alt_ft;
+        double tb_a = 0.0;
+        const int rc_a = tiny_bclibc_find_zero_angle_ridder(&tb_props, dist_ft, &tb_a);
+        TINY_BCLIBC_ZeroPointResult tb_p;
+        const int rc_p = tiny_bclibc_find_zero_point_ridder(&tb_props, dist_ft, &tb_p);
+
+        const bool bc_a_ok = !bclibc::has_error(bc_a), bc_p_ok = !bclibc::has_error(bc_p);
+        std::printf("  bclibc angle %s, point %s; tiny_bclibc angle rc %d, point rc %d\n", bc_a_ok ? "ok" : "error",
+                    bc_p_ok ? "ok" : "error", rc_a, rc_p);
+        if (bc_a_ok != c.expect_ok || bc_p_ok != c.expect_ok || (rc_a == TINY_BCLIBC_OK) != c.expect_ok ||
+            (rc_p == TINY_BCLIBC_OK) != c.expect_ok)
+        {
+            std::printf("FAIL: status differs from the expected %s\n", c.expect_ok ? "OK" : "OUT_OF_RANGE");
+            ok = false;
+            continue;
+        }
+        if (!c.expect_ok)
+        {
+            if (rc_a != TINY_BCLIBC_ERR_OUT_OF_RANGE || rc_p != TINY_BCLIBC_ERR_OUT_OF_RANGE)
+            {
+                std::printf("FAIL: tiny_bclibc rc %d / %d, expected OUT_OF_RANGE (%d)\n", rc_a, rc_p, TINY_BCLIBC_ERR_OUT_OF_RANGE);
+                ok = false;
+            }
+            // the Newton-first entry still answers for a start below the limit (as bclibc zero_angle_with_fallback)
+            if (c.min_alt_ft > 0.0)
+            {
+                double tb_n = 0.0;
+                if (tiny_bclibc_find_zero_angle(&tb_props, dist_ft, &tb_n) != TINY_BCLIBC_OK)
+                {
+                    std::printf("FAIL: Newton-first tiny_bclibc_find_zero_angle fails for a start below the limit\n");
+                    ok = false;
+                }
+            }
+            continue;
+        }
+        ok &= identity::compare_scalar("Ridder zero angle (rad)", bc_a.value(), tb_a, 1e-4);
+        ok &= identity::compare_scalar("Ridder zero point angle (rad)", bc_p.value().angle_rad, tb_p.angle_rad, 1e-4);
+        ok &= identity::compare_scalar("Ridder zero point angle = angle entry (rad)", tb_a, tb_p.angle_rad, 1e-6);
+        ok &= identity::compare_scalar("Ridder zero point distance (ft)", bc_p.value().point.distance_ft,
+                                       tb_p.point.distance_ft, 1e-2);
+    }
+    return ok;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // main
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1069,6 +1152,7 @@ int main()
     all_pass &= test_close_target_zero();
     all_pass &= test_downhill_max_range_and_ridder_zero();
     all_pass &= test_ridder_default_iterations_converge();
+    all_pass &= test_ridder_only_entries();
     all_pass &= test_downhill_no_hang();
     all_pass &= test_long_downhill_zero_point();
 

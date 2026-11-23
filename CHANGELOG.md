@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `tiny_bclibc_find_zero_angle_ridder` and `tiny_bclibc_find_zero_point_ridder`: the Ridder-only zero search of bclibc
+  (`find_zero_angle_ridder`, `find_zero_point`) and Python (`find_zero_angle`, `find_zero_point`), without the Newton step. They run the
+  maximum-range search first and return `TINY_BCLIBC_ERR_OUT_OF_RANGE` for a target beyond the maximum range or a start below
+  `cMinimumAltitude`. `tiny_bclibc_find_zero_angle` / `tiny_bclibc_find_zero_point` are unchanged (Newton first, as `zero_angle_with_fallback`).
+  The identity test compares both pairs with bclibc, including a start below the altitude limit.
+
 ### Changed
 - **One interpolation convention for everything that works with integration steps: the cubic Hermite of the step** (positions and
   velocities at its two ends; the velocity of the point is the derivative of the position polynomial, Mach is linear), for the six

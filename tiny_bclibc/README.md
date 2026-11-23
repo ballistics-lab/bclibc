@@ -327,6 +327,18 @@ int32_t tiny_bclibc_find_zero_point(
     real_t                       distance_ft,
     TINY_BCLIBC_ZeroPointResult *out);
 
+// Ridder-only zero (bclibc find_zero_angle_ridder / find_zero_point, Python find_zero_angle / find_zero_point):
+// no Newton step; TINY_BCLIBC_ERR_OUT_OF_RANGE for a target beyond the maximum range or a start below cMinimumAltitude
+int32_t tiny_bclibc_find_zero_angle_ridder(
+    const TINY_BCLIBC_ShotProps *props,
+    real_t                       distance_ft,
+    real_t                      *out_angle_rad);
+
+int32_t tiny_bclibc_find_zero_point_ridder(
+    const TINY_BCLIBC_ShotProps *props,
+    real_t                       distance_ft,
+    TINY_BCLIBC_ZeroPointResult *out);
+
 // Highest point of trajectory
 int32_t tiny_bclibc_find_apex(
     const TINY_BCLIBC_ShotProps *props,
@@ -405,6 +417,7 @@ tiny_bclibc is an embedded subset; it matches bclibc's results (the identity tes
 | `cMaxIterations` | Limits the iterations of the zero search (Ridder, Newton) and of the golden-section maximum-range search (which stops at a bracket of 1e-6 rad, as the Python reference) | Stored in the config but **not read**: fixed limits of 50 (Ridder), 40 (Newton) and 100 iterations with a 1e-5 rad bracket (maximum range), so it needs no per-call state |
 | Ridder angle tolerance | 1e-7 rad (as the Python reference) | 1e-5 rad: a 1e-7 bracket cannot be resolved by single-precision floats above 1 rad |
 | Lofted zero search | `lofted` argument, upper bound 89.9 deg | Low (non-lofted) zero only |
+| Zero search entry points | `zero_angle_with_fallback` / `zero_point_with_fallback` (Newton first, Ridder as fallback) and `find_zero_angle_ridder` / `find_zero_point` (Ridder only, maximum-range search first) | `tiny_bclibc_find_zero_angle` / `_point` are the Newton-first pair: as `zero_angle_with_fallback`, they widen cMinimumAltitude and still return an angle for a start below it. `tiny_bclibc_find_zero_angle_ridder` / `_point_ridder` are the Ridder-only pair: as `find_zero_angle_ridder`, they report `TINY_BCLIBC_ERR_OUT_OF_RANGE` for a start below cMinimumAltitude or a target beyond the maximum range |
 | Errors | `BCLIBC_Error` with payload | Integer codes (`TINY_BCLIBC_ERR_*`) and an optional error string |
 
 When the iterations run out, both fail with a zero-finding error (`TINY_BCLIBC_ERR_ZERO_FINDING` here); neither accepts an unconverged bracket.

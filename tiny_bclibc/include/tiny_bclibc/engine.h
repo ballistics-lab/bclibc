@@ -1940,25 +1940,16 @@ static inline void tiny_bclibc__set_error(const char *msg)
         return tiny_bclibc__find_zero_angle_ridders(props, distance_ft, out_angle_rad);
     }
 
-    /* ── find_zero_point — UNCHANGED ── */
-    TINY_BCLIBC_FUNC int32_t tiny_bclibc_find_zero_point(
+    /* The terminal point of the shot fired with the solved angle: shared by find_zero_point and find_zero_point_ridder. */
+    TINY_BCLIBC_INTERNAL int32_t tiny_bclibc__zero_point_at_angle(
         const TINY_BCLIBC_ShotProps *props,
         real_t distance_ft,
+        real_t angle_rad,
         TINY_BCLIBC_ZeroPointResult *out)
     {
-        if (!props || !out)
-        {
-            tiny_bclibc__set_error("tiny_bclibc_find_zero_point: NULL argument");
-            return TINY_BCLIBC_ERR_INVALID_ARG;
-        }
-
-        real_t angle_rad;
-        int32_t rc = tiny_bclibc_find_zero_angle(props, distance_ft, &angle_rad);
-        if (rc != TINY_BCLIBC_OK)
-            return rc;
-
         TINY_BCLIBC_ShotProps solved_props = *props;
         solved_props.barrel_elevation = angle_rad;
+        int32_t rc;
         {
             real_t target_x_ft = distance_ft * TINY_BCLIBC_COS(props->look_angle);
             /* the intercept shot must be able to fall as far as the search's shots did (a long downhill target is far
@@ -1976,6 +1967,60 @@ static inline void tiny_bclibc__set_error(const char *msg)
         out->point.flag = TINY_BCLIBC_TRAJ_FLAG_RANGE;
         out->angle_rad = angle_rad;
         return TINY_BCLIBC_OK;
+    }
+
+    /* ── find_zero_point — UNCHANGED ── */
+    TINY_BCLIBC_FUNC int32_t tiny_bclibc_find_zero_point(
+        const TINY_BCLIBC_ShotProps *props,
+        real_t distance_ft,
+        TINY_BCLIBC_ZeroPointResult *out)
+    {
+        if (!props || !out)
+        {
+            tiny_bclibc__set_error("tiny_bclibc_find_zero_point: NULL argument");
+            return TINY_BCLIBC_ERR_INVALID_ARG;
+        }
+
+        real_t angle_rad;
+        int32_t rc = tiny_bclibc_find_zero_angle(props, distance_ft, &angle_rad);
+        if (rc != TINY_BCLIBC_OK)
+            return rc;
+        return tiny_bclibc__zero_point_at_angle(props, distance_ft, angle_rad, out);
+    }
+
+    /* ── Ridder-only zero search: bclibc's find_zero_angle_ridder / find_zero_point (lofted == 0), Python's
+     *    find_zero_angle / find_zero_point. No Newton step: the maximum-range search runs first, so a target beyond the
+     *    maximum range, or a start below cMinimumAltitude (every shot stops at its apex, the maximum range is 0), is
+     *    TINY_BCLIBC_ERR_OUT_OF_RANGE. The Newton-first entries above lift the altitude limit and still return an angle. ── */
+    TINY_BCLIBC_FUNC int32_t tiny_bclibc_find_zero_angle_ridder(
+        const TINY_BCLIBC_ShotProps *props,
+        real_t distance_ft,
+        real_t *out_angle_rad)
+    {
+        if (!props || !out_angle_rad)
+        {
+            tiny_bclibc__set_error("tiny_bclibc_find_zero_angle_ridder: NULL argument");
+            return TINY_BCLIBC_ERR_INVALID_ARG;
+        }
+        return tiny_bclibc__find_zero_angle_ridders(props, distance_ft, out_angle_rad);
+    }
+
+    TINY_BCLIBC_FUNC int32_t tiny_bclibc_find_zero_point_ridder(
+        const TINY_BCLIBC_ShotProps *props,
+        real_t distance_ft,
+        TINY_BCLIBC_ZeroPointResult *out)
+    {
+        if (!props || !out)
+        {
+            tiny_bclibc__set_error("tiny_bclibc_find_zero_point_ridder: NULL argument");
+            return TINY_BCLIBC_ERR_INVALID_ARG;
+        }
+
+        real_t angle_rad;
+        int32_t rc = tiny_bclibc__find_zero_angle_ridders(props, distance_ft, &angle_rad);
+        if (rc != TINY_BCLIBC_OK)
+            return rc;
+        return tiny_bclibc__zero_point_at_angle(props, distance_ft, angle_rad, out);
     }
 
     /* ── find_max_range — UNCHANGED (uses range_for_angle, now Cash-Karp) ── */
