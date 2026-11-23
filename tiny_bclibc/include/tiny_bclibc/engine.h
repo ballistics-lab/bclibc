@@ -765,6 +765,17 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 step_end.mach = TINY_BCLIBC_V3dT_mag(vr) * inv_mach;
             }
 
+            /* A non-finite state (NaN or Inf: an invalid input, a NaN atmosphere or gravity) makes every limit of
+             * stop_ctrl_check compare false, so nothing would ever end the loop. Checked once per accepted step: x - x is 0
+             * for a finite x and NaN for NaN and Inf, and one sum is non-finite if any term is. */
+            {
+                const real_t s_ = pos.x + pos.y + pos.z + vel.x + vel.y + vel.z;
+                if (!((s_ - s_) == REAL_C(0.0)))
+                {
+                    tiny_bclibc__set_error("non-finite integration state (NaN or Inf): check the shot, atmosphere and configuration inputs");
+                    return TINY_BCLIBC_ERR_RUNTIME;
+                }
+            }
             if (on_interval(&step_start, &step_end, ctx) != 0)
             {
                 *out_reason = TINY_BCLIBC_TERM_HANDLER_STOP;
@@ -1367,7 +1378,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
     /* Integrates until `key` reaches `target_value`. ctx->found says whether it did; either way ctx->last is the last
      * point of the trajectory (the one it ended on when a limit stopped it short of the target). */
-    static inline void tiny_bclibc__integrate_at_run(
+    static inline int32_t tiny_bclibc__integrate_at_run(
         const TINY_BCLIBC_ShotProps *props,
         int32_t key,
         real_t target_value,
@@ -1384,10 +1395,10 @@ static inline void tiny_bclibc__set_error(const char *msg)
         req.filter_flags = TINY_BCLIBC_TRAJ_FLAG_NONE;
 
         int32_t reason;
-        tiny_bclibc__run_tsitouras(props, &req,
-                                  tiny_bclibc__at_ck_on_first,
-                                  tiny_bclibc__at_ck_on_interval,
-                                  ctx, &reason);
+        return tiny_bclibc__run_tsitouras(props, &req,
+                                          tiny_bclibc__at_ck_on_first,
+                                          tiny_bclibc__at_ck_on_interval,
+                                          ctx, &reason);
     }
 
     TINY_BCLIBC_FUNC int32_t tiny_bclibc_integrate_at(
@@ -1403,7 +1414,12 @@ static inline void tiny_bclibc__set_error(const char *msg)
             return TINY_BCLIBC_ERR_INVALID_ARG;
         }
         tiny_bclibc__AtCtx ctx;
-        tiny_bclibc__integrate_at_run(props, key, target_value, &ctx);
+        {
+            /* a failed integration (a non-finite state) is reported as it is, not as a missing intercept */
+            const int32_t run_rc = tiny_bclibc__integrate_at_run(props, key, target_value, &ctx);
+            if (run_rc != TINY_BCLIBC_OK)
+                return run_rc;
+        }
 
         if (!ctx.found)
         {
@@ -1429,7 +1445,8 @@ static inline void tiny_bclibc__set_error(const char *msg)
         int32_t rc = tiny_bclibc_integrate_at(props, TINY_BCLIBC_KEY_VEL_Y, REAL_C(0.0), &raw, out);
         if (rc != TINY_BCLIBC_OK)
         {
-            tiny_bclibc__set_error("tiny_bclibc_find_apex: apex not found");
+            if (rc == TINY_BCLIBC_ERR_INTERCEPTION) /* any other failure keeps its own message */
+                tiny_bclibc__set_error("tiny_bclibc_find_apex: apex not found");
             return TINY_BCLIBC_ERR_RUNTIME;
         }
         out->flag = TINY_BCLIBC_TRAJ_FLAG_APEX;
@@ -1437,23 +1454,42 @@ static inline void tiny_bclibc__set_error(const char *msg)
     }
 
     /* ── error_at_distance ── */
-    static inline real_t tiny_bclibc__error_at_distance(
+    static inline int32_t tiny_bclibc__error_at_distance_checked(
         TINY_BCLIBC_ShotProps *props_mut,
         real_t angle_rad,
         real_t target_x_ft,
-        real_t target_y_ft)
+        real_t target_y_ft,
+        real_t *out_error)
     {
         props_mut->barrel_elevation = angle_rad;
         tiny_bclibc__AtCtx ctx;
-        tiny_bclibc__integrate_at_run(props_mut, TINY_BCLIBC_KEY_POS_X, target_x_ft, &ctx);
+        const int32_t run_rc = tiny_bclibc__integrate_at_run(props_mut, TINY_BCLIBC_KEY_POS_X, target_x_ft, &ctx);
+        if (run_rc != TINY_BCLIBC_OK)
+            return run_rc;
         /* A trajectory that ends before the target (a limit, the minimum velocity) is measured at its last point:
          * still a finite, signed error (a shot that falls short is negative), which a search can bracket with. It
          * used to be a +1e9 sentinel, the wrong sign for "short". Only a trajectory that never left the muzzle is a
          * sentinel. */
         const TINY_BCLIBC_BaseTrajData *raw = ctx.found ? &ctx.result : (ctx.have_last ? &ctx.last : NULL);
         if (!raw || raw->time == REAL_C(0.0))
+            *out_error = REAL_C(1e9);
+        else
+            *out_error = (raw->py - target_y_ft) - TINY_BCLIBC_FABS(raw->px - target_x_ft);
+        return TINY_BCLIBC_OK;
+    }
+
+    /* The miss alone, for a caller that has no use for the status (the tests): 1e9, the "no trajectory" value, when the
+     * integration failed. The searches use the _checked form and return the status. */
+    static inline real_t tiny_bclibc__error_at_distance(
+        TINY_BCLIBC_ShotProps *props_mut,
+        real_t angle_rad,
+        real_t target_x_ft,
+        real_t target_y_ft)
+    {
+        real_t miss = REAL_C(1e9);
+        if (tiny_bclibc__error_at_distance_checked(props_mut, angle_rad, target_x_ft, target_y_ft, &miss) != TINY_BCLIBC_OK)
             return REAL_C(1e9);
-        return (raw->py - target_y_ft) - TINY_BCLIBC_FABS(raw->px - target_x_ft);
+        return miss;
     }
 
     /* ── Early-termination limits during a zero search ──
@@ -1523,7 +1559,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         return 0;
     }
 
-    static inline real_t tiny_bclibc__range_for_angle(TINY_BCLIBC_ShotProps *props_mut, real_t angle_rad)
+    static inline int32_t tiny_bclibc__range_for_angle(TINY_BCLIBC_ShotProps *props_mut, real_t angle_rad, real_t *out_range)
     {
         props_mut->barrel_elevation = angle_rad;
         /* A shot that cannot rise above a downhill line of sight has no crossing: see BCLIBC_BaseEngine::range_for_angle. */
@@ -1536,7 +1572,10 @@ static inline void tiny_bclibc__set_error(const char *msg)
                                     ? h0 + v_perp * v_perp / (REAL_C(2.0) * g * TINY_BCLIBC_COS(props_mut->look_angle))
                                     : h0;
             if (peak <= REAL_C(0.0))
-                return REAL_C(0.0);
+            {
+                *out_range = REAL_C(0.0);
+                return TINY_BCLIBC_OK;
+            }
         }
         tiny_bclibc__ZeroCrossCtx ctx;
         memset(&ctx, 0, sizeof(ctx));
@@ -1552,11 +1591,14 @@ static inline void tiny_bclibc__set_error(const char *msg)
         req.filter_flags = TINY_BCLIBC_TRAJ_FLAG_NONE;
 
         int32_t reason;
-        tiny_bclibc__run_tsitouras(props_mut, &req,
-                                  tiny_bclibc__zero_cross_ck_on_first,
-                                  tiny_bclibc__zero_cross_ck_on_interval,
-                                  &ctx, &reason);
-        return ctx.found ? ctx.slant_dist : REAL_C(0.0);
+        const int32_t run_rc = tiny_bclibc__run_tsitouras(props_mut, &req,
+                                                          tiny_bclibc__zero_cross_ck_on_first,
+                                                          tiny_bclibc__zero_cross_ck_on_interval,
+                                                          &ctx, &reason);
+        if (run_rc != TINY_BCLIBC_OK)
+            return run_rc;
+        *out_range = ctx.found ? ctx.slant_dist : REAL_C(0.0);
+        return TINY_BCLIBC_OK;
     }
 
     /* ── Maximum-range search of a downhill shot ──
@@ -1646,8 +1688,16 @@ static inline void tiny_bclibc__set_error(const char *msg)
 #endif
 
         const tiny_bclibc__SavedLimits gss_limits = tiny_bclibc__lift_limits_if_downhill(&p);
-        yc = tiny_bclibc__range_for_angle(&p, c2);
-        yd = tiny_bclibc__range_for_angle(&p, d);
+        {
+            const int32_t rc_fin = tiny_bclibc__range_for_angle(&p, c2, &yc);
+            if (rc_fin != TINY_BCLIBC_OK)
+                return rc_fin;
+        }
+        {
+            const int32_t rc_fin = tiny_bclibc__range_for_angle(&p, d, &yd);
+            if (rc_fin != TINY_BCLIBC_OK)
+                return rc_fin;
+        }
         for (int32_t i = 0; i < 100; i++)
         {
             if (h < GSS_H_TOL)
@@ -1659,7 +1709,11 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 yd = yc;
                 h = b - a;
                 c2 = a + inv_phi_sq * h;
-                yc = tiny_bclibc__range_for_angle(&p, c2);
+                {
+                    const int32_t rc_fin = tiny_bclibc__range_for_angle(&p, c2, &yc);
+                    if (rc_fin != TINY_BCLIBC_OK)
+                        return rc_fin;
+                }
             }
             else
             {
@@ -1668,11 +1722,20 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 yc = yd;
                 h = b - a;
                 d = a + inv_phi * h;
-                yd = tiny_bclibc__range_for_angle(&p, d);
+                {
+                    const int32_t rc_fin = tiny_bclibc__range_for_angle(&p, d, &yd);
+                    if (rc_fin != TINY_BCLIBC_OK)
+                        return rc_fin;
+                }
             }
         }
         real_t angle_at_max = (a + b) / REAL_C(2.0);
-        real_t max_range = tiny_bclibc__range_for_angle(&p, angle_at_max);
+        real_t max_range;
+        {
+            const int32_t rc_fin = tiny_bclibc__range_for_angle(&p, angle_at_max, &max_range);
+            if (rc_fin != TINY_BCLIBC_OK)
+                return rc_fin;
+        }
         tiny_bclibc__restore_limits(&p, gss_limits);
 
 #ifdef TINY_BCLIBC_FAST_ZERO_FIND
@@ -1698,13 +1761,32 @@ static inline void tiny_bclibc__set_error(const char *msg)
         real_t low_angle = la;
         real_t high_angle = angle_at_max;
 
-        real_t f_low = tiny_bclibc__error_at_distance(&p, low_angle, tx, ty);
+        real_t f_low;
+
+        {
+
+            const int32_t rc_fin = tiny_bclibc__error_at_distance_checked(&p, low_angle, tx, ty, &f_low);
+
+            if (rc_fin != TINY_BCLIBC_OK)
+
+                return rc_fin;
+
+        }
         if (f_low > REAL_C(1e8) && TINY_BCLIBC_FABS(low_angle - la) < REAL_C(1e-9))
         {
             low_angle += REAL_C(1e-3);
-            f_low = tiny_bclibc__error_at_distance(&p, low_angle, tx, ty);
+            {
+                const int32_t rc_fin = tiny_bclibc__error_at_distance_checked(&p, low_angle, tx, ty, &f_low);
+                if (rc_fin != TINY_BCLIBC_OK)
+                    return rc_fin;
+            }
         }
-        real_t f_high = tiny_bclibc__error_at_distance(&p, high_angle, tx, ty);
+        real_t f_high;
+        {
+            const int32_t rc_fin = tiny_bclibc__error_at_distance_checked(&p, high_angle, tx, ty, &f_high);
+            if (rc_fin != TINY_BCLIBC_OK)
+                return rc_fin;
+        }
 
         if (f_low * f_high >= REAL_C(0.0))
         {
@@ -1728,7 +1810,11 @@ static inline void tiny_bclibc__set_error(const char *msg)
         for (int32_t i = 0; i < max_iter; i++)
         {
             mid_angle = (low_angle + high_angle) / REAL_C(2.0);
-            f_mid = tiny_bclibc__error_at_distance(&p, mid_angle, tx, ty);
+            {
+                const int32_t rc_fin = tiny_bclibc__error_at_distance_checked(&p, mid_angle, tx, ty, &f_mid);
+                if (rc_fin != TINY_BCLIBC_OK)
+                    return rc_fin;
+            }
             if (TINY_BCLIBC_FABS(f_mid) < acc)
             {
                 p.barrel_elevation = mid_angle;
@@ -1745,7 +1831,11 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
             real_t sign = (f_low > f_high) ? REAL_C(1.0) : REAL_C(-1.0);
             next_angle = mid_angle + (mid_angle - low_angle) * (sign * f_mid / s);
-            f_next = tiny_bclibc__error_at_distance(&p, next_angle, tx, ty);
+            {
+                const int32_t rc_fin = tiny_bclibc__error_at_distance_checked(&p, next_angle, tx, ty, &f_next);
+                if (rc_fin != TINY_BCLIBC_OK)
+                    return rc_fin;
+            }
             if (TINY_BCLIBC_FABS(f_next) < acc)
             {
                 p.barrel_elevation = next_angle;
@@ -2046,8 +2136,18 @@ static inline void tiny_bclibc__set_error(const char *msg)
         real_t h = b - a;
         real_t c2 = a + inv_phi_sq * h;
         real_t d = a + inv_phi * h;
-        real_t yc = tiny_bclibc__range_for_angle(&p, c2);
-        real_t yd = tiny_bclibc__range_for_angle(&p, d);
+        real_t yc;
+        {
+            const int32_t rc_fin = tiny_bclibc__range_for_angle(&p, c2, &yc);
+            if (rc_fin != TINY_BCLIBC_OK)
+                return rc_fin;
+        }
+        real_t yd;
+        {
+            const int32_t rc_fin = tiny_bclibc__range_for_angle(&p, d, &yd);
+            if (rc_fin != TINY_BCLIBC_OK)
+                return rc_fin;
+        }
 
         for (int32_t i = 0; i < 100; i++)
         {
@@ -2060,7 +2160,11 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 yd = yc;
                 h = b - a;
                 c2 = a + inv_phi_sq * h;
-                yc = tiny_bclibc__range_for_angle(&p, c2);
+                {
+                    const int32_t rc_fin = tiny_bclibc__range_for_angle(&p, c2, &yc);
+                    if (rc_fin != TINY_BCLIBC_OK)
+                        return rc_fin;
+                }
             }
             else
             {
@@ -2069,11 +2173,19 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 yc = yd;
                 h = b - a;
                 d = a + inv_phi * h;
-                yd = tiny_bclibc__range_for_angle(&p, d);
+                {
+                    const int32_t rc_fin = tiny_bclibc__range_for_angle(&p, d, &yd);
+                    if (rc_fin != TINY_BCLIBC_OK)
+                        return rc_fin;
+                }
             }
         }
         *out_angle_rad = (a + b) / REAL_C(2.0);
-        *out_range_ft = tiny_bclibc__range_for_angle(&p, *out_angle_rad);
+        {
+            const int32_t rc_fin = tiny_bclibc__range_for_angle(&p, *out_angle_rad, out_range_ft);
+            if (rc_fin != TINY_BCLIBC_OK)
+                return rc_fin;
+        }
         return TINY_BCLIBC_OK;
     }
 

@@ -174,8 +174,12 @@ extern "C"
         const real_t pressure = a->p0 * TINY_BCLIBC_POW(
                                             REAL_C(1.0) + TINY_BCLIBC_LAPSE_RATE_K_FT * alt_diff / base_kelvin,
                                             TINY_BCLIBC_PRESSURE_EXPONENT);
-        const real_t density_delta = (base_kelvin * pressure) / (a->p0 * kelvin);
-        *density_ratio_out = a->density_ratio * density_delta;
+        /* A vacuum (base pressure 0 or less) has no air at any altitude: density ratio 0. The ratio divides by the base
+         * pressure, 0 / 0 = NaN for a vacuum, which the integration carried for ever. (A NaN pressure is not a vacuum: it
+         * is stopped by the finite-state check of the integration.) The speed of sound stays finite, from the temperature. */
+        *density_ratio_out = (a->p0 <= REAL_C(0.0))
+                                 ? REAL_C(0.0)
+                                 : a->density_ratio * ((base_kelvin * pressure) / (a->p0 * kelvin));
         *mach_out = TINY_BCLIBC_SQRT(kelvin) * TINY_BCLIBC_SPEED_SOUND_METRIC * TINY_BCLIBC_M_TO_FEET;
     }
 

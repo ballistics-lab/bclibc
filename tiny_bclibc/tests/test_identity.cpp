@@ -83,7 +83,8 @@ namespace
     // Build a bclibc BCLIBC_ShotProps from G7_BASIC fixture (no wind).
     bclibc::BCLIBC_ShotProps make_bclibc_shot_props(double barrel_elevation_rad = G7_BASIC::BARREL_EL_RAD,
                                                     double sight_height_ft = G7_BASIC::SIGHT_HT_FT,
-                                                    double look_angle_rad = G7_BASIC::LOOK_ANGLE_RAD)
+                                                    double look_angle_rad = G7_BASIC::LOOK_ANGLE_RAD,
+                                                    double pressure_hpa = G7_BASIC::PRESSURE_HPA)
     {
         init_g7_arrays();
 
@@ -97,7 +98,7 @@ namespace
         shot.sight_height_ft = sight_height_ft;
         shot.twist_inch = G7_BASIC::TWIST_IN;
         shot.temp_c = G7_BASIC::TEMP_C;
-        shot.pressure_hpa = G7_BASIC::PRESSURE_HPA;
+        shot.pressure_hpa = pressure_hpa;
         shot.altitude_ft = G7_BASIC::ALT_FT;
         shot.humidity = G7_BASIC::HUMIDITY;
         shot.mach_data = g_g7_mach;
@@ -214,7 +215,8 @@ namespace
     int make_tiny_bclibc_shot_props(TINY_BCLIBC_ShotProps *out, TINY_BCLIBC_CurvePoint *curve_buf,
                                     double barrel_elevation_rad = G7_BASIC::BARREL_EL_RAD,
                                     double sight_height_ft = G7_BASIC::SIGHT_HT_FT,
-                                    double look_angle_rad = G7_BASIC::LOOK_ANGLE_RAD)
+                                    double look_angle_rad = G7_BASIC::LOOK_ANGLE_RAD,
+                                    double pressure_hpa = G7_BASIC::PRESSURE_HPA)
     {
         init_tb_g7_arrays();
 
@@ -236,7 +238,7 @@ namespace
         shot.sight_height_ft = sight_height_ft;
         shot.twist_inch = G7_BASIC::TWIST_IN;
         shot.temp_c = G7_BASIC::TEMP_C;
-        shot.pressure_hpa = G7_BASIC::PRESSURE_HPA;
+        shot.pressure_hpa = pressure_hpa;
         shot.altitude_ft = G7_BASIC::ALT_FT;
         shot.humidity = G7_BASIC::HUMIDITY;
         shot.mach_data = g_tb_mach;
@@ -1128,6 +1130,83 @@ static bool test_ridder_only_entries()
     return ok;
 }
 
+// A vacuum (pressure 0) is drag-free flight in both engines, with the same rows, apex and maximum range, and the closed
+// form (the density ratio of the altitude was 0 / 0 = NaN and the integration never ended); a state that goes NaN (the
+// gravity) is an error in both, not a loop.
+static bool test_vacuum_identity()
+{
+    constexpr double kElev = 10.0 * 0.017453292519943295;
+    constexpr double kFt = 3.28084;
+    bool ok = true;
+
+    bclibc::BCLIBC_BaseEngine bc_eng;
+    init_bclibc_engine(bc_eng, make_bclibc_shot_props(kElev, G7_BASIC::SIGHT_HT_FT, G7_BASIC::LOOK_ANGLE_RAD, 0.0));
+    TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
+    TINY_BCLIBC_ShotProps tb_props;
+    if (make_tiny_bclibc_shot_props(&tb_props, tb_curve, kElev, G7_BASIC::SIGHT_HT_FT, G7_BASIC::LOOK_ANGLE_RAD, 0.0) != TINY_BCLIBC_OK)
+        return false;
+
+    // Rows: up and down, far more than 30 ft off the muzzle altitude; the same rows; drag-free (the density ratio 0).
+    auto bc_traj = run_bclibc_integrate(bc_eng, 20000.0, 2000.0);
+    auto tb_traj = run_tiny_bclibc_integrate(&tb_props, 20000.0, 2000.0);
+    ok &= identity::compare_trajectories(bc_traj, tb_traj, "vacuum / integrate / 20000ft@2000ft", kTsitourasAbsFloor, kTsitourasRelTol);
+    double top = 0.0;
+    for (const auto &r : tb_traj)
+    {
+        top = std::fmax(top, r.height_ft);
+        if (!std::isfinite(r.height_ft) || r.density_ratio != 0.0) { std::printf("FAIL: tiny vacuum row not finite / drag-free\n"); ok = false; }
+    }
+    if (tb_traj.size() < 8 || top < 30.0) { std::printf("FAIL: tiny vacuum shot too short (%zu rows, top %.1f ft)\n", tb_traj.size(), top); ok = false; }
+
+    // Apex and maximum range (45 degrees, v^2 / g on level ground; the sight height shifts it by a few feet)
+    bclibc::BCLIBC_BaseTrajData bc_raw;
+    TINY_BCLIBC_TrajectoryData tb_apex;
+    if (bclibc::has_error(bc_eng.find_apex(bc_raw)) || tiny_bclibc_find_apex(&tb_props, &tb_apex) != TINY_BCLIBC_OK)
+    {
+        std::printf("FAIL: vacuum find_apex\n");
+        return false;
+    }
+    const double vy = G7_BASIC::MV_FPS * std::sin(kElev), g = 32.17405;
+    ok &= identity::compare_scalar("vacuum apex height tiny vs closed form (ft)", tb_apex.height_ft, vy * vy / (2.0 * g), 0.5);
+    ok &= identity::compare_scalar("vacuum apex height bclibc vs tiny (ft)", bc_raw.py, tb_apex.height_ft, 1e-3);
+
+    auto bc_mr = bc_eng.find_max_range(0.0, 90.0, 1.5707963267948966 * 0.99);
+    double tb_range = 0.0, tb_angle = 0.0;
+    const int rc = tiny_bclibc_find_max_range(&tb_props, 0.0, 90.0, &tb_range, &tb_angle);
+    if (bclibc::has_error(bc_mr) || rc != TINY_BCLIBC_OK)
+    {
+        std::printf("FAIL: vacuum find_max_range\n");
+        return false;
+    }
+    ok &= identity::compare_scalar("vacuum max range bclibc vs tiny (ft)", bc_mr.value().max_range_ft, tb_range, 1e-3);
+    ok &= identity::compare_scalar("vacuum max range tiny vs v^2/g (ft)", tb_range,
+                                   G7_BASIC::MV_FPS * G7_BASIC::MV_FPS / g, 20.0 + G7_BASIC::MV_FPS * G7_BASIC::MV_FPS / g * 1e-5);
+    ok &= identity::compare_scalar("vacuum max range angle (rad)", tb_angle, 0.7853981633974483, 2e-5);
+    (void)kFt;
+
+    // A NaN gravity: an error in both engines (rc != OK, a message), not a loop (no alarm here: it returned).
+    tb_props.cfg.cGravityConstant = std::nan("");
+    TINY_BCLIBC_TrajectoryData apex_nan;
+    const int rc_nan = tiny_bclibc_find_apex(&tb_props, &apex_nan);
+    double r_nan = 0.0, a_nan = 0.0;
+    const int rc_nan_mr = tiny_bclibc_find_max_range(&tb_props, 0.0, 90.0, &r_nan, &a_nan);
+    std::printf("  tiny NaN gravity: find_apex rc %d, find_max_range rc %d (%s)\n", rc_nan, rc_nan_mr, tiny_bclibc_last_error());
+    if (rc_nan == TINY_BCLIBC_OK || rc_nan_mr == TINY_BCLIBC_OK) { std::printf("FAIL: tiny NaN gravity not an error\n"); ok = false; }
+    TINY_BCLIBC_TrajectoryRequest req;
+    req.range_limit_ft = 20000.0; req.range_step_ft = 2000.0; req.time_step = 0.0; req.filter_flags = TINY_BCLIBC_TRAJ_FLAG_RANGE;
+    int32_t written = 0, total = 0, reason = 0;
+    if (tiny_bclibc_integrate(&tb_props, &req, nullptr, 0, &written, &total, &reason) != TINY_BCLIBC_ERR_RUNTIME)
+    { std::printf("FAIL: tiny integrate with NaN gravity is not TINY_BCLIBC_ERR_RUNTIME\n"); ok = false; }
+
+    bc_eng.config.cGravityConstant = std::nan("");
+    bc_eng.gravity_vector = bclibc::BCLIBC_V3dT(0.0, bc_eng.config.cGravityConstant, 0.0);
+    std::vector<bclibc::BCLIBC_TrajectoryData> records;
+    bclibc::BCLIBC_TerminationReason bc_reason = bclibc::BCLIBC_TerminationReason::NO_TERMINATE;
+    const auto bc_nan = bc_eng.integrate_filtered(20000.0, 2000.0, 0.0, bclibc::BCLIBC_TRAJ_FLAG_RANGE, records, bc_reason, nullptr);
+    if (!bclibc::has_error(bc_nan)) { std::printf("FAIL: bclibc integrate with NaN gravity is not an error\n"); ok = false; }
+    return ok;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // main
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1155,6 +1234,7 @@ int main()
     all_pass &= test_ridder_only_entries();
     all_pass &= test_downhill_no_hang();
     all_pass &= test_long_downhill_zero_point();
+    all_pass &= test_vacuum_identity();
 
     std::printf("\n%s\n", all_pass ? "ALL TESTS PASSED" : "SOME TESTS FAILED");
     return all_pass ? 0 : 1;
