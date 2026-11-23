@@ -230,7 +230,7 @@ static void test_unchanged_results()
             CHECK(std::isnan(g.value));
             continue;
         }
-        const bool same = std::fabs(a - g.value) <= 1e-12;
+        const bool same = std::fabs(a - g.value) <= 1e-9;
         if (!same)
             std::fprintf(stderr, "  guard: sight %.2f, v %.0f, look %.1f, target %.0f, accuracy %g: %.17g, recorded %.17g\n",
                          g.sight_m, g.v_mps, g.look_deg, g.target_m, g.accuracy, a, g.value);

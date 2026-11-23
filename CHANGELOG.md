@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- The **wind sock is rewound at the start of every integration** (`BCLIBC_WindSock::reset()`, called by RK4, Euler, Velocity Verlet and the
+  embedded RK45 engines). Every integration used to continue from the wind segment the previous one had ended on, so the trial shots of a
+  zero or maximum-range search (`find_zero_angle`, `find_zero_point`, `find_max_range`, a lofted zero, Newton's `zero_angle` with more than
+  one segment) saw the wind of their predecessors: a wind that ended inside the trajectory was ignored, and the zero or maximum range was that of
+  still air (a 30 m/s head wind to 1000 m changed the zero of an 800 m/s shot by 0.2 ft, a 5 m/s wind to 3000 m made a lofted zero miss by
+  thousands of feet). The Python engines build a new sock per integration and were right. `tiny_bclibc` copies the sock per integration and
+  is not affected.
+- `find_zero_angle` returns the same angle as `find_zero_point`: the bracket-width exit of the Ridder loop returned the midpoint of the
+  bracket without a point and `next_angle` with one; it now returns `next_angle` in both (`BCLIBC_BaseEngine` and `tiny_bclibc`). The returned
+  angle changes by up to the bracket width; the angle of a search that did not take that exit is unchanged.
 - The angle tolerance of the Ridder zero search is **1e-7 rad**, as in the Python reference (py_ballisticcalc `base_engine.py`); it was 1e-5 rad
   (the constant introduced to decouple it from the height accuracy `cZeroFindingAccuracy`, with an unjustified value). A near-vertical lofted
   zero changes its miss by up to 6e6 ft per radian, so the search used to return an angle that missed by feet (3.5, 16.8 and 2.1 ft at 50, 100

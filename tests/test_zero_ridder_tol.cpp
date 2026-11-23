@@ -97,9 +97,8 @@ static double miss_at(const BCLIBCFFI_Shot &shot, double angle_rad, double dista
 //
 // A lofted zero is a near-vertical shot, and the miss changes by up to 6.4e6 ft per radian along it (a 1000 m target
 // over a 50 s flight), so the angle tolerance decides the miss: 1e-5 rad meant feet. The point entry point returns the
-// angle of the last shot fired (|miss| below the height accuracy where the search converged), the angle entry point the
-// middle of the final bracket, which is within the angle tolerance of the root: its miss at 1000 m is a fraction of a
-// foot at 1e-7 rad, so only the nearer targets are held to the strict bound there.
+// angle of the last shot fired (|miss| below the height accuracy where the search converged), and so does the angle entry
+// point (both leave the bracket-width exit with next_angle), so both are held to the strict bound at every target.
 // cMinimumVelocity is 0 for these shots: with the default 50 fps a near-vertical shot ends at its apex (it is slower
 // than that there), the miss measured at its last point does not depend on the angle, and the search ends on that
 // step, whatever the tolerance.
@@ -120,8 +119,6 @@ static void test_lofted_zero_hits()
                          zp.angle_rad, miss);
         CHECK(rc == BCLIBCFFI_OK && std::fabs(miss) < kMissTolFt);
 
-        if (t > 300.0)
-            continue;
         double angle = 0.0;
         rc = BCLIBCFFI_find_zero_angle_lofted_shot(&shot, t * kFt, 1, &angle, &err);
         miss = (rc == BCLIBCFFI_OK) ? miss_at(shot, angle, t * kFt) : 1e9;
