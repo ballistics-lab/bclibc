@@ -114,6 +114,20 @@ target_compile_features(bclibc_test_windsock_reset PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_windsock_reset COMMAND bclibc_test_windsock_reset)
 
+# A shot that starts outside a termination limit (minimum velocity above the muzzle velocity, minimum altitude above the
+# start) still ends with its terminal row [RANGE t=0, NONE t=dt], as the Python engines. C ABI compiled in with the C++
+# core, as bclibc_test_zero_close_target.
+add_executable(bclibc_test_start_outside_limit
+    test_start_outside_limit.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_start_outside_limit PRIVATE bclibc_core)
+target_include_directories(bclibc_test_start_outside_limit PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_start_outside_limit PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_start_outside_limit COMMAND bclibc_test_start_outside_limit)
+
 # find_zero_angle() and find_zero_point() return the same angle for the same search (the bracket-width exit of the
 # Ridder loop used to return the midpoint of the bracket without a point and next_angle with one); the angles of searches
 # that never took that exit are unchanged (recorded values).

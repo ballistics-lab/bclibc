@@ -31,6 +31,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   started with, and reuse it in all four stages. On a 30 degree, 800 m/s G7 shot at 4000 m (latitude 45, azimuth 90) the result was off the
   Python one by 1.5e-3 ft in height and 1.8e-3 ft in windage (3e-3 ft windage at latitude -30, azimuth 0); it now agrees to 1e-6 ft. Shots
   without Coriolis (no latitude, or `flat_fire_only`) are unchanged. Euler, Velocity Verlet and the embedded RK45 engines were not changed.
+- A shot that **starts outside a termination limit gets its terminal row**. The essential terminators (minimum velocity, maximum drop,
+  minimum altitude) were also run on the initial point, so a shot that began outside a limit (a minimum velocity above the muzzle velocity, a
+  minimum altitude above the start with the bullet falling) stopped before its first integration step: the integrator never called
+  `handle_step()`, `BCLIBC_TrajectoryDataFilter::finalize()` found nothing newer than the start row and the result was `[RANGE t=0]` alone. The
+  limits are now tested after a step, as the Python engines do (they integrate one step, then test), and the result is
+  `[RANGE t=0, NONE t=dt]` with the same termination reason, for RK4, Euler, Velocity Verlet and the embedded RK45 engines. `tiny_bclibc`
+  tests the limits at step ends only and is not affected.
 - The **wind sock is rewound at the start of every integration** (`BCLIBC_WindSock::reset()`, called by RK4, Euler, Velocity Verlet and the
   embedded RK45 engines). Every integration used to continue from the wind segment the previous one had ended on, so the trial shots of a
   zero or maximum-range search (`find_zero_angle`, `find_zero_point`, `find_max_range`, a lofted zero, Newton's `zero_angle` with more than
