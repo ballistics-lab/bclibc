@@ -213,3 +213,24 @@ target_include_directories(bclibc_test_rk4_coriolis_stage PRIVATE "${BCLIBC_INCL
 target_compile_features(bclibc_test_rk4_coriolis_stage PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_rk4_coriolis_stage COMMAND bclibc_test_rk4_coriolis_stage)
+
+# These tests compile src/ffi/bclibc_ffi.cpp into the executable (one copy of the core, no DLL): on Windows the header
+# must declare its functions dllexport (a definition of a dllimport function is an error on MSVC).
+if(WIN32)
+    foreach(_t
+        bclibc_test_zero_close_target
+        bclibc_test_zero_ridder_tol
+        bclibc_test_zero_downhill
+        bclibc_test_windsock_reset
+        bclibc_test_start_outside_limit
+        bclibc_test_min_steps_gate
+        bclibc_test_zero_ridder_angle
+        bclibc_test_lofted_bound
+        bclibc_test_single_point_first_step
+        bclibc_test_zero_ridder_unconverged
+        bclibc_test_rk4_coriolis_stage)
+        if(TARGET ${_t})
+            target_compile_definitions(${_t} PRIVATE BCLIBC_FFI_EXPORT)
+        endif()
+    endforeach()
+endif()
