@@ -239,16 +239,16 @@ static const GuardCase kGuardCases[] = {
 };
 static const double kGuardElevations[] = {1.0, 3.0};
 
-// Fixed-step results are reproduced to rounding. The adaptive step-size controller amplifies the last-bit differences of
-// other platforms (FMA contraction, libm), so its recorded values are compared to 1e-6 relative (the first-step fix moves a
-// later crossing by far more than that, if it moves it at all).
-static bool near(double a, double b, double rel)
+static double rel_dev(double a, double b)
 {
-    return std::fabs(a - b) <= rel * std::fmax(1.0, std::fabs(b));
+    return std::fabs(a - b) / std::fmax(1.0, std::fabs(b));
 }
 
 static void test_later_crossings_unchanged()
 {
+    // The largest relative deviation from the recorded values, per class of engine, is printed on every run: the CI logs of
+    // the other platforms (aarch64, MSVC, macOS) are the data the tolerances below are set from.
+    double max_fixed = 0.0, max_adaptive = 0.0;
     for (const Guard &g : kGuard)
     {
         const Engine &e = kEngines[g.engine];
@@ -261,15 +261,21 @@ static void test_later_crossings_unchanged()
         if (rc != BCLIBCFFI_OK)
             continue;
         const BCLIBCFFI_BaseTrajData &a = r.raw_data;
+        const double dev = std::fmax(std::fmax(std::fmax(rel_dev(a.time, g.time), rel_dev(a.px, g.px)),
+                                               std::fmax(rel_dev(a.py, g.py), rel_dev(a.pz, g.pz))),
+                                     std::fmax(std::fmax(rel_dev(a.vx, g.vx), rel_dev(a.vy, g.vy)),
+                                               std::fmax(rel_dev(a.vz, g.vz), rel_dev(a.mach, g.mach))));
+        double &worst = e.adaptive ? max_adaptive : max_fixed;
+        worst = std::fmax(worst, dev);
         const double rel = e.adaptive ? 1e-6 : 1e-12;
-        const bool same = near(a.time, g.time, rel) && near(a.px, g.px, rel) && near(a.py, g.py, rel) &&
-                          near(a.pz, g.pz, rel) && near(a.vx, g.vx, rel) && near(a.vy, g.vy, rel) &&
-                          near(a.vz, g.vz, rel) && near(a.mach, g.mach, rel);
+        const bool same = dev <= rel;
         if (!same)
             std::fprintf(stderr, "  guard: %s el %.1f key %d target %g: t %.17g (rec %.17g) px %.17g (rec %.17g)\n", e.name,
                          g.elevation_deg, g.key, g.target, a.time, g.time, a.px, g.px);
         CHECK(same);
     }
+    std::printf("guard: max relative deviation from the recorded values: fixed-step %.3g (limit 1e-12), adaptive %.3g (limit 1e-6)\n",
+                max_fixed, max_adaptive);
 }
 
 // `test_single_point_first_step --print-guard` writes the lines of single_point_first_step_guard.inc.
