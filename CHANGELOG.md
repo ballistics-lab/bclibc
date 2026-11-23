@@ -28,7 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the answers move accordingly: at a relative tolerance of 1e-8 by up to 6e-4 s in the apex time, 0.08 ft in its height, 0.4 ft in position and 0.7
   fps in velocity (1.4 ft in height for Cash-Karp), and at 1e-6, where the steps are wider, by up to 0.008 s, 0.1 ft in the apex height and 19 ft
   in position (Cash-Karp).
-  The crossing is solved as the filter did before (40 bisections of the interpolant).
+  Solver: the Hermite crossing is solved by a bracketed Newton iteration on the polynomial of the key (positions cubic, velocities quadratic, Mach
+  linear; the bracket [0, 1] is kept and a step that leaves it becomes a bisection) instead of 40 bisections of the full interpolant. It gives
+  the same roots to the roundoff of the step (1e-15 of the step length instead of 1e-12) and makes the Hermite path faster than the one it
+  replaces: trajectory rows by range are 1.1 to 4 times faster (the 40 bisections per row were the cost of the filter), `get_at` of the dense
+  output 1.7 to 2.6 times faster than the 3-point PCHIP, `find_apex` and `integrate_at` unchanged within measurement noise.
   `BCLIBC_ZeroCrossingHandler` locates the slant-height crossing with the same solver. New header `bclibc/hermite_step.hpp`.
 
 

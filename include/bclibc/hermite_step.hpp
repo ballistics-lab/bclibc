@@ -11,8 +11,11 @@
 // integrate_at / integrate_raw_at, every key), by BCLIBC_ZeroCrossingHandler and by the dense-output queries. The 3-point
 // PCHIP of raw points is only the fallback of a query that no step brackets.
 //
-// Root finding: 40 bisections of the interpolant (hermite_step::at_value for quantities that are not a polynomial of the
-// step parameter).
+// Root finding. Every key of a step is a polynomial of u of degree <= 3 (positions: cubic, velocities: quadratic, Mach:
+// linear), so the crossing is found on the polynomial: a bracketed Newton iteration (the bracket [0, 1] is kept and
+// narrowed on every evaluation, a Newton step that leaves it is replaced by a bisection), which reaches the roundoff
+// level in 3-5 evaluations. The state at the root is then evaluated once. Quantities that are not such a polynomial (the
+// filter's speed-minus-Mach event) use hermite_at_value(): bisection on the full interpolant.
 
 #include <cmath>
 #include <functional>
@@ -221,18 +224,11 @@ namespace bclibc
             }
             else
             {
-                {
-                    double lo = start.time, hi = end.time;
-                    const bool increasing = k1 >= k0;
-                    for (int i = 0; i < 40; ++i)
-                    {
-                        const double mid = 0.5 * (lo + hi);
-                        BCLIBC_BaseTrajData sample;
-                        if (!at_time(start, end, mid, sample)) return false;
-                        if ((key_value(sample, key) < target) == increasing) lo = mid; else hi = mid;
-                    }
-                    u = (0.5 * (lo + hi) - start.time) / dt;
-                }
+                Cubic c;
+                if (!key_cubic(start, end, key, dt, c))
+                    return false;
+                if (!solve(c, k0 - target, k1 - target, target, u))
+                    return false;
             }
             if (!at_time(start, end, start.time + u * dt, out))
                 return false;
@@ -255,20 +251,8 @@ namespace bclibc
             const Cubic c = combine(ca, position_cubic(start.py, end.py, start.vy, end.vy, dt), -sa,
                                     position_cubic(start.px, end.px, start.vx, end.vx, dt));
             double u;
-            {
-                const double f0 = (start.py * ca - start.px * sa) - target, f1 = (end.py * ca - end.px * sa) - target;
-                if (!((f0 < 0.0) != (f1 < 0.0)) && f0 != 0.0 && f1 != 0.0) return false;
-                double lo = 0.0, hi = 1.0;
-                for (int i = 0; i < 40; ++i)
-                {
-                    const double mid = 0.5 * (lo + hi);
-                    BCLIBC_BaseTrajData sample;
-                    if (!at_time(start, end, start.time + mid * dt, sample)) return false;
-                    const double f = sample.py * ca - sample.px * sa - target;
-                    if ((f < 0.0) == (f0 < 0.0)) lo = mid; else hi = mid;
-                }
-                u = 0.5 * (lo + hi);
-            }
+            if (!solve(c, (start.py * ca - start.px * sa) - target, (end.py * ca - end.px * sa) - target, target, u))
+                return false;
             return at_time(start, end, start.time + u * dt, out);
         }
 

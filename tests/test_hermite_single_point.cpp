@@ -397,8 +397,8 @@ static BCLIBC_BaseTrajData G_point(double t)
     return BCLIBC_BaseTrajData(t, G_px(t), G_py(t), G_pz(t), G_vx(t), G_vy(t), G_vz(t), G_mach(t));
 }
 
-// A root found by 40 bisections of the step is exact to about 1e-12 of its length.
-static const double kGoldenTol = 1e-9;
+// The root is found by Newton on the cubic of the step: exact to the roundoff of the step.
+static const double kGoldenTol = 1e-12;
 
 static bool is_golden_at(const BCLIBC_BaseTrajData &d, double t, double tol)
 {
