@@ -566,6 +566,58 @@ static bool test_g7_find_apex_first_step()
     return find_apex_identity(0.001 * 3.14159265358979323846 / 180.0);
 }
 
+// The range limit is not tested before the third integration step (the Python engines: `or step_count < 3`): a limit
+// inside the first step still takes three. bclibc used to count the initial sample as a step and stopped after two.
+struct StepCounter : bclibc::BCLIBC_BaseTrajDataHandlerInterface
+{
+    int n = 0;
+    bclibc::BCLIBC_Result<std::monostate> handle(const bclibc::BCLIBC_BaseTrajData &) override
+    {
+        ++n;
+        return std::monostate{};
+    }
+};
+
+static int32_t count_tiny_points(const TINY_BCLIBC_BaseTrajData *, void *ctx)
+{
+    ++*static_cast<int *>(ctx);
+    return 0;
+}
+
+static bool test_min_steps_gate()
+{
+    bool ok = true;
+    for (const double limit_ft : {0.01, 1.0, 5.0})
+    {
+        bclibc::BCLIBC_BaseEngine bc_eng;
+        init_bclibc_engine(bc_eng, make_bclibc_shot_props());
+        StepCounter counter;
+        bclibc::BCLIBC_TerminationReason reason = bclibc::BCLIBC_TerminationReason::NO_TERMINATE;
+        const auto bc_result = bc_eng.integrate(limit_ft, counter, reason);
+
+        TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
+        TINY_BCLIBC_ShotProps tb_props;
+        if (bclibc::has_error(bc_result) || make_tiny_bclibc_shot_props(&tb_props, tb_curve) != TINY_BCLIBC_OK)
+        {
+            std::printf("FAIL: min steps gate setup (limit %g ft)\n", limit_ft);
+            ok = false;
+            continue;
+        }
+        int tb_points = 0;
+        int32_t tb_reason = 0;
+        const int rc = tiny_bclibc_integrate_raw(&tb_props, limit_ft, count_tiny_points, &tb_points, &tb_reason);
+        std::printf("\n=== G7_BASIC / min steps gate / limit %g ft: bclibc %d points, tiny_bclibc %d points ===\n",
+                    limit_ft, counter.n, tb_points);
+        // the start + three steps, in both
+        if (rc != TINY_BCLIBC_OK || counter.n != 4 || tb_points != 4)
+        {
+            std::printf("FAIL: expected 4 points (start + 3 steps) in both\n");
+            ok = false;
+        }
+    }
+    return ok;
+}
+
 static bool test_g7_basic_find_max_range()
 {
     // find_max_range drives range_for_angle (the line-of-sight crossing) for every probe, so this checks that
@@ -954,6 +1006,7 @@ int main()
     all_pass &= test_g7_basic_zero_point();
     all_pass &= test_g7_basic_find_apex();
     all_pass &= test_g7_find_apex_first_step();
+    all_pass &= test_min_steps_gate();
     all_pass &= test_g7_basic_find_max_range();
     all_pass &= test_g7_basic_zero_angle_tight_limits();
     all_pass &= test_close_target_zero();

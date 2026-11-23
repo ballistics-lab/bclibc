@@ -770,6 +770,7 @@ namespace bclibc
         BCLIBC_TerminationReason &termination_reason_ref)
         : range_limit_ft(range_limit_ft),
           step_count(0), // Always start from 0
+          initial_seen(false),
           min_velocity_fps(min_velocity_fps),
           max_drop_ft(-std::fabs(max_drop_ft) + std::fmin(0.0, -shot.cant_cosine * shot.sight_height)),
           min_altitude_ft(min_altitude_ft),
@@ -783,7 +784,11 @@ namespace bclibc
         // engines integrate one step and then test), so a shot that starts outside a limit still takes that step and
         // keeps its terminal point: the filter's finalize() adds the last step end as the terminal row. Stopping at the
         // initial point left the integrator without a first handle_step(), and the shot ended with the start row alone.
-        if (this->step_count++ == 0) return std::monostate{};
+        if (!this->initial_seen) { this->initial_seen = true; return std::monostate{}; }
+        // step_count counts step ends only (the initial sample is not one): the range limit is not tested before the
+        // third step, as the Python engines (`while x <= range_limit or step_count < 3`) and tiny_bclibc. The other
+        // limits are not gated there either.
+        ++this->step_count;
         if (this->step_count >= this->MIN_ITERATIONS_COUNT && data.px > this->range_limit_ft)
         { this->termination_reason_ref = BCLIBC_TerminationReason::TARGET_RANGE_REACHED; BCLIBC_DEBUG("MaxRange limit reached: %.2f > %.2f", data.px, this->range_limit_ft); return std::monostate{}; }
         const double velocity = data.velocity().mag();

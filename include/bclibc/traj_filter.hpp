@@ -210,11 +210,12 @@ namespace bclibc
     {
     private:
         // constants
-        static constexpr int MIN_ITERATIONS_COUNT = 3; // Always expects at least 3 iterations
+        static constexpr int MIN_ITERATIONS_COUNT = 3; // The range limit waits for at least 3 integration steps
 
         // Range Limit
         double range_limit_ft;
-        int step_count;
+        int step_count;     // integration steps seen (step ends; the initial sample is not counted)
+        bool initial_seen;  // the initial sample has been passed
 
         // Min Velocity
         double min_velocity_fps;

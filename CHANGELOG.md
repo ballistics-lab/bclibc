@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- The **range limit is not tested before the third integration step**, as in the Python engines (`while x <= range_limit or step_count < 3`)
+  and `tiny_bclibc`. The C++ gate (`BCLIBC_EssentialTerminators`) also counted the initial sample and opened after two steps, so a shot whose range
+  limit lies inside the first steps ended with the start and two steps where the reference has the start and three. The rows are unchanged
+  (they are interpolated at the requested ranges), but the dense steps returned by `integrate_dense_shot` / `integrate_adaptive_shot` (the data later
+  queries interpolate from) had one step fewer, and `integration_step_count` was 2 instead of 3. The minimum velocity, maximum drop and minimum
+  altitude limits were never gated (in Python either) and are unchanged. The adaptive methods, which have no Python reference, follow the
+  fixed-step convention: three accepted steps.
 - The **upper bound of the lofted zero search is 89.9 degrees**, as in the Python reference (`math.radians(89.9)` = 1.5690509975429023). The C++
   core used 1.5690308719637473 (a mistyped constant, 89.8988 degrees), in the code shared by all six engines (RK4, Euler, Velocity Verlet, Cash-Karp,
   Dormand-Prince, Tsitouras). It shows as a different `last_barrel_elevation` in "No lofted zero trajectory" errors and as a slightly different
