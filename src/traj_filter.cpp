@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <cstring>
 #include "bclibc/traj_filter.hpp"
+#include "bclibc/hermite_step.hpp"
 #include "bclibc/log.hpp"
 #include "bclibc/exceptions.hpp"
 
@@ -10,142 +11,6 @@ namespace bclibc
 {
     namespace
     {
-        double hermite_derivative(double time,
-                                  double start_time,
-                                  double end_time,
-                                  double start_value,
-                                  double end_value,
-                                  double start_derivative,
-                                  double end_derivative)
-        {
-            const double dt = end_time - start_time;
-            const double u = (time - start_time) / dt;
-            const double u2 = u * u;
-            return ((6.0 * u2 - 6.0 * u) * start_value +
-                    (-6.0 * u2 + 6.0 * u) * end_value) / dt +
-                   (3.0 * u2 - 4.0 * u + 1.0) * start_derivative +
-                   (3.0 * u2 - 2.0 * u) * end_derivative;
-        }
-
-        bool hermite_at_time(const BCLIBC_BaseTrajData &start,
-                             const BCLIBC_BaseTrajData &end,
-                             double time,
-                             BCLIBC_BaseTrajData &out)
-        {
-            const double dt = end.time - start.time;
-            if (dt <= 0.0)
-            {
-                return false;
-            }
-
-            const double u = (time - start.time) / dt;
-            out.time = time;
-            out.px = BCLIBC_hermite(time, start.time, end.time, start.px, end.px, start.vx, end.vx);
-            out.py = BCLIBC_hermite(time, start.time, end.time, start.py, end.py, start.vy, end.vy);
-            out.pz = BCLIBC_hermite(time, start.time, end.time, start.pz, end.pz, start.vz, end.vz);
-            // Derive velocity from the positional Hermite polynomial.  This
-            // retains the endpoint velocities exactly and keeps state fields
-            // internally consistent without retaining prior accepted steps.
-            out.vx = hermite_derivative(time, start.time, end.time, start.px, end.px, start.vx, end.vx);
-            out.vy = hermite_derivative(time, start.time, end.time, start.py, end.py, start.vy, end.vy);
-            out.vz = hermite_derivative(time, start.time, end.time, start.pz, end.pz, start.vz, end.vz);
-            out.mach = start.mach + u * (end.mach - start.mach);
-            return true;
-        }
-
-        bool hermite_at_x(const BCLIBC_BaseTrajData &start,
-                          const BCLIBC_BaseTrajData &end,
-                          double target_x,
-                          BCLIBC_BaseTrajData &out)
-        {
-            if (!((start.px <= target_x && target_x <= end.px) ||
-                  (end.px <= target_x && target_x <= start.px)))
-            {
-                return false;
-            }
-
-            double lo = start.time;
-            double hi = end.time;
-            const bool increasing = end.px >= start.px;
-            for (int i = 0; i < 40; ++i)
-            {
-                const double mid = 0.5 * (lo + hi);
-                BCLIBC_BaseTrajData sample;
-                if (!hermite_at_time(start, end, mid, sample))
-                {
-                    return false;
-                }
-                if ((sample.px < target_x) == increasing)
-                {
-                    lo = mid;
-                }
-                else
-                {
-                    hi = mid;
-                }
-            }
-            if (!hermite_at_time(start, end, 0.5 * (lo + hi), out))
-            {
-                return false;
-            }
-            // The query axis is assigned the exact target, not re-derived from the converged
-            // Hermite sample: bisection only guarantees the *time* has converged, and
-            // re-evaluating px from that time carries the Hermite polynomial's own rounding on
-            // top of the bisection residual. Free to do, and matters once this code runs at a
-            // precision/magnitude where that residual isn't negligible (see tiny_bclibc's
-            // engine.h port of this same function, where it measurably misses an exact
-            // RANGE-step target in single precision without this).
-            out.px = target_x;
-            return true;
-        }
-
-        bool hermite_at_value(const BCLIBC_BaseTrajData &start,
-                              const BCLIBC_BaseTrajData &end,
-                              const std::function<double(const BCLIBC_BaseTrajData &)> &value,
-                              double target,
-                              BCLIBC_BaseTrajData &out)
-        {
-            double lo = start.time;
-            double hi = end.time;
-            double flo = value(start) - target;
-            const double fhi = value(end) - target;
-            if (flo == 0.0)
-            {
-                out = start;
-                return true;
-            }
-            if (fhi == 0.0)
-            {
-                out = end;
-                return true;
-            }
-            if ((flo < 0.0) == (fhi < 0.0))
-            {
-                return false;
-            }
-
-            for (int i = 0; i < 40; ++i)
-            {
-                const double mid = 0.5 * (lo + hi);
-                BCLIBC_BaseTrajData sample;
-                if (!hermite_at_time(start, end, mid, sample))
-                {
-                    return false;
-                }
-                const double fmid = value(sample) - target;
-                if ((flo < 0.0) != (fmid < 0.0))
-                {
-                    hi = mid;
-                }
-                else
-                {
-                    lo = mid;
-                    flo = fmid;
-                }
-            }
-            return hermite_at_time(start, end, 0.5 * (lo + hi), out);
-        }
-
         // Return every crossing of the scalar position Hermite polynomial.
         // Bisection of endpoint signs alone misses an up/down pair contained
         // in one adaptive accepted interval.  Splitting at the quadratic
@@ -324,7 +189,7 @@ namespace bclibc
                 }
 
                 BCLIBC_BaseTrajData sample;
-                if (!hermite_at_x(start, end, record_distance, sample))
+                if (!hermite_step::at_key(start, end, BCLIBC_BaseTrajData_InterpKey::POS_X, record_distance, sample))
                 {
                     break;
                 }
@@ -340,7 +205,7 @@ namespace bclibc
             {
                 const double record_time = this->time_of_last_record + this->time_step;
                 BCLIBC_BaseTrajData sample;
-                if (!hermite_at_time(start, end, record_time, sample))
+                if (!hermite_step::at_time(start, end, record_time, sample))
                 {
                     break;
                 }
@@ -352,10 +217,7 @@ namespace bclibc
         if ((this->filter & BCLIBC_TRAJ_FLAG_APEX) && start.vy > 0.0 && end.vy <= 0.0)
         {
             BCLIBC_BaseTrajData sample;
-            if (hermite_at_value(start, end,
-                                 [](const BCLIBC_BaseTrajData &data)
-                                 { return data.vy; },
-                                 0.0, sample))
+            if (hermite_step::at_key(start, end, BCLIBC_BaseTrajData_InterpKey::VEL_Y, 0.0, sample))
             {
                 this->add_row(rows, sample, BCLIBC_TRAJ_FLAG_APEX);
                 this->filter = (BCLIBC_TrajFlag)(this->filter & ~BCLIBC_TRAJ_FLAG_APEX);
@@ -366,7 +228,7 @@ namespace bclibc
             start.velocity().mag() > start.mach && end.velocity().mag() < end.mach)
         {
             BCLIBC_BaseTrajData sample;
-            if (hermite_at_value(start, end,
+            if (hermite_step::at_value(start, end,
                                  [](const BCLIBC_BaseTrajData &data)
                                  { return data.velocity().mag() - data.mach; },
                                  0.0, sample))
@@ -385,7 +247,7 @@ namespace bclibc
         for (const double u : hermite_scalar_roots(slant_height(start), slant_height(end), slope0, slope1, dt))
         {
             BCLIBC_BaseTrajData sample;
-            if (!hermite_at_time(start, end, start.time + u * dt, sample)) continue;
+            if (!hermite_step::at_time(start, end, start.time + u * dt, sample)) continue;
             const double slope = sample.vy - sample.vx * this->look_angle_tangent;
             const BCLIBC_TrajFlag flag = slope > 0.0 ? BCLIBC_TRAJ_FLAG_ZERO_UP : BCLIBC_TRAJ_FLAG_ZERO_DOWN;
             if (this->filter & flag)
@@ -822,11 +684,16 @@ namespace bclibc
           target_passed(false),
           termination_reason_ptr(termination_reason_ptr) {};
 
+    void BCLIBC_SinglePointHandler::push_point(const BCLIBC_BaseTrajData &data)
+    {
+        if (this->count >= 3) { this->points[0] = this->points[1]; this->points[1] = this->points[2]; this->points[2] = data; }
+        else { this->points[this->count] = data; ++this->count; }
+    }
+
     BCLIBC_Result<std::monostate> BCLIBC_SinglePointHandler::handle(const BCLIBC_BaseTrajData &data)
     {
         if (this->is_found) return std::monostate{};
-        if (this->count >= 3) { this->points[0] = this->points[1]; this->points[1] = this->points[2]; this->points[2] = data; }
-        else { this->points[this->count] = data; ++this->count; }
+        this->push_point(data);
         if (this->count < 3 || this->target_passed) return std::monostate{};
         const auto crosses = [this](const BCLIBC_BaseTrajData &a, const BCLIBC_BaseTrajData &b)
         {
@@ -864,8 +731,17 @@ namespace bclibc
         const BCLIBC_BaseTrajData &start,
         const BCLIBC_BaseTrajData &end)
     {
-        if (this->is_found || this->key_kind != BCLIBC_BaseTrajData_InterpKey::POS_X) return this->is_found ? BCLIBC_Result<std::monostate>{std::monostate{}} : this->handle(end);
-        if (!hermite_at_x(start, end, this->target_value, this->result)) return this->handle(end);
+        if (this->is_found) return std::monostate{};
+        // The crossing is located on the Hermite interpolant of this step, whatever the key (as the rows of the trajectory
+        // filter): a step that brackets the target ends the search. Only a step that cannot be interpolated (not
+        // increasing in time) falls back to the 3-point window of raw points.
+        if (!hermite_step::brackets(hermite_step::key_value(start, this->key_kind), hermite_step::key_value(end, this->key_kind), this->target_value))
+        {
+            // Not bracketed: the 3-point window would not find a crossing either; keep the window for the fallback only.
+            this->push_point(end);
+            return std::monostate{};
+        }
+        if (!hermite_step::at_key(start, end, this->key_kind, this->target_value, this->result)) return this->handle(end);
         this->is_found = true; this->target_passed = true;
         if (this->termination_reason_ptr != nullptr) { *this->termination_reason_ptr = BCLIBC_TerminationReason::HANDLER_REQUESTED_STOP; BCLIBC_INFO("BCLIBC_SinglePointHandler requested early termination"); }
         return std::monostate{};
@@ -952,11 +828,9 @@ namespace bclibc
             // Locate the crossing on the cubic Hermite interpolant of the step (position and velocity at both ends),
             // as the trajectory filter does for its ZERO_DOWN rows. A straight chord between two raw points is
             // far off for the large steps of the adaptive integrators (several percent of the range).
-            const auto slant_height = [this](const BCLIBC_BaseTrajData &d)
-            { return d.py * this->look_angle_cos_ - d.px * this->look_angle_sin_; };
             BCLIBC_BaseTrajData hit;
             double ix, iy;
-            if (hermite_at_value(this->prev_point, data, slant_height, 0.0, hit))
+            if (hermite_step::at_slant(this->prev_point, data, this->look_angle_cos_, this->look_angle_sin_, 0.0, hit))
             {
                 ix = hit.px;
                 iy = hit.py;

@@ -186,15 +186,19 @@ namespace bclibc
         double slant_val_buf(double ca, double sa) const;
 
         /**
-         * @brief Interpolates trajectory data using 3-point PCHIP method.
+         * @brief Locates the point where a key reaches a value, between three consecutive points.
          *
-         * Performs monotone-preserving cubic Hermite interpolation on all trajectory
-         * components based on a specified key (independent variable).
+         * The points are consecutive states of an integration, so (p0, p1) and (p1, p2) are integration steps. The value is
+         * located on the cubic Hermite interpolant of the step that brackets it (position and velocity at both ends; the
+         * velocity of the result is the derivative of the position polynomial, Mach is linear): the one convention of all
+         * step-based queries (filter rows, find_apex, integrate_at, dense get_at). Only when neither step brackets the value
+         * is the 3-point PCHIP of the three points used, as a fallback.
          *
          * ALGORITHM:
          * 1. Extract and cache key values from p0, p1, p2
          * 2. Validate non-degenerate (no duplicate key values)
-         * 3. For each field:
+         * 3. Hermite of (p0, p1), else of (p1, p2), when it brackets the value; the key field is set to key_value
+         * 4. Otherwise, for each field:
          *    - If field == key_kind: set directly to key_value
          *    - Otherwise: perform PCHIP interpolation
          *
@@ -221,7 +225,7 @@ namespace bclibc
             BCLIBC_BaseTrajData &out) noexcept;
 
         /**
-         * @brief Vectorized 3-point interpolation for all trajectory fields.
+         * @brief Vectorized 3-point PCHIP interpolation for all trajectory fields (the fallback of the Hermite step queries).
          *
          * OPTIMIZATION: Performs all interpolations in a single function call,
          * avoiding overhead of multiple function calls and improving cache locality.
@@ -363,7 +367,11 @@ namespace bclibc
      * @brief Dense sequence of trajectory data points with interpolation support.
      *
      * Stores trajectory points in contiguous memory (std::vector) for efficient access.
-     * Provides binary search, exact matching, and 3-point PCHIP interpolation.
+     * Provides binary search, exact matching, and interpolation. Consecutive points of the sequence are the steps of the
+     * integration, so a query is answered on the cubic Hermite interpolant of the step that holds the value (positions and
+     * velocities at its two ends; velocity of the result = derivative of the position polynomial, Mach linear), the
+     * convention of every step-based query of the library. The 3-point PCHIP of the raw points is only a fallback, used when
+     * no step brackets the value.
      *
      * TYPICAL USAGE:
      * 1. Append points during trajectory simulation
@@ -447,11 +455,12 @@ namespace bclibc
          *    c. Binary search from start_idx to find target
          * 2. Otherwise: Binary search entire sequence
          * 3. Check for exact match at target (within epsilon=1e-9)
-         * 4. If no exact match: Interpolate using 3-point PCHIP
+         * 4. If no exact match: Hermite interpolant of the step that brackets the value (3-point PCHIP only as the
+         *    fallback when no step does)
          *
          * OPTIMIZATION:
          * - Binary search: O(log n) instead of linear scan
-         * - Exact match avoids expensive PCHIP computation
+         * - Exact match avoids the interpolation
          * - Time filtering reduces search space for time-series queries
          *
          * @param key_kind Type of key to search by (TIME, MACH, POS_X, etc.).
@@ -482,7 +491,8 @@ namespace bclibc
          * 2. Validate center is in safe range [1, n-2]
          * 3. Compute slant values for p0, p1, p2 using precomputed cos/sin
          * 4. Validate non-degenerate (no duplicate slant values)
-         * 5. Perform vectorized 3-point PCHIP interpolation
+         * 5. Hermite interpolant of the step (p0, p1) or (p1, p2) that brackets the slant height; the vectorized 3-point PCHIP
+         *    interpolation only as the fallback
          *
         * @param look_angle_rad Look angle in radians (angle of line of sight from horizontal).
         * @param value Target slant height value.
@@ -499,9 +509,10 @@ namespace bclibc
             BCLIBC_BaseTrajData &out) const noexcept;
 
         /**
-         * @brief Performs 3-point PCHIP interpolation at specified index.
+         * @brief Interpolates at specified index: Hermite of the step that holds the value, 3-point PCHIP as the fallback.
          *
-         * Uses trajectory points at [idx-1, idx, idx+1] as interpolation bracket.
+         * Uses trajectory points at [idx-1, idx, idx+1] as interpolation bracket: the steps (idx-1, idx) and (idx, idx+1)
+         * are tried in that order, and the 3-point PCHIP of the three points is used only if neither brackets the value.
          * The "center" point is at idx, which should be close to the target value.
          *
          * VALID RANGE: idx must be in [1, n-2] to ensure all three points exist.
@@ -528,7 +539,7 @@ namespace bclibc
          * Checks if trajectory data at idx has key value matching key_value within
          * tolerance (epsilon = 1e-9). If match found, copies data to out.
          *
-         * OPTIMIZATION: Avoids expensive PCHIP interpolation when exact data exists.
+         * OPTIMIZATION: Avoids the interpolation when exact data exists.
          * This is common when querying at measured data points.
          *
          * @param idx Index to check for exact match.

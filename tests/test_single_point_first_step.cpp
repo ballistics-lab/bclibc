@@ -15,7 +15,11 @@
 // interpolation error.
 //
 // The second part is a regression guard: the points of crossings that are not in the first step (apex of a normal shot,
-// time, Mach, velocity and height keys) are bit-for-bit what the code before the fix returned (zero_first_step_guard.inc).
+// time, Mach, velocity and height keys) are those recorded before the fix (single_point_first_step_guard.inc), to 1e-6
+// relative. The values of RK4 and Velocity Verlet are the ones recorded with the first-step fix; those of Euler and
+// Tsitouras were re-recorded when every key moved to the Hermite interpolant of the step (test_hermite_single_point.cpp):
+// the 3-point PCHIP they replace was 1e-2 ft off at the wide first steps of Tsitouras and, for Euler, a different
+// convention from the filter rows (the Hermite is first order for Euler, which is documented, not special-cased).
 
 #include "bclibc.hpp"
 #include "bclibc/ffi/bclibc_ffi.h"
@@ -163,10 +167,13 @@ static void test_apex_in_first_step()
             const double dx = std::fabs(a.distance_ft - ref.full_data.distance_ft);
             std::fprintf(stderr, "  %-9s el %.3f: apex t %.9f (ref %.9f), height %.9f ft (ref %.9f)\n", e.name, el, a.time,
                          ref.raw_data.time, a.height_ft, ref.full_data.height_ft);
+            // Euler is first order and its step is not consistent with a Hermite of (position, velocity) (its position moves
+            // by the new velocity), so its interpolated apex is further from the fine-step one: 4.6% of the apex time here.
+            const bool euler = e.method == BCLIBCFFI_INTEGRATION_EULER;
             CHECK(a.time > 1e-4 && a.time < 5e-3);
-            CHECK(dt < 5e-5);     // 3.5% of the apex time; the interpolation error of the window is far below
-            CHECK(dh < 5e-5);     // ft (15 um): the 3-point interpolation error; the same size for an apex in the 2nd step (el 0.003)
-            CHECK(dx < 2e-2);     // ft; the bullet travels 2600 ft/s, so dt = 5e-5 would be 0.13 ft
+            CHECK(dt < (euler ? 2e-4 : 5e-5)); // 3.5% of the apex time; the interpolation error is far below
+            CHECK(dh < 5e-5);     // ft (15 um): the interpolation error; the same size for an apex in the 2nd step (el 0.003)
+            CHECK(dx < (euler ? 0.5 : 2e-2));  // ft; the bullet travels 2600 ft/s, so dt = 5e-5 would be 0.13 ft
         }
 }
 
@@ -203,7 +210,9 @@ static void test_time_in_first_step()
                     CHECK(std::fabs(a.vx - b.vx) < 1e-9);
                     CHECK(std::fabs(a.vy - b.vy) < 1e-9);
                 }
-                const double tol_pos = 5e-3, tol_vel = 5e-3;   // ft, fps: interpolation error of the 2.5 ms step
+                // ft, fps: interpolation error of the 2.5 ms step; the velocity of an Euler point is the derivative of a
+                // Hermite that does not match Euler's own step (see above), 4-5 times worse than that of the other methods.
+                const double tol_pos = 5e-3, tol_vel = e.method == BCLIBCFFI_INTEGRATION_EULER ? 0.5 : 5e-3;
                 const bool ok = std::fabs(a.px - b.px) < tol_pos && std::fabs(a.py - b.py) < tol_pos &&
                                 std::fabs(a.vx - b.vx) < tol_vel && std::fabs(a.vy - b.vy) < tol_vel;
                 if (!ok)
@@ -239,6 +248,9 @@ static const GuardCase kGuardCases[] = {
 };
 static const double kGuardElevations[] = {1.0, 3.0};
 
+// Recorded values are compared to 1e-6 relative: the adaptive step-size controller amplifies the last-bit differences of
+// other platforms (FMA contraction, libm), and the Hermite of a step differs from the old 3-point PCHIP of RK4 and Verlet
+// points by 1e-9 relative at most (the first-step fix moves a later crossing by far more than that, if it moves it at all).
 static double rel_dev(double a, double b)
 {
     return std::fabs(a - b) / std::fmax(1.0, std::fabs(b));
@@ -267,14 +279,13 @@ static void test_later_crossings_unchanged()
                                                std::fmax(rel_dev(a.vz, g.vz), rel_dev(a.mach, g.mach))));
         double &worst = e.adaptive ? max_adaptive : max_fixed;
         worst = std::fmax(worst, dev);
-        const double rel = e.adaptive ? 1e-6 : 1e-12;
-        const bool same = dev <= rel;
+        const bool same = dev <= 1e-6;
         if (!same)
             std::fprintf(stderr, "  guard: %s el %.1f key %d target %g: t %.17g (rec %.17g) px %.17g (rec %.17g)\n", e.name,
                          g.elevation_deg, g.key, g.target, a.time, g.time, a.px, g.px);
         CHECK(same);
     }
-    std::printf("guard: max relative deviation from the recorded values: fixed-step %.3g (limit 1e-12), adaptive %.3g (limit 1e-6)\n",
+    std::printf("guard: max relative deviation from the recorded values: fixed-step %.3g, adaptive %.3g (limit 1e-6 for both)\n",
                 max_fixed, max_adaptive);
 }
 

@@ -1513,8 +1513,11 @@ extern "C"
                 const BCLIBC_Error e{BCLIBC_DomainError{"Duplicate key values: cannot interpolate", x0, x1}};
                 return setEngineError(err, e);
             }
+            // Same interpolation as BCLIBC_BaseTrajSeq::interpolate_at: Hermite of the step that holds the value, the
+            // 3-point PCHIP when neither of the two steps does (the duplicate check above is the one of interpolate()).
             BCLIBC_BaseTrajData r;
-            BCLIBC_BaseTrajData::interpolate3pt_vectorized(value, x0, x1, x2, p0, p1, p2, r, k);
+            if (has_error(BCLIBC_BaseTrajData::interpolate(k, value, p0, p1, p2, r)))
+                return failWith(err, BCLIBCFFI_ERR_DOMAIN, "Duplicate key values: cannot interpolate");
             toC(r, *out);
             return BCLIBCFFI_OK; }, err);
     }

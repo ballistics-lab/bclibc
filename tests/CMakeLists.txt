@@ -214,6 +214,21 @@ target_compile_features(bclibc_test_rk4_coriolis_stage PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_rk4_coriolis_stage COMMAND bclibc_test_rk4_coriolis_stage)
 
+# One interpolation convention for everything that works with integration steps: the cubic Hermite of the step (positions and
+# velocities at its ends), for find_apex, integrate_at (every key), the dense-output queries and the C ABI interpolation, as
+# for the rows of the trajectory filter; the 3-point PCHIP is only a fallback. C ABI compiled in with the C++ core, as
+# test_zero_close_target.
+add_executable(bclibc_test_hermite_single_point
+    test_hermite_single_point.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_hermite_single_point PRIVATE bclibc_core)
+target_include_directories(bclibc_test_hermite_single_point PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_hermite_single_point PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_hermite_single_point COMMAND bclibc_test_hermite_single_point)
+
 # These tests compile src/ffi/bclibc_ffi.cpp into the executable (one copy of the core, no DLL): on Windows the header
 # must declare its functions dllexport (a definition of a dllimport function is an error on MSVC).
 if(WIN32)
@@ -228,7 +243,8 @@ if(WIN32)
         bclibc_test_lofted_bound
         bclibc_test_single_point_first_step
         bclibc_test_zero_ridder_unconverged
-        bclibc_test_rk4_coriolis_stage)
+        bclibc_test_rk4_coriolis_stage
+        bclibc_test_hermite_single_point)
         if(TARGET ${_t})
             target_compile_definitions(${_t} PRIVATE BCLIBC_FFI_EXPORT)
         endif()

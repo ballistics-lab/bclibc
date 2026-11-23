@@ -246,11 +246,15 @@ namespace bclibc
     // ============================================================================
 
     /**
-     * @brief Handler that stores only the minimal data needed for single-point interpolation.
+     * @brief Handler that finds the point where a key reaches a value, without storing the trajectory.
      *
-     * Instead of storing all trajectory points, this handler keeps only a sliding window
-     * of 3 points required for PCHIP interpolation. When the target is reached, it
-     * interpolates immediately and discards older data.
+     * Every accepted step is tested as it arrives: when its two ends bracket the target, the point is located on the cubic
+     * Hermite interpolant of that step (positions and velocities at both ends; velocity = derivative of the position
+     * polynomial, Mach linear), for every key, and the search ends. This is the convention of the rows of the trajectory
+     * filter, so the result is the very row the filter would produce at that value (find_apex = the APEX row,
+     * integrate_at(time, t) = the row at t). A sliding window of the last 3 raw points is kept only for the fallback: the
+     * 3-point PCHIP is used when a step cannot be interpolated (not increasing in time) or when the handler is fed raw
+     * points through handle() only.
      *
      * MEMORY: 3 * BCLIBC_BaseTrajData (~192 bytes) vs full trajectory (~N * 64 bytes)
      */
@@ -270,6 +274,9 @@ namespace bclibc
 
         // Early termination reason
         BCLIBC_TerminationReason *termination_reason_ptr;
+
+        // Appends a raw point to the window of the fallback.
+        void push_point(const BCLIBC_BaseTrajData &data);
 
     public:
         /**

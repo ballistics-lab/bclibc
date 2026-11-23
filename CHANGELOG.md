@@ -7,7 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **One interpolation convention for everything that works with integration steps: the cubic Hermite of the step** (positions and
+  velocities at its two ends; the velocity of the point is the derivative of the position polynomial, Mach is linear), for the six
+  integration methods (RK4, Euler, Velocity Verlet, Cash-Karp, Dormand-Prince, Tsitouras), Euler included. The rows of the trajectory filter
+  (range, time, apex, Mach, zero) already used it; `find_apex`, `integrate_at` / `integrate_raw_at` (every key but position.x) and the
+  dense-output queries (`BCLIBC_BaseTrajSeq::get_at`, `interpolate_at`, `get_at_slant_height`, `BCLIBC_BaseTrajData::interpolate`, and the
+  C ABI `BCLIBCFFI_dense_get_at`, `BCLIBCFFI_dense_get_at_slant_height`, `BCLIBCFFI_base_traj_interpolate`, `BCLIBCFFI_base_traj_interpolate_at`;
+  signatures unchanged) used a 3-point PCHIP of the raw points. The 3-point PCHIP stays only as the fallback when no step brackets the query
+  (`BCLIBC_SinglePointHandler` fed raw points only, a key that is not monotone around the bracket). The drag table (Mach to CD) PCHIP is
+  untouched. The header text that said "3-point PCHIP" is updated. `tiny_bclibc` follows in lockstep.
+  What changes for the user (largest differences, before to after, over `find_apex` at 5, 45 and 89.99 degrees and `integrate_at` for time,
+  position.x / .y, velocity.x / .y and Mach, 800 m/s G7 0.31 shots): RK4 and Velocity Verlet move by at most 3.5e-4 ft in position, 4e-4 fps in
+  velocity, 2.4e-7 s in time and 2e-5 ft in the apex height (the Hermite and the PCHIP of the raw points agree for them; the recorded-value
+  guard holds to 1e-6 relative). Euler: the apex of a vertical shot moves from 23.846668 s to 23.790193 s, the value of the Python Euler engine
+  (12861.4212 to 12861.5566 ft), the apex of a 5 and a 45 degree shot by 2.4e-4 s and 2.9e-4 s (0.23 and 0.12 ft of range), other keys by up to
+  0.3 ft and 0.15 fps; Euler is first order, its step moves the position by the new velocity, so a Hermite with the old velocity as slope bows
+  inside the step: a documented property, not a special case. Cash-Karp, Dormand-Prince and Tsitouras: the PCHIP across their wide steps was 10 to
+  1000 times less accurate than the Hermite (measured against the same method at a tolerance of 1e-11 in the research behind this change), and
+  the answers move accordingly: at a relative tolerance of 1e-8 by up to 6e-4 s in the apex time, 0.08 ft in its height, 0.4 ft in position and 0.7
+  fps in velocity (1.4 ft in height for Cash-Karp), and at 1e-6, where the steps are wider, by up to 0.008 s, 0.1 ft in the apex height and 19 ft
+  in position (Cash-Karp).
+  The crossing is solved as the filter did before (40 bisections of the interpolant).
+  `BCLIBC_ZeroCrossingHandler` locates the slant-height crossing with the same solver. New header `bclibc/hermite_step.hpp`.
+
+
 ### Fixed
+- `find_apex` equals the `APEX` row of the filter for every integration method. For Euler it did not: on a vertical shot (89.99 degrees,
+  G7 0.31, 800 m/s) `find_apex` returned 23.846668 s and the filter row 23.790163 s (the Python Euler engine: 23.790193 s), 6e-2 s apart, and on
+  a 5 degree shot 2.4e-4 s and 0.23 ft of range.
 - The **range limit is not tested before the third integration step**, as in the Python engines (`while x <= range_limit or step_count < 3`)
   and `tiny_bclibc`. The C++ gate (`BCLIBC_EssentialTerminators`) also counted the initial sample and opened after two steps, so a shot whose range
   limit lies inside the first steps ended with the start and two steps where the reference has the start and three. The rows are unchanged
