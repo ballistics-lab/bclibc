@@ -72,6 +72,20 @@ target_compile_features(bclibc_test_zero_close_target PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_zero_close_target COMMAND bclibc_test_zero_close_target)
 
+# The angle tolerance of the Ridder zero search (1e-7 rad, as the Python reference): the lofted zero and the high-elevation
+# zeros of py-ballisticcalc issue #204 hit the target, the flat 300 m zero is unchanged. One binary with the C ABI layer
+# compiled in, as bclibc_test_zero_close_target.
+add_executable(bclibc_test_zero_ridder_tol
+    test_zero_ridder_tol.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_zero_ridder_tol PRIVATE bclibc_core)
+target_include_directories(bclibc_test_zero_ridder_tol PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_zero_ridder_tol PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_zero_ridder_tol COMMAND bclibc_test_zero_ridder_tol)
+
 # The zero angle (Ridder path) and the maximum range of a shot with a downhill look angle: the maximum-range search must
 # follow the shot down to a line of sight that lies below the muzzle (C ABI and C++ core), and the results that did not
 # depend on the defect are unchanged (recorded values).
