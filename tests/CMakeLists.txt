@@ -127,3 +127,16 @@ target_include_directories(bclibc_test_zero_ridder_angle PRIVATE "${BCLIBC_INCLU
 target_compile_features(bclibc_test_zero_ridder_angle PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_zero_ridder_angle COMMAND bclibc_test_zero_ridder_angle)
+
+# The upper bound of the lofted zero search is 89.9 degrees (math.radians(89.9), as the Python reference), reported as the
+# last barrel elevation of an unreachable lofted zero, on all six engines. C ABI compiled in with the C++ core.
+add_executable(bclibc_test_lofted_bound
+    test_lofted_bound.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_lofted_bound PRIVATE bclibc_core)
+target_include_directories(bclibc_test_lofted_bound PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_lofted_bound PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_lofted_bound COMMAND bclibc_test_lofted_bound)

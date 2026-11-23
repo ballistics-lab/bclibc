@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- The **upper bound of the lofted zero search is 89.9 degrees**, as in the Python reference (`math.radians(89.9)` = 1.5690509975429023). The C++
+  core used 1.5690308719637473 (a mistyped constant, 89.8988 degrees), in the code shared by all six engines (RK4, Euler, Velocity Verlet, Cash-Karp,
+  Dormand-Prince, Tsitouras). It shows as a different `last_barrel_elevation` in "No lofted zero trajectory" errors and as a slightly different
+  bracket for a lofted zero near the bound. `tiny_bclibc` has no lofted search and is not affected.
 - The **wind sock is rewound at the start of every integration** (`BCLIBC_WindSock::reset()`, called by RK4, Euler, Velocity Verlet and the
   embedded RK45 engines). Every integration used to continue from the wind segment the previous one had ended on, so the trial shots of a
   zero or maximum-range search (`find_zero_angle`, `find_zero_point`, `find_max_range`, a lofted zero, Newton's `zero_angle` with more than

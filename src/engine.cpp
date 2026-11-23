@@ -1016,7 +1016,10 @@ namespace bclibc
         if (lofted)
         {
             low_angle = angle_at_max_rad;
-            high_angle = 1.5690308719637473; // 89.9 degrees in radians
+            // Upper bound of the lofted search: 89.9 degrees, bit-identical to Python's math.radians(89.9)
+            // (1.5690509975429023). The literal that stood here, 1.5690308719637473, is 89.8988 degrees.
+            constexpr double kLoftedHighAngleRad = 89.9 * 3.14159265358979323846 / 180.0;
+            high_angle = kLoftedHighAngleRad;
         }
         else
         {
