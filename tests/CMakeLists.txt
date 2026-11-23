@@ -140,3 +140,17 @@ target_include_directories(bclibc_test_lofted_bound PRIVATE "${BCLIBC_INCLUDE_DI
 target_compile_features(bclibc_test_lofted_bound PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_lofted_bound COMMAND bclibc_test_lofted_bound)
+
+# A key crossing inside the first integration step (the apex of a 0.001 deg shot, integrate_at time 0) is found by the
+# single-point handler (find_apex, integrate_at), for RK4, Euler, Velocity Verlet and an adaptive method; crossings in
+# later steps are unchanged (recorded values). C ABI compiled in with the C++ core, as test_zero_close_target.
+add_executable(bclibc_test_single_point_first_step
+    test_single_point_first_step.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_single_point_first_step PRIVATE bclibc_core)
+target_include_directories(bclibc_test_single_point_first_step PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_single_point_first_step PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_single_point_first_step COMMAND bclibc_test_single_point_first_step)
