@@ -61,7 +61,7 @@ namespace bclibc
      *
      * **Performance optimizations:**
      * - Reduced temporary vector creation (all temporaries are reused on stack)
-     * - Drag and Coriolis precomputation
+     * - Drag precomputation (Coriolis is evaluated in each stage, at the stage's velocity)
      * - Fast sqrt-based magnitude calculation
      * - linear_combination() and fused_multiply_add() hot-path instructions
      * - Avoids divisions where possible
@@ -210,18 +210,23 @@ BCLIBC_Result<std::monostate> BCLIBC_integrateRK4(
             km = density_ratio * drag_result.value();
             BCLIBC_DEBUG("Calculated drag coefficient km=%f\n", km);
 
-            // Precompute coriolis acceleration once per step (if enabled)
+            // Coriolis acceleration (Earth rotation) depends on the ground velocity, so each RK4 stage evaluates it at the
+            // stage's own velocity, as the Python reference does (rk4.py: coriolis_fn(ground_vel) in every stage).
+            // Skipped if flat_fire_only is set (ignores Earth's rotation effects).
+            const bool use_coriolis = !eng.shot.coriolis.flat_fire_only;
             BCLIBC_V3dT coriolis_acc{};
-            BCLIBC_V3dT gravity_plus_coriolis = gravity_vector;
-
-            // Add Coriolis acceleration for rotating reference frames (Earth rotation)
-            // Skip if flat_fire_only flag is set (ignores Earth's rotation effects)
-            if (!eng.shot.coriolis.flat_fire_only)
+            BCLIBC_V3dT gravity_plus_coriolis{};
+            // gravity + Coriolis(ground velocity of the stage)
+            auto stage_gravity_plus_coriolis = [&](const BCLIBC_V3dT &ground_velocity) -> const BCLIBC_V3dT &
             {
-                eng.shot.coriolis.coriolis_acceleration_local(velocity_vector, coriolis_acc);
-                // gravity + coriolis
-                gravity_plus_coriolis += coriolis_acc;
-            }
+                gravity_plus_coriolis = gravity_vector;
+                if (use_coriolis)
+                {
+                    eng.shot.coriolis.coriolis_acceleration_local(ground_velocity, coriolis_acc);
+                    gravity_plus_coriolis += coriolis_acc;
+                }
+                return gravity_plus_coriolis;
+            };
 
             // Precompute RK4 time factors
             const double dt_half = 0.5 * delta_time;
@@ -236,7 +241,7 @@ BCLIBC_Result<std::monostate> BCLIBC_integrateRK4(
             BCLIBC_DEBUG("Starting RK4 integration\n");
 
             // K1: Evaluate at current state
-            BCLIBC_calculate_dvdt(relative_velocity, gravity_plus_coriolis, km, relative_speed, k1_v);
+            BCLIBC_calculate_dvdt(relative_velocity, stage_gravity_plus_coriolis(velocity_vector), km, relative_speed, k1_v);
             k1_p = velocity_vector;
 
             // K2: Evaluate at midpoint using K1
@@ -245,31 +250,33 @@ BCLIBC_Result<std::monostate> BCLIBC_integrateRK4(
             v_temp = relative_velocity;
             v_temp.fused_multiply_add(k1_v, dt_half);
             const double vtemp1_mag = v_temp.mag();
-            BCLIBC_calculate_dvdt(v_temp, gravity_plus_coriolis, km, vtemp1_mag, k2_v);
 
+            // p_temp is the ground velocity of this stage (what the Coriolis acceleration depends on, and the
+            // position derivative)
             p_temp = velocity_vector;
             p_temp.fused_multiply_add(k1_v, dt_half);
             k2_p = p_temp;
+            BCLIBC_calculate_dvdt(v_temp, stage_gravity_plus_coriolis(k2_p), km, vtemp1_mag, k2_v);
 
             // K3: Evaluate at midpoint using K2
             v_temp = relative_velocity;
             v_temp.fused_multiply_add(k2_v, dt_half);
             const double vtemp2_mag = v_temp.mag();
-            BCLIBC_calculate_dvdt(v_temp, gravity_plus_coriolis, km, vtemp2_mag, k3_v);
 
             p_temp = velocity_vector;
             p_temp.fused_multiply_add(k2_v, dt_half);
             k3_p = p_temp;
+            BCLIBC_calculate_dvdt(v_temp, stage_gravity_plus_coriolis(k3_p), km, vtemp2_mag, k3_v);
 
             // K4: Evaluate at endpoint using K3
             v_temp = relative_velocity;
             v_temp.fused_multiply_add(k3_v, delta_time);
             const double vtemp3_mag = v_temp.mag();
-            BCLIBC_calculate_dvdt(v_temp, gravity_plus_coriolis, km, vtemp3_mag, k4_v);
 
             p_temp = velocity_vector;
             p_temp.fused_multiply_add(k3_v, delta_time);
             k4_p = p_temp;
+            BCLIBC_calculate_dvdt(v_temp, stage_gravity_plus_coriolis(k4_p), km, vtemp3_mag, k4_v);
 
             BCLIBC_DEBUG("RK4 integration complete\n");
 

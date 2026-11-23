@@ -167,3 +167,17 @@ target_include_directories(bclibc_test_zero_ridder_unconverged PRIVATE "${BCLIBC
 target_compile_features(bclibc_test_zero_ridder_unconverged PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_zero_ridder_unconverged COMMAND bclibc_test_zero_ridder_unconverged)
+
+# RK4 evaluates the Coriolis acceleration in each of its four stages, with the stage's own velocity (as the Python RK4):
+# the 4000 m height and windage of a 30 degree shot match the Python engine to 1e-6 ft, and the result without Coriolis is
+# unchanged. C ABI compiled in with the C++ core, as test_zero_close_target (one copy of the core).
+add_executable(bclibc_test_rk4_coriolis_stage
+    test_rk4_coriolis_stage.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_rk4_coriolis_stage PRIVATE bclibc_core)
+target_include_directories(bclibc_test_rk4_coriolis_stage PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_rk4_coriolis_stage PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_rk4_coriolis_stage COMMAND bclibc_test_rk4_coriolis_stage)

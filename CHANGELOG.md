@@ -26,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without a point and the last angle with one) and the unreachable "converged but no return" block are removed. `tiny_bclibc` fails the same way
   (`TINY_BCLIBC_ERR_ZERO_FINDING`, "not converged"). A search that converged is unchanged; one that used to be accepted on the fallback now
   fails and needs a larger `cMaxIterations`.
+- **RK4 evaluates the Coriolis acceleration in each of its four stages**, with the stage's own ground velocity, as the Python RK4
+  (`py_ballisticcalc/engines/rk4.py`, `coriolis_fn(ground_vel)` per stage). It used to evaluate it once per step, at the velocity the step
+  started with, and reuse it in all four stages. On a 30 degree, 800 m/s G7 shot at 4000 m (latitude 45, azimuth 90) the result was off the
+  Python one by 1.5e-3 ft in height and 1.8e-3 ft in windage (3e-3 ft windage at latitude -30, azimuth 0); it now agrees to 1e-6 ft. Shots
+  without Coriolis (no latitude, or `flat_fire_only`) are unchanged. Euler, Velocity Verlet and the embedded RK45 engines were not changed.
 - The **wind sock is rewound at the start of every integration** (`BCLIBC_WindSock::reset()`, called by RK4, Euler, Velocity Verlet and the
   embedded RK45 engines). Every integration used to continue from the wind segment the previous one had ended on, so the trial shots of a
   zero or maximum-range search (`find_zero_angle`, `find_zero_point`, `find_max_range`, a lofted zero, Newton's `zero_angle` with more than
