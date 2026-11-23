@@ -552,7 +552,13 @@ static bool find_apex_identity(double barrel_el_rad)
     // to hold. Observed worst case ~1.4e-11 relative on this fixture; 1e-7 leaves
     // ample margin across platforms/compilers while still catching a real
     // regression many orders of magnitude larger than expected FP noise.
-    return identity::compare_point(bc_apex, tb_apex, 0, identity::kAbsTol, true, 1e-7);
+    // The apex is located on the Hermite interpolant of the step in both (the convention of the filter rows), where the
+    // Mach number of the point is the interpolated speed of sound (linear in time) in bclibc and recomputed from the
+    // altitude in tiny_bclibc: they differ by the curvature of the speed of sound over the (wide, adaptive) step, 3e-7
+    // here, the size the rows of the trajectory comparison above are allowed (1e-6). Everything else is compared as before.
+    const bool mach_ok = identity::compare_scalar("apex mach (interpolated vs recomputed)", bc_apex.mach, tb_apex.mach, 1e-6);
+    bc_apex.mach = tb_apex.mach;
+    return identity::compare_point(bc_apex, tb_apex, 0, identity::kAbsTol, true, 1e-7) && mach_ok;
 }
 
 static bool test_g7_basic_find_apex()
@@ -615,6 +621,54 @@ static bool test_min_steps_gate()
             ok = false;
         }
     }
+    return ok;
+}
+
+// integrate_at locates every key on the Hermite interpolant of the accepted step in both engines (time, velocity, height
+// and range keys, not only position.x and the apex), so the raw point agrees to the interpolation of the same step.
+static bool integrate_at_identity(int key, const char *name, double target, double barrel_el_rad)
+{
+    auto bc_props = make_bclibc_shot_props(barrel_el_rad);
+    bclibc::BCLIBC_BaseEngine bc_eng;
+    init_bclibc_engine(bc_eng, bc_props);
+    bclibc::BCLIBC_BaseTrajData bc_raw;
+    bclibc::BCLIBC_TrajectoryData bc_full;
+    if (bclibc::has_error(bc_eng.integrate_at(static_cast<bclibc::BCLIBC_BaseTrajData_InterpKey>(key), target, bc_raw, bc_full)))
+    {
+        std::printf("FAIL: bclibc integrate_at(%s) failed\n", name);
+        return false;
+    }
+    TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
+    TINY_BCLIBC_ShotProps tb_props;
+    if (make_tiny_bclibc_shot_props(&tb_props, tb_curve, barrel_el_rad) != TINY_BCLIBC_OK)
+    {
+        std::printf("FAIL: tbclibc build failed\n");
+        return false;
+    }
+    TINY_BCLIBC_BaseTrajData tb_raw;
+    TINY_BCLIBC_TrajectoryData tb_full;
+    if (tiny_bclibc_integrate_at(&tb_props, key, target, &tb_raw, &tb_full) != TINY_BCLIBC_OK)
+    {
+        std::printf("FAIL: tiny_bclibc_integrate_at(%s) failed\n", name);
+        return false;
+    }
+    std::printf("\n=== G7_BASIC / integrate_at %s=%g / barrel_el=%grad ===\n", name, target, barrel_el_rad);
+    bool ok = true;
+    ok &= identity::compare_scalar("time", bc_raw.time, tb_raw.time, 1e-7);
+    ok &= identity::compare_scalar("position.x", bc_raw.px, tb_raw.px, 1e-6);
+    ok &= identity::compare_scalar("position.y", bc_raw.py, tb_raw.py, 1e-6);
+    ok &= identity::compare_scalar("velocity.x", bc_raw.vx, tb_raw.vx, 1e-6);
+    ok &= identity::compare_scalar("velocity.y", bc_raw.vy, tb_raw.vy, 1e-6);
+    return ok;
+}
+
+static bool test_g7_integrate_at_keys()
+{
+    bool ok = true;
+    ok &= integrate_at_identity(TINY_BCLIBC_KEY_TIME, "time", 1.0, 0.05);
+    ok &= integrate_at_identity(TINY_BCLIBC_KEY_POS_X, "position.x", 1500.0, 0.05);
+    ok &= integrate_at_identity(TINY_BCLIBC_KEY_POS_Y, "position.y", 50.0, 0.05);
+    ok &= integrate_at_identity(TINY_BCLIBC_KEY_VEL_X, "velocity.x", 2000.0, 0.05);
     return ok;
 }
 
@@ -1007,6 +1061,7 @@ int main()
     all_pass &= test_g7_basic_find_apex();
     all_pass &= test_g7_find_apex_first_step();
     all_pass &= test_min_steps_gate();
+    all_pass &= test_g7_integrate_at_keys();
     all_pass &= test_g7_basic_find_max_range();
     all_pass &= test_g7_basic_zero_angle_tight_limits();
     all_pass &= test_close_target_zero();

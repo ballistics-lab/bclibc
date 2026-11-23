@@ -299,6 +299,28 @@ static inline void tiny_bclibc__set_error(const char *msg)
         return pt->vy;
     }
 
+    /* The field of the point selected by the int32_t key `aux` points to (TINY_BCLIBC_KEY_*). */
+    static inline real_t tiny_bclibc__value_key(const TINY_BCLIBC_BaseTrajData *pt, const void *aux)
+    {
+        return TINY_BCLIBC_BaseTrajData_get(pt, *(const int32_t *)aux);
+    }
+
+    static inline void tiny_bclibc__set_key(TINY_BCLIBC_BaseTrajData *pt, int32_t key, real_t value)
+    {
+        switch (key)
+        {
+        case TINY_BCLIBC_KEY_TIME: pt->time = value; break;
+        case TINY_BCLIBC_KEY_MACH: pt->mach = value; break;
+        case TINY_BCLIBC_KEY_POS_X: pt->px = value; break;
+        case TINY_BCLIBC_KEY_POS_Y: pt->py = value; break;
+        case TINY_BCLIBC_KEY_POS_Z: pt->pz = value; break;
+        case TINY_BCLIBC_KEY_VEL_X: pt->vx = value; break;
+        case TINY_BCLIBC_KEY_VEL_Y: pt->vy = value; break;
+        case TINY_BCLIBC_KEY_VEL_Z: pt->vz = value; break;
+        default: break;
+        }
+    }
+
     static inline real_t tiny_bclibc__value_mach(const TINY_BCLIBC_BaseTrajData *pt, const void *aux)
     {
         (void)aux;
@@ -1221,11 +1243,9 @@ static inline void tiny_bclibc__set_error(const char *msg)
     {
         int32_t key;
         real_t target;
-        /* 3-point sliding window for PCHIP interpolation, mirroring bclibc's
-         * BCLIBC_SinglePointHandler and the pre-Cash-Karp RK4 at_on_step path.
-         * A 2-point Hermite using endpoint tangents measurably shifts the
-         * interpolated crossing (esp. near apex where vy is flat) relative to
-         * bclibc's own 3-point scheme, by up to ~1.7e-2 ft at 3500 ft range. */
+        /* 3-point sliding window for the PCHIP fallback, mirroring bclibc's BCLIBC_SinglePointHandler: the crossing is
+         * located on the Hermite interpolant of the accepted step (as bclibc), the window is used only when no step
+         * can be interpolated. */
         TINY_BCLIBC_BaseTrajData win[3];
         int32_t n;
         int32_t first_checked; /* the start..first-step segment is tested once, when the third point arrives */
@@ -1267,24 +1287,38 @@ static inline void tiny_bclibc__set_error(const char *msg)
         c->last = *end;
         c->have_last = 1;
 
-        /* Mirror BCLIBC_SinglePointHandler::handle_step in bclibc:
-         * - For POS_X, use the exact 2-point Hermite reconstruction
-         *   (tiny_bclibc__hermite_at_x), NOT 3-point PCHIP.  This is the path
-         *   bclibc itself takes for POS_X queries, and it is what zero-finding
-         *   depends on: error_at_distance() issues a POS_X query per Newton
-         *   iteration, and any deviation from hermite_at_x shifts the root.
-         * - For every other key (VEL_Y, MACH, ...), accumulate a 3-point window
-         *   and use 3-point PCHIP (TINY_BCLIBC_BaseTrajData_interpolate), the
-         *   same path bclibc's handle() takes. */
-        if (c->key == TINY_BCLIBC_KEY_POS_X)
+        /* Mirror BCLIBC_SinglePointHandler::handle_step in bclibc: the crossing of every key (POS_X for error_at_distance,
+         * VEL_Y for find_apex, TIME, MACH, ...) is located on the Hermite interpolant of this step (both end positions and
+         * velocities), the one convention of the filter rows too, so find_apex returns the APEX row and integrate_at(time, t)
+         * the row at t. error_at_distance() issues a POS_X query per Newton iteration and depends on the same root as the
+         * C++ core. The 3-point window below is only the fallback of a step that cannot be interpolated. */
         {
-            if (!tiny_bclibc__hermite_at_x(start, end, c->target, &c->result))
-                return 0;
-            c->found = 1;
-            return 1;
+            real_t v0 = TINY_BCLIBC_BaseTrajData_get(start, c->key);
+            real_t v1 = TINY_BCLIBC_BaseTrajData_get(end, c->key);
+            int32_t bracketed = (v0 <= c->target && c->target <= v1) || (v1 <= c->target && c->target <= v0);
+            if (bracketed)
+            {
+                int32_t ok;
+                if (c->key == TINY_BCLIBC_KEY_POS_X)
+                    ok = tiny_bclibc__hermite_at_x(start, end, c->target, &c->result);
+                else if (c->key == TINY_BCLIBC_KEY_TIME)
+                    ok = tiny_bclibc__hermite_at_time(start, end, c->target, &c->result);
+                else
+                {
+                    int32_t key = c->key;
+                    ok = tiny_bclibc__hermite_at_value(start, end, tiny_bclibc__value_key, &key, c->target, &c->result);
+                    if (ok)
+                        tiny_bclibc__set_key(&c->result, c->key, c->target); /* the key gets the exact target */
+                }
+                if (ok)
+                {
+                    c->found = 1;
+                    return 1;
+                }
+            }
         }
 
-        /* Non-POS_X: 3-point sliding window + PCHIP. */
+        /* Fallback: 3-point sliding window + PCHIP. */
         if (c->n < 3)
         {
             c->win[c->n++] = *end;
