@@ -642,6 +642,16 @@ namespace bclibc
     BCLIBC_Result<std::monostate> BCLIBC_EssentialTerminators::handle(const BCLIBC_BaseTrajData &data)
     {
         if (this->termination_reason_ref != BCLIBC_TerminationReason::NO_TERMINATE) return std::monostate{};
+        // A non-finite state (NaN or Inf in a position or velocity component: an invalid input, an atmosphere or a
+        // gravity that is NaN) makes every limit below compare false, so no terminator would ever fire and the integration
+        // (and every search that calls it) would never return. It is checked once per step, here, not in the stages; one
+        // sum is non-finite if any of its terms is.
+        const double velocity = data.velocity().mag();
+        if (!std::isfinite(velocity + data.px + data.py + data.pz))
+        {
+            return BCLIBC_Error{BCLIBC_SolverRuntimeError{
+                "Non-finite integration state (NaN or Inf in position or velocity): check the shot, atmosphere and configuration inputs"}};
+        }
         // The first sample is the initial point, not the end of a step. The limits are tested after a step (the Python
         // engines integrate one step and then test), so a shot that starts outside a limit still takes that step and
         // keeps its terminal point: the filter's finalize() adds the last step end as the terminal row. Stopping at the
@@ -653,7 +663,6 @@ namespace bclibc
         ++this->step_count;
         if (this->step_count >= this->MIN_ITERATIONS_COUNT && data.px > this->range_limit_ft)
         { this->termination_reason_ref = BCLIBC_TerminationReason::TARGET_RANGE_REACHED; BCLIBC_DEBUG("MaxRange limit reached: %.2f > %.2f", data.px, this->range_limit_ft); return std::monostate{}; }
-        const double velocity = data.velocity().mag();
         if (velocity < this->min_velocity_fps)
         { this->termination_reason_ref = BCLIBC_TerminationReason::MINIMUM_VELOCITY_REACHED; BCLIBC_DEBUG("MinVelocity termination: v=%.2f < %.2f", velocity, this->min_velocity_fps); return std::monostate{}; }
         if (data.py < this->max_drop_ft)

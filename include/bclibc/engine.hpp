@@ -303,6 +303,12 @@ namespace bclibc
         double range_for_angle(double angle_rad);
 
         /**
+         * @brief range_for_angle() that reports a failed integration (a non-finite state) as an error, where
+         * range_for_angle() answers 0.
+         */
+        BCLIBC_Result<double> range_for_angle_checked(double angle_rad);
+
+        /**
          * @brief Finds the zero angle using Ridder's method.
          *
          * @param distance Target slant distance in feet.

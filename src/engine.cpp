@@ -242,7 +242,9 @@ namespace bclibc
         BCLIBC_TerminationReason reason;
         BCLIBC_SinglePointHandler handler(key, target_value, &reason);
 
-        this->integrate(this->MAX_INTEGRATION_RANGE, handler, reason);
+        // An integration that failed (a non-finite state, a drag lookup) is reported, not read as a short flight
+        const auto integration_result = this->integrate(this->MAX_INTEGRATION_RANGE, handler, reason);
+        if (has_error(integration_result)) return integration_result.error();
 
         if (!handler.found())
         {
@@ -307,7 +309,8 @@ namespace bclibc
             0.0,                                  // Apex is where vy = 0
             &reason);
 
-        this->integrate(this->MAX_INTEGRATION_RANGE, apex_handler, reason);
+        const auto integration_result = this->integrate(this->MAX_INTEGRATION_RANGE, apex_handler, reason);
+        if (has_error(integration_result)) return integration_result.error();
 
         if (!apex_handler.found())
         {
@@ -354,7 +357,8 @@ namespace bclibc
             target_x_ft,
             &reason);
 
-        integrate(this->MAX_INTEGRATION_RANGE, handler, reason);
+        const auto integration_result = integrate(this->MAX_INTEGRATION_RANGE, handler, reason);
+        if (has_error(integration_result)) return integration_result.error();
 
         // The trajectory may end before the target (a limit, the minimum velocity): then the miss is measured at its
         // last point. It is still a valid, signed error -- the shot is short, the distance term makes it negative --
@@ -610,7 +614,8 @@ namespace bclibc
                 &reason // Enable early termination
             );
 
-            this->integrate(target_x_ft, handler, reason);
+            const auto integration_result = this->integrate(target_x_ft, handler, reason);
+            if (has_error(integration_result)) return integration_result.error();
 
             // A trajectory that ends before the target is used at its last point: the distance term then makes the
             // step non-convergent, which is a ZeroFindingError and so lets zero_angle_with_fallback switch to Ridder's
@@ -752,6 +757,15 @@ namespace bclibc
      */
     double BCLIBC_BaseEngine::range_for_angle(double angle_rad)
     {
+        const auto range = this->range_for_angle_checked(angle_rad);
+        return has_error(range) ? 0.0 : range.value();
+    }
+
+    /**
+     * @brief range_for_angle() that reports a failed integration (a non-finite state) instead of answering 0.
+     */
+    BCLIBC_Result<double> BCLIBC_BaseEngine::range_for_angle_checked(double angle_rad)
+    {
         // Block access to engine if it is needed for integration
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
 
@@ -781,7 +795,8 @@ namespace bclibc
             &reason,
             this->shot.look_angle < 0.0 ? DOWNHILL_MAX_FLIGHT_TIME_S : 0.0);
 
-        this->integrate(this->MAX_INTEGRATION_RANGE, handler, reason);
+        const auto integration_result = this->integrate(this->MAX_INTEGRATION_RANGE, handler, reason);
+        if (has_error(integration_result)) return integration_result.error();
 
         if (handler.found())
         {
@@ -862,8 +877,13 @@ namespace bclibc
         double d = a + inv_phi * h;
         double yc, yd;
 
-        yc = this->range_for_angle(c);
-        yd = this->range_for_angle(d);
+        // A range that cannot be computed (a failed integration) ends the search with its error
+        BCLIBC_Result<double> range = this->range_for_angle_checked(c);
+        if (has_error(range)) return range.error();
+        yc = range.value();
+        range = this->range_for_angle_checked(d);
+        if (has_error(range)) return range.error();
+        yd = range.value();
 
         // Golden-section search: cMaxIterations iterations, stopping when the bracket is narrower than 1e-6 rad (angle
         // tolerance), as the Python reference. With cMaxIterations 0 the angle is the centre of the initial bracket.
@@ -880,7 +900,9 @@ namespace bclibc
                 yd = yc;
                 h = b - a;
                 c = a + inv_phi_sq * h;
-                yc = this->range_for_angle(c);
+                range = this->range_for_angle_checked(c);
+                if (has_error(range)) return range.error();
+                yc = range.value();
             }
             else
             {
@@ -889,12 +911,16 @@ namespace bclibc
                 yc = yd;
                 h = b - a;
                 d = a + inv_phi * h;
-                yd = this->range_for_angle(d);
+                range = this->range_for_angle_checked(d);
+                if (has_error(range)) return range.error();
+                yd = range.value();
             }
         }
 
         angle_at_max_rad = (a + b) / 2;
-        max_range_ft = this->range_for_angle(angle_at_max_rad);
+        range = this->range_for_angle_checked(angle_at_max_rad);
+        if (has_error(range)) return range.error();
+        max_range_ft = range.value();
 
         return BCLIBC_MaxRangeResult{max_range_ft, angle_at_max_rad};
     };

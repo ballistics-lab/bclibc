@@ -581,9 +581,11 @@ static int32_t opErrorAtDistance(BCLIBC_BaseEngine &eng, double angle_rad, doubl
     return BCLIBCFFI_OK;
 }
 
-static int32_t opRangeForAngle(BCLIBC_BaseEngine &eng, double angle_rad, double *out_range)
+static int32_t opRangeForAngle(BCLIBC_BaseEngine &eng, double angle_rad, double *out_range, BCLIBCFFI_Error *err)
 {
-    *out_range = eng.range_for_angle(angle_rad);
+    const auto range = eng.range_for_angle_checked(angle_rad);
+    if (has_error(range)) return setEngineError(err, range.error());
+    *out_range = range.value();
     return BCLIBCFFI_OK;
 }
 
@@ -723,7 +725,11 @@ extern "C"
             std::vector<BCLIBC_TrajectoryData> records;
             BCLIBC_TerminationReason reason;
 
-            eng.integrate_filtered(
+            // Leave the outputs defined on failure so a caller that frees them unconditionally is safe.
+            *out_records = nullptr;
+            *out_count = 0;
+            *out_reason = 0;
+            const auto res = eng.integrate_filtered(
                 request->range_limit_ft,
                 request->range_step_ft,
                 request->time_step,
@@ -731,6 +737,7 @@ extern "C"
                 records,
                 reason,
                 nullptr);
+            if (has_error(res)) return setEngineError(err, res.error());
 
             auto count = static_cast<int32_t>(records.size());
             BCLIBCFFI_TrajectoryData *arr = nullptr;
@@ -966,7 +973,11 @@ extern "C"
             std::vector<BCLIBC_TrajectoryData> records;
             BCLIBC_TerminationReason reason;
 
-            eng.integrate_filtered(
+            // Leave the outputs defined on failure so a caller that frees them unconditionally is safe.
+            *out_records = nullptr;
+            *out_count = 0;
+            *out_reason = 0;
+            const auto res = eng.integrate_filtered(
                 request->range_limit_ft,
                 request->range_step_ft,
                 request->time_step,
@@ -974,6 +985,7 @@ extern "C"
                 records,
                 reason,
                 nullptr);
+            if (has_error(res)) return setEngineError(err, res.error());
 
             auto count = static_cast<int32_t>(records.size());
             BCLIBCFFI_TrajectoryData *arr = nullptr;
@@ -1303,7 +1315,7 @@ extern "C"
     {
         return ffi_call([&]() -> int32_t
                         { return runFixed(shot, err, [&](BCLIBC_BaseEngine &eng) -> int32_t
-                                          { return opRangeForAngle(eng, angle_rad, out_slant_range_ft); }); }, err);
+                                          { return opRangeForAngle(eng, angle_rad, out_slant_range_ft, err); }); }, err);
     }
 
     int32_t BCLIBCFFI_range_for_angle_adaptive_shot(
@@ -1314,7 +1326,7 @@ extern "C"
                         { return dispatchAdaptive(method, shot, relative_tolerance, absolute_tolerance, err,
                                                   [&](BCLIBC_BaseEngine &eng, auto &integ) -> int32_t
                                                   {
-                              const int32_t st = opRangeForAngle(eng, angle_rad, out_slant_range_ft);
+                              const int32_t st = opRangeForAngle(eng, angle_rad, out_slant_range_ft, err);
                               storeStats(integ, out_stats);
                               return st; }); }, err);
     }

@@ -44,6 +44,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ### Fixed
+- **A vacuum atmosphere (pressure 0) no longer hangs `integrate`, `find_apex`, `find_max_range` and every zero search** (all six integration
+  methods; `tiny_bclibc` too). The density ratio for an altitude more than 30 ft from the base altitude divided by the base pressure,
+  `0 / 0 = NaN` for a vacuum; the integrators carried the NaN, no terminator ever compared true, and nothing returned. A vacuum is now
+  drag-free flight: the density ratio is 0 at every altitude (`BCLIBC_Atmosphere::update_density_factor_and_mach_for_altitude`,
+  `TINY_BCLIBC_Atmosphere_update_density_mach`), and the speed of sound stays what the temperature gives (finite, positive). Nothing
+  changes for a shot with a pressure above 0.
+- **A state that becomes non-finite stops the integration with an error instead of looping.** The essential terminators (and the Tsitouras loop of
+  `tiny_bclibc`) check once per step that the position and velocity are finite; if not, the integration fails with a
+  `BCLIBC_SolverRuntimeError` (C ABI `BCLIBCFFI_ERR_SOLVER_RUNTIME`; `TINY_BCLIBC_ERR_RUNTIME`), e.g. for a NaN gravity, pressure, temperature,
+  muzzle velocity or elevation. `integrate_at`, `find_apex`, `error_at_distance`, the zero solvers, `range_for_angle`
+  (new `range_for_angle_checked`; `BCLIBCFFI_range_for_angle_*` returns the error) and `find_max_range`, and the plain
+  `BCLIBCFFI_integrate` / `BCLIBCFFI_integrate_shot`, used to drop the status of the integration and now return it. No new error codes.
 - The **golden-section search for the maximum range follows the Python reference**: `cMaxIterations` iterations, stopping when the bracket is
   narrower than 1e-6 rad. The C++ core ran a fixed 100 iterations and stopped at 1e-5 rad. With the default config the angle of maximum range
   moves by up to 4e-6 rad and the maximum range by up to 0.1 ft when the maximum lies at an edge of the bracket (12144.611 -> 12144.710 ft for

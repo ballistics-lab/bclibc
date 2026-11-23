@@ -243,6 +243,21 @@ target_compile_features(bclibc_test_max_range_iterations PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_max_range_iterations COMMAND bclibc_test_max_range_iterations)
 
+# A vacuum (pressure 0) is drag-free flight (the density ratio of the altitude was 0 / 0 = NaN and nothing returned), and a
+# state that becomes NaN by another route is an error, not a loop. One binary with the C ABI layer compiled in. The
+# non-finite part never returned before the finite-state check, so the test has a time limit as a safety net.
+add_executable(bclibc_test_vacuum
+    test_vacuum.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_vacuum PRIVATE bclibc_core)
+target_include_directories(bclibc_test_vacuum PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_vacuum PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_vacuum COMMAND bclibc_test_vacuum)
+set_tests_properties(bclibc_test_vacuum PROPERTIES TIMEOUT 300)
+
 # These tests compile src/ffi/bclibc_ffi.cpp into the executable (one copy of the core, no DLL): on Windows the header
 # must declare its functions dllexport (a definition of a dllimport function is an error on MSVC).
 if(WIN32)
@@ -259,7 +274,8 @@ if(WIN32)
         bclibc_test_zero_ridder_unconverged
         bclibc_test_rk4_coriolis_stage
         bclibc_test_hermite_single_point
-        bclibc_test_max_range_iterations)
+        bclibc_test_max_range_iterations
+        bclibc_test_vacuum)
         if(TARGET ${_t})
             target_compile_definitions(${_t} PRIVATE BCLIBC_FFI_EXPORT)
         endif()
