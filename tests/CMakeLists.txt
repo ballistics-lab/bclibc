@@ -113,3 +113,17 @@ target_include_directories(bclibc_test_windsock_reset PRIVATE "${BCLIBC_INCLUDE_
 target_compile_features(bclibc_test_windsock_reset PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_windsock_reset COMMAND bclibc_test_windsock_reset)
+
+# find_zero_angle() and find_zero_point() return the same angle for the same search (the bracket-width exit of the
+# Ridder loop used to return the midpoint of the bracket without a point and next_angle with one); the angles of searches
+# that never took that exit are unchanged (recorded values).
+add_executable(bclibc_test_zero_ridder_angle
+    test_zero_ridder_angle.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_zero_ridder_angle PRIVATE bclibc_core)
+target_include_directories(bclibc_test_zero_ridder_angle PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_zero_ridder_angle PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_zero_ridder_angle COMMAND bclibc_test_zero_ridder_angle)

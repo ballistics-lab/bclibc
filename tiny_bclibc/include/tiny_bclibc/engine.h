@@ -1731,9 +1731,10 @@ static inline void tiny_bclibc__set_error(const char *msg)
             if (TINY_BCLIBC_FABS(high_angle - low_angle) < angle_tol)
             {
                 converged = 1;
-                real_t res = (low_angle + high_angle) / REAL_C(2.0);
-                p.barrel_elevation = res;
-                *out_angle_rad = res;
+                /* The angle of the last evaluation, as BCLIBC_BaseEngine::find_zero_angle_ridder returns it (the point
+                 * of find_zero_point is fired at it), not the midpoint of the bracket. */
+                p.barrel_elevation = next_angle;
+                *out_angle_rad = next_angle;
                 return TINY_BCLIBC_OK;
             }
         }

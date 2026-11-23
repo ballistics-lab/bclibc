@@ -1186,7 +1186,8 @@ namespace bclibc
                 {
                     return return_with_point(next_angle, next_hit);
                 }
-                return (low_angle + high_angle) / 2.0;
+                // The same angle as with a point (find_zero_point), not the midpoint of the bracket.
+                return next_angle;
             }
         }
 
