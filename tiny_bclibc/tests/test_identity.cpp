@@ -504,10 +504,10 @@ static bool test_g7_basic_zero_point()
            bc_result.point.flag == tb_result.point.flag;
 }
 
-static bool test_g7_basic_find_apex()
+static bool find_apex_identity(double barrel_el_rad)
 {
     // bclibc find_apex (via integrate_at VEL_Y=0)
-    auto bc_props = make_bclibc_shot_props(0.05); // small upward angle so there's an apex
+    auto bc_props = make_bclibc_shot_props(barrel_el_rad); // small upward angle so there's an apex
     bclibc::BCLIBC_BaseEngine bc_eng;
     init_bclibc_engine(bc_eng, bc_props);
 
@@ -529,7 +529,7 @@ static bool test_g7_basic_find_apex()
     // tbclibc find_apex
     TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
     TINY_BCLIBC_ShotProps tb_props;
-    if (make_tiny_bclibc_shot_props(&tb_props, tb_curve, 0.05) != TINY_BCLIBC_OK)
+    if (make_tiny_bclibc_shot_props(&tb_props, tb_curve, barrel_el_rad) != TINY_BCLIBC_OK)
     {
         std::printf("FAIL: tbclibc build failed\n");
         return false;
@@ -542,7 +542,7 @@ static bool test_g7_basic_find_apex()
         return false;
     }
 
-    std::printf("\n=== G7_BASIC / find_apex / barrel_el=0.05rad ===\n");
+    std::printf("\n=== G7_BASIC / find_apex / barrel_el=%grad ===\n", barrel_el_rad);
     // Tsitouras is FSAL and takes far fewer, larger adaptive steps than Cash-Karp
     // (no per-retry-recompute, growth factor capped at 10x vs Cash-Karp's 5x): each
     // step's own C-vs-C++ stage-arithmetic rounding (templated Tableau::A(i,j) loop
@@ -553,6 +553,17 @@ static bool test_g7_basic_find_apex()
     // ample margin across platforms/compilers while still catching a real
     // regression many orders of magnitude larger than expected FP noise.
     return identity::compare_point(bc_apex, tb_apex, 0, identity::kAbsTol, true, 1e-7);
+}
+
+static bool test_g7_basic_find_apex()
+{
+    return find_apex_identity(0.05);
+}
+
+// The apex falls inside the first integration step (0.001 deg): both engines used to report "no apex".
+static bool test_g7_find_apex_first_step()
+{
+    return find_apex_identity(0.001 * 3.14159265358979323846 / 180.0);
 }
 
 static bool test_g7_basic_find_max_range()
@@ -888,6 +899,7 @@ int main()
     all_pass &= test_g7_basic_zero_angle();
     all_pass &= test_g7_basic_zero_point();
     all_pass &= test_g7_basic_find_apex();
+    all_pass &= test_g7_find_apex_first_step();
     all_pass &= test_g7_basic_find_max_range();
     all_pass &= test_g7_basic_zero_angle_tight_limits();
     all_pass &= test_close_target_zero();

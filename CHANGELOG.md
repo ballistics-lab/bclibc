@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   core used 1.5690308719637473 (a mistyped constant, 89.8988 degrees), in the code shared by all six engines (RK4, Euler, Velocity Verlet, Cash-Karp,
   Dormand-Prince, Tsitouras). It shows as a different `last_barrel_elevation` in "No lofted zero trajectory" errors and as a slightly different
   bracket for a lofted zero near the bound. `tiny_bclibc` has no lofted search and is not affected.
+- The **single-point handler finds a key crossing inside the first integration step** (`BCLIBC_SinglePointHandler`, used by `find_apex`,
+  `integrate_at` / `integrate_raw_at`). Its three-point window was only tested between its 2nd and 3rd points, so the segment from the start
+  point to the end of the first step was never examined: the apex of a shot with a tiny elevation (relative angle 0.001 deg, apex at 1.4 ms)
+  failed with "No apex flagged", and `integrate_at(time, t)` failed for every `t` before the end of the first step, `t = 0` included. The
+  segment is now tested once, when the third point arrives, with the same three-point interpolation as the later steps; crossings in later steps
+  are unchanged (recorded-value guard). `tiny_bclibc` had the same defect and is fixed the same way (identity test added).
 - The **wind sock is rewound at the start of every integration** (`BCLIBC_WindSock::reset()`, called by RK4, Euler, Velocity Verlet and the
   embedded RK45 engines). Every integration used to continue from the wind segment the previous one had ended on, so the trial shots of a
   zero or maximum-range search (`find_zero_angle`, `find_zero_point`, `find_max_range`, a lofted zero, Newton's `zero_angle` with more than

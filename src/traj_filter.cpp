@@ -819,10 +819,30 @@ namespace bclibc
         if (this->count >= 3) { this->points[0] = this->points[1]; this->points[1] = this->points[2]; this->points[2] = data; }
         else { this->points[this->count] = data; ++this->count; }
         if (this->count < 3 || this->target_passed) return std::monostate{};
-        const double val_prev = this->points[1][this->key_kind];
-        const double val_curr = this->points[2][this->key_kind];
-        const bool crossed = (val_prev <= this->target_value && this->target_value <= val_curr) || (val_curr <= this->target_value && this->target_value <= val_prev);
-        if (!crossed) return std::monostate{};
+        const auto crosses = [this](const BCLIBC_BaseTrajData &a, const BCLIBC_BaseTrajData &b)
+        {
+            const double va = a[this->key_kind];
+            const double vb = b[this->key_kind];
+            return (va <= this->target_value && this->target_value <= vb) || (vb <= this->target_value && this->target_value <= va);
+        };
+        // The first segment (start point .. end of the first step) has no window of its own before the third point
+        // arrives, so it is checked once, here, with the very window the later steps use (the x <= x1 branch of the
+        // 3-point interpolation): a crossing inside the first step (the apex of a shot with a tiny elevation, time 0)
+        // is no longer missed. If this finds nothing (no crossing, or a degenerate segment) the later steps are
+        // handled exactly as before.
+        if (this->count == 3 && !this->first_segment_checked)
+        {
+            this->first_segment_checked = true;
+            if (crosses(this->points[0], this->points[1])
+                && !has_error(BCLIBC_BaseTrajData::interpolate(this->key_kind, this->target_value, this->points[0], this->points[1], this->points[2], this->result)))
+            {
+                this->target_passed = true;
+                this->is_found = true;
+                if (termination_reason_ptr != nullptr) { *this->termination_reason_ptr = BCLIBC_TerminationReason::HANDLER_REQUESTED_STOP; BCLIBC_INFO("BCLIBC_SinglePointHandler requested early termination"); }
+                return std::monostate{};
+            }
+        }
+        if (!crosses(this->points[1], this->points[2])) return std::monostate{};
         this->target_passed = true;
         const auto interpolation = BCLIBC_BaseTrajData::interpolate(this->key_kind, this->target_value, this->points[0], this->points[1], this->points[2], this->result);
         if (has_error(interpolation)) return std::monostate{};

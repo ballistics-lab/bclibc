@@ -265,6 +265,7 @@ namespace bclibc
         BCLIBC_BaseTrajData points[3];
         int count; // Number of points received (0-3)
         bool target_passed;
+        bool first_segment_checked = false; // the start..first-step segment is tested once, when the third point arrives
 
         // Early termination reason
         BCLIBC_TerminationReason *termination_reason_ptr;

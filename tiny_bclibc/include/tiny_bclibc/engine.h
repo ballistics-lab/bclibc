@@ -1228,6 +1228,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
          * bclibc's own 3-point scheme, by up to ~1.7e-2 ft at 3500 ft range. */
         TINY_BCLIBC_BaseTrajData win[3];
         int32_t n;
+        int32_t first_checked; /* the start..first-step segment is tested once, when the third point arrives */
         int32_t found;
         TINY_BCLIBC_BaseTrajData result;
         /* The last point of the trajectory, for a target the trajectory ends before (see error_at_distance). */
@@ -1297,6 +1298,25 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
         if (c->n < 3)
             return 0;
+
+        /* The first segment (start point .. end of the first step) has no window of its own before the third point
+         * arrives, so it is checked once, here, with the same window (as bclibc's BCLIBC_SinglePointHandler): a
+         * crossing inside the first step (apex of a tiny-elevation shot, time 0) is no longer missed. */
+        if (!c->first_checked)
+        {
+            c->first_checked = 1;
+            real_t v0 = TINY_BCLIBC_BaseTrajData_get(&c->win[0], c->key);
+            real_t w1 = TINY_BCLIBC_BaseTrajData_get(&c->win[1], c->key);
+            real_t w2 = TINY_BCLIBC_BaseTrajData_get(&c->win[2], c->key);
+            if (((v0 <= c->target && c->target <= w1) || (w1 <= c->target && c->target <= v0)) &&
+                v0 != w1 && v0 != w2 && w1 != w2) /* as bclibc: a degenerate window falls through to the later steps */
+            {
+                TINY_BCLIBC_BaseTrajData_interpolate(c->key, c->target,
+                                                     &c->win[0], &c->win[1], &c->win[2], &c->result);
+                c->found = 1;
+                return 1;
+            }
+        }
 
         real_t v1 = TINY_BCLIBC_BaseTrajData_get(&c->win[1], c->key);
         real_t v2 = TINY_BCLIBC_BaseTrajData_get(&c->win[2], c->key);
