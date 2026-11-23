@@ -242,7 +242,7 @@ def compare(label, nat, wa, max_ulp, rel_tol=None):
 
     rel_tol (a case's own, see below) relaxes the doubles to a relative tolerance, for the one kind of result that
     amplifies the 1 ulp difference between the two libms (glibc, musl): a near-vertical lofted zero, where the miss changes
-    2.5 ft per 1e-6 rad over a 50 s flight. It stays far inside the solver's own angle tolerance (1e-5 rad)."""
+    2.5 ft per 1e-6 rad over a 50 s flight. It stays inside the solver's own angle tolerance (1e-7 rad)."""
     (rn, on), (rw, ow) = nat, wa
     if rn != rw:
         return False, f"{label:44} STATUS native={rn} wasm={rw}"

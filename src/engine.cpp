@@ -1076,8 +1076,11 @@ namespace bclibc
         // 4. Ridder's method implementation
         // cZeroFindingAccuracy is a height tolerance in feet; use a separate
         // constant for the Ridder's angle-bracket convergence checks so they
-        // are not affected by the height accuracy setting.
-        static const double kRiddersAngleTol = 1e-5;
+        // are not affected by the height accuracy setting. 1e-7 rad is the angle
+        // tolerance of the Python reference (py_ballisticcalc base_engine.py);
+        // a looser one returns a bracket that still misses by feet at a long
+        // flight time (near-vertical lofted zeros).
+        static const double kRiddersAngleTolRad = 1e-7;
         for (int i = 0; i < this->config.cMaxIterations; i++)
         {
             mid_angle = (low_angle + high_angle) / 2.0;
@@ -1141,7 +1144,7 @@ namespace bclibc
                 return return_with_point(next_angle, next_hit);
             }
 
-            if (std::fabs(next_angle - mid_angle) < kRiddersAngleTol)
+            if (std::fabs(next_angle - mid_angle) < kRiddersAngleTolRad)
             {
                 converged = 1;
                 return return_with_point(next_angle, next_hit);
@@ -1176,7 +1179,7 @@ namespace bclibc
                 break;
             }
 
-            if (std::fabs(high_angle - low_angle) < kRiddersAngleTol)
+            if (std::fabs(high_angle - low_angle) < kRiddersAngleTolRad)
             {
                 converged = 1;
                 if (result_out != nullptr)
@@ -1193,7 +1196,7 @@ namespace bclibc
             // Try fallback strategies before giving up
 
             // If we have a very small bracket, consider it converged
-            if (std::fabs(high_angle - low_angle) < 10.0 * kRiddersAngleTol)
+            if (std::fabs(high_angle - low_angle) < 10.0 * kRiddersAngleTolRad)
             {
                 double result = (low_angle + high_angle) / 2.0;
                 BCLIBC_DEBUG("Ridder: accepting solution from small bracket: %.6f", result);

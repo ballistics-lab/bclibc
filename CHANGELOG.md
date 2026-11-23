@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- The angle tolerance of the Ridder zero search is **1e-7 rad**, as in the Python reference (py_ballisticcalc `base_engine.py`); it was 1e-5 rad
+  (the constant introduced to decouple it from the height accuracy `cZeroFindingAccuracy`, with an unjustified value). A near-vertical lofted
+  zero changes its miss by up to 6e6 ft per radian, so the search used to return an angle that missed by feet (3.5, 16.8 and 2.1 ft at 50, 100
+  and 300 m for an 800 m/s G7 shot). `tiny_bclibc` keeps 1e-5 (single-precision floats cannot resolve 1e-7 rad above 1 rad).
 - The zero angle of a shot with a **downhill look angle** no longer fails with `OutOfRangeError` / `BCLIBCFFI_ERR_OUT_OF_RANGE`
   ("maximum possible range" of a few feet) for a target well within range. The Ridder zero search (`find_zero_angle_ridder`,
   `find_zero_point`, `BCLIBCFFI_find_zero_{angle,point}_lofted_*` with `lofted == 0`, `BCLIBCFFI_find_max_range_*`, and `tiny_bclibc`'s

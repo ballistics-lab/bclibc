@@ -1663,6 +1663,10 @@ static inline void tiny_bclibc__set_error(const char *msg)
 #else
     const real_t acc = REAL_C(0.001);
 #endif
+        /* bclibc (src/engine.cpp) and the Python reference use 1e-7 rad. Not applied here: with real_t = float the
+         * spacing of the floats is 1.19e-7 for angles in [1, 2) rad (5.96e-8 in [0.5, 1)), so a 1e-7 bracket cannot
+         * be reached there (it would collapse to a single float, or never be met), and the value for single
+         * precision is a separate decision. */
         const real_t angle_tol = REAL_C(1e-5);
         real_t mid_angle, f_mid, s, next_angle, f_next;
         int32_t converged = 0;
