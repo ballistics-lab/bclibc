@@ -258,6 +258,19 @@ target_compile_features(bclibc_test_vacuum PRIVATE cxx_std_17)
 add_test(NAME bclibc_test_vacuum COMMAND bclibc_test_vacuum)
 set_tests_properties(bclibc_test_vacuum PROPERTIES TIMEOUT 300)
 
+# The diagnostic text of "no zero trajectory in the elevation bracket" (bracket and misses, as the Python reference) reaches the
+# caller in the error, not only the log. C ABI compiled in with the C++ core, as test_zero_close_target (one copy of the core).
+add_executable(bclibc_test_zero_no_bracket_message
+    test_zero_no_bracket_message.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_zero_no_bracket_message PRIVATE bclibc_core)
+target_include_directories(bclibc_test_zero_no_bracket_message PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_zero_no_bracket_message PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_zero_no_bracket_message COMMAND bclibc_test_zero_no_bracket_message)
+
 # These tests compile src/ffi/bclibc_ffi.cpp into the executable (one copy of the core, no DLL): on Windows the header
 # must declare its functions dllexport (a definition of a dllimport function is an error on MSVC).
 if(WIN32)
@@ -275,7 +288,8 @@ if(WIN32)
         bclibc_test_rk4_coriolis_stage
         bclibc_test_hermite_single_point
         bclibc_test_max_range_iterations
-        bclibc_test_vacuum)
+        bclibc_test_vacuum
+        bclibc_test_zero_no_bracket_message)
         if(TARGET ${_t})
             target_compile_definitions(${_t} PRIVATE BCLIBC_FFI_EXPORT)
         endif()

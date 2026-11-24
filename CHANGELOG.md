@@ -43,6 +43,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `BCLIBC_ZeroCrossingHandler` locates the slant-height crossing with the same solver. New header `bclibc/hermite_step.hpp`.
 
 ### Fixed
+
+- **The "no zero trajectory" error of the Ridder search carries its diagnostic text.** When the two ends of the elevation bracket
+  do not straddle the target, bclibc formatted "No low|lofted zero trajectory in elevation range (A, B deg). Errors at bracket:
+  f(low)=X, f(high)=Y" (the text of the Python reference's `ZeroFindingError`) but only logged it, because
+  `BCLIBC_SolverZeroFindingError` held a non-owning `const char *` and could not carry a stack buffer out of the function; the
+  returned error said only "No lofted zero trajectory in elevation search bracket". The payload now owns a fixed 256-byte buffer
+  (no heap, no exceptions; longer texts are cut), so `BCLIBC_Error::what()` and the C ABI `BCLIBCFFI_Error.message` (already 512
+  bytes, no layout change) hold the same text as Python, numbers included, and the native Python engines raise it after a repin.
+  The `message` member of `BCLIBC_SolverZeroFindingError` is replaced by `what()` (read the text there); its numeric fields are
+  unchanged. The other zero-finding errors (non-convergence, distance non-convergent, ...) carry constant texts that match
+  Python's, and `tiny_bclibc` reports constant strings (no numbers), so they are unchanged.
 - **A vacuum atmosphere (pressure 0) no longer hangs `integrate`, `find_apex`, `find_max_range` and every zero search** (all six integration
   methods; `tiny_bclibc` too). The density ratio for an altitude more than 30 ft from the base altitude divided by the base pressure,
   `0 / 0 = NaN` for a vacuum; the integrators carried the NaN, no terminator ever compared true, and nothing returned. A vacuum is now

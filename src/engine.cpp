@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <cmath>
 #include "bclibc/engine.hpp"
 #include "bclibc/scope_guard.hpp"
@@ -1076,21 +1077,21 @@ namespace bclibc
 
         if (f_low * f_high >= 0)
         {
-            const char *lofted_str = lofted ? "lofted" : "low";
-            // The formatted diagnostic (angles/f_low/f_high) can only be logged here: unlike a
-            // thrown exception, a returned BCLIBC_SolverZeroFindingError does not own its message,
-            // so it cannot carry a pointer into this stack-local buffer past the return.
-            BCLIBC_WARN(
+            // The same text as the Python reference's ZeroFindingError; the error owns a copy of it.
+            char reason[BCLIBC_SolverZeroFindingError::kMessageCapacity];
+            std::snprintf(
+                reason,
+                sizeof reason,
                 "No %s zero trajectory in elevation range (%.2f, %.2f deg). "
                 "Errors at bracket: f(low)=%.2f, f(high)=%.2f",
-                lofted_str,
+                lofted ? "lofted" : "low",
                 low_angle * 57.29577951308232,
                 high_angle * 57.29577951308232,
                 f_low,
                 f_high);
+            BCLIBC_WARN("%s", reason);
             return BCLIBC_Error{BCLIBC_SolverZeroFindingError{
-                lofted ? "No lofted zero trajectory in elevation search bracket"
-                       : "No low zero trajectory in elevation search bracket",
+                reason,
                 target_y_ft,
                 0,
                 this->shot.barrel_elevation}};
