@@ -15,7 +15,7 @@
 // linear), so the crossing is found on the polynomial: a bracketed Newton iteration (the bracket [0, 1] is kept and
 // narrowed on every evaluation, a Newton step that leaves it is replaced by a bisection), which reaches the roundoff
 // level in 3-5 evaluations. The state at the root is then evaluated once. Quantities that are not such a polynomial (the
-// filter's speed-minus-Mach event) use hermite_at_value(): bisection on the full interpolant.
+// filter's speed-minus-Mach event) use at_value(): bisection on the full interpolant.
 
 #include <cmath>
 #include <functional>

@@ -42,7 +42,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   output 1.7 to 2.6 times faster than the 3-point PCHIP, `find_apex` and `integrate_at` unchanged within measurement noise.
   `BCLIBC_ZeroCrossingHandler` locates the slant-height crossing with the same solver. New header `bclibc/hermite_step.hpp`.
 
-
 ### Fixed
 - **A vacuum atmosphere (pressure 0) no longer hangs `integrate`, `find_apex`, `find_max_range` and every zero search** (all six integration
   methods; `tiny_bclibc` too). The density ratio for an altitude more than 30 ft from the base altitude divided by the base pressure,
