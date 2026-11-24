@@ -353,6 +353,9 @@ namespace bclibc
          * @return BCLIBC_LogicError if integrate_func is empty.
          */
         inline BCLIBC_Result<std::monostate> integrate_func_not_empty();
+
+        /** Value error unless config.cGravityConstant is finite and negative (see engine.cpp). */
+        BCLIBC_Result<std::monostate> check_gravity() const;
     };
 }; // namespace bclibc
 

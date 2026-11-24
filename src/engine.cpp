@@ -96,6 +96,27 @@ namespace bclibc
     };
 
     /**
+     * @brief Rejects a gravity constant the integrators cannot work with.
+     *
+     * The y axis points up, so the gravity constant is negative (-32.17405 ft/s^2 by default). With 0 or a positive
+     * value the projectile never falls and no terminator is ever reached (an integration that never returns); a NaN or
+     * an infinity is no gravity at all. One comparison per engine entry, never per step.
+     *
+     * @return BCLIBC_InvalidArgumentError ("Value error (...)") if cGravityConstant is not a finite negative number.
+     */
+    BCLIBC_Result<std::monostate> BCLIBC_BaseEngine::check_gravity() const
+    {
+        const double g = this->config.cGravityConstant;
+        if (!(std::isfinite(g) && g < 0.0))
+        {
+            return BCLIBC_Error{BCLIBC_InvalidArgumentError{
+                "Value error (gravity_constant must be negative and finite, in ft/s^2 with the y axis up, "
+                "e.g. -32.17405; got zero, a positive value, NaN or infinity)."}};
+        }
+        return std::monostate{};
+    };
+
+    /**
      * @brief Integrates the projectile trajectory using filters and optional dense trajectory storage.
      *
      * @param range_limit_ft Maximum range for integration in feet.
@@ -174,6 +195,8 @@ namespace bclibc
 
         // Block access to engine if it is needed for integration
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
+        const auto gravity_result = this->check_gravity();
+        if (has_error(gravity_result)) return gravity_result.error();
 
         // Essential termination reason control
         BCLIBC_EssentialTerminators terminators(
@@ -288,6 +311,8 @@ namespace bclibc
     {
         // Block access to engine if it is needed for integration
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
+        const auto gravity_result = this->check_gravity();
+        if (has_error(gravity_result)) return gravity_result.error();
 
         if (this->shot.barrel_elevation <= 0)
         {
@@ -347,6 +372,8 @@ namespace bclibc
     {
         // Block access to engine if it is needed for integration
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
+        const auto gravity_result = this->check_gravity();
+        if (has_error(gravity_result)) return gravity_result.error();
 
         this->shot.barrel_elevation = angle_rad;
 
@@ -407,6 +434,8 @@ namespace bclibc
     {
         // Block access to engine if it is needed for integration
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
+        const auto gravity_result = this->check_gravity();
+        if (has_error(gravity_result)) return gravity_result.error();
 
         BCLIBC_BaseTrajData apex;
         double apex_slant_ft;
@@ -543,6 +572,8 @@ namespace bclibc
     {
         // Block access to engine if it is needed for integration
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
+        const auto gravity_result = this->check_gravity();
+        if (has_error(gravity_result)) return gravity_result.error();
 
         if (result_out != nullptr)
         {
@@ -769,6 +800,8 @@ namespace bclibc
     {
         // Block access to engine if it is needed for integration
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
+        const auto gravity_result = this->check_gravity();
+        if (has_error(gravity_result)) return gravity_result.error();
 
         this->shot.barrel_elevation = angle_rad;
 
@@ -824,6 +857,8 @@ namespace bclibc
     {
         // Block access to engine if it is needed for integration
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
+        const auto gravity_result = this->check_gravity();
+        if (has_error(gravity_result)) return gravity_result.error();
 
         double look_angle_rad = this->shot.look_angle;
         double max_range_ft;
@@ -947,6 +982,8 @@ namespace bclibc
     {
         // Block access to engine if it is needed for integration
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
+        const auto gravity_result = this->check_gravity();
+        if (has_error(gravity_result)) return gravity_result.error();
 
         if (result_out != nullptr)
         {

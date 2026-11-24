@@ -84,6 +84,21 @@ static inline void tiny_bclibc__set_error(const char *msg)
         return (a > b) ? a : b;
     }
 
+    /* The y axis points up, so the gravity constant is negative (the default is -GRAVITY_IMPERIAL). With 0 or a positive
+     * value the projectile never falls and no terminator is reached; NaN and infinity are no gravity at all. One check per
+     * entry point, never per step. Returns TINY_BCLIBC_OK, or TINY_BCLIBC_ERR_INVALID_ARG (as bclibc's Value error).
+     * (g - g == 0 is false for NaN and +-inf and needs no <math.h>.) */
+    static inline int32_t tiny_bclibc__check_gravity(const TINY_BCLIBC_Config *cfg)
+    {
+        const real_t g = cfg->cGravityConstant;
+        if (!(g < REAL_C(0.0) && g - g == REAL_C(0.0)))
+        {
+            tiny_bclibc__set_error("gravity_constant must be negative and finite (ft/s^2, y axis up, e.g. -32.17405)");
+            return TINY_BCLIBC_ERR_INVALID_ARG;
+        }
+        return TINY_BCLIBC_OK;
+    }
+
     /* ════════════════════════════════════════════════════════════════════
      *  Internal derivative helpers
      * ════════════════════════════════════════════════════════════════════ */
@@ -435,6 +450,14 @@ static inline void tiny_bclibc__set_error(const char *msg)
         void *ctx,
         int32_t *out_reason)
     {
+        {
+            const int32_t grc = tiny_bclibc__check_gravity(&props->cfg);
+            if (grc != TINY_BCLIBC_OK)
+            {
+                *out_reason = TINY_BCLIBC_TERM_NO_TERMINATE;
+                return grc;
+            }
+        }
         const real_t base_dt = props->calc_step;
         if (base_dt <= REAL_C(0.0))
         {
@@ -1453,6 +1476,8 @@ static inline void tiny_bclibc__set_error(const char *msg)
         {
             if (rc == TINY_BCLIBC_ERR_INTERCEPTION) /* any other failure keeps its own message */
                 tiny_bclibc__set_error("tiny_bclibc_find_apex: apex not found");
+            if (rc == TINY_BCLIBC_ERR_INVALID_ARG) /* a bad gravity constant: the caller's input, as in bclibc */
+                return rc;
             return TINY_BCLIBC_ERR_RUNTIME;
         }
         out->flag = TINY_BCLIBC_TRAJ_FLAG_APEX;

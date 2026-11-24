@@ -1199,8 +1199,8 @@ static bool test_vacuum_identity()
     TINY_BCLIBC_TrajectoryRequest req;
     req.range_limit_ft = 20000.0; req.range_step_ft = 2000.0; req.time_step = 0.0; req.filter_flags = TINY_BCLIBC_TRAJ_FLAG_RANGE;
     int32_t written = 0, total = 0, reason = 0;
-    if (tiny_bclibc_integrate(&tb_props, &req, nullptr, 0, &written, &total, &reason) != TINY_BCLIBC_ERR_RUNTIME)
-    { std::printf("FAIL: tiny integrate with NaN gravity is not TINY_BCLIBC_ERR_RUNTIME\n"); ok = false; }
+    if (tiny_bclibc_integrate(&tb_props, &req, nullptr, 0, &written, &total, &reason) != TINY_BCLIBC_ERR_INVALID_ARG)
+    { std::printf("FAIL: tiny integrate with NaN gravity is not TINY_BCLIBC_ERR_INVALID_ARG\n"); ok = false; }
 
     bc_eng.config.cGravityConstant = std::nan("");
     bc_eng.gravity_vector = bclibc::BCLIBC_V3dT(0.0, bc_eng.config.cGravityConstant, 0.0);

@@ -43,6 +43,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `BCLIBC_ZeroCrossingHandler` locates the slant-height crossing with the same solver. New header `bclibc/hermite_step.hpp`.
 
 ### Fixed
+- A gravity constant of zero or a positive value (the y axis points up, the default is -32.17405 ft/s^2) in the engine config made the
+  core never return: nothing ever reaches a terminator when the projectile does not fall. `integrate`, `integrate_at`, `find_apex`,
+  `find_max_range` and every zero search now check `cGravityConstant` once at their entry and return a value error
+  (`BCLIBC_InvalidArgumentError`, "Value error (gravity_constant must be negative and finite ...)", `BCLIBCFFI_ERR_INVALID_ARG` in the C
+  ABI) for a gravity that is zero, positive, NaN or infinite. `tiny_bclibc` returns `TINY_BCLIBC_ERR_INVALID_ARG` from the same entry points
+  (`tiny_bclibc_find_apex` used to turn every integration failure into `TINY_BCLIBC_ERR_RUNTIME`; it now passes this one through). Results for a
+  negative gravity are unchanged.
 
 - **The "no zero trajectory" error of the Ridder search carries its diagnostic text.** When the two ends of the elevation bracket
   do not straddle the target, bclibc formatted "No low|lofted zero trajectory in elevation range (A, B deg). Errors at bracket:

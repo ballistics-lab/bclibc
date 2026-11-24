@@ -97,6 +97,22 @@ target_compile_definitions(test_ridder_unconverged PRIVATE TINY_RIDDER_ITER_CAP=
 target_compile_features(test_ridder_unconverged PRIVATE cxx_std_17)
 add_test(NAME ridder_unconverged COMMAND test_ridder_unconverged)
 
+# ── test_gravity_validation ───────────────────────────────────────────────
+# A gravity constant that is not a finite negative number is TINY_BCLIBC_ERR_INVALID_ARG from every entry point, not a loop
+# that never returns (the bad-gravity calls never returned before the check: hence the time limit).
+add_executable(test_gravity_validation test_gravity_validation.cpp)
+target_include_directories(test_gravity_validation PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${TINY_BCLIBC_ROOT}/include"
+    "${TINY_BCLIBC_ROOT}/generated"
+)
+target_compile_features(test_gravity_validation PRIVATE cxx_std_17)
+if(NOT WIN32)
+    target_link_libraries(test_gravity_validation PRIVATE m)
+endif()
+add_test(NAME gravity_validation COMMAND test_gravity_validation)
+set_tests_properties(gravity_validation PROPERTIES TIMEOUT 60)
+
 message(STATUS "tiny_bclibc identity test configured")
 message(STATUS "  bclibc root : ${BCLIBC_ROOT}")
 message(STATUS "  tiny_bclibc root: ${TINY_BCLIBC_ROOT}")
