@@ -214,6 +214,20 @@ target_compile_features(bclibc_test_rk4_coriolis_stage PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_rk4_coriolis_stage COMMAND bclibc_test_rk4_coriolis_stage)
 
+# The embedded RK45 engines (Cash-Karp, Dormand-Prince, Tsitouras) evaluate the Coriolis acceleration at every stage, with the
+# stage's own velocity, so the tolerance controls its error (before, one value per step: the error did not shrink with the
+# tolerance); the result without Coriolis is unchanged. C ABI compiled in with the C++ core, as test_zero_close_target.
+add_executable(bclibc_test_adaptive_coriolis_stage
+    test_adaptive_coriolis_stage.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_adaptive_coriolis_stage PRIVATE bclibc_core)
+target_include_directories(bclibc_test_adaptive_coriolis_stage PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_adaptive_coriolis_stage PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_adaptive_coriolis_stage COMMAND bclibc_test_adaptive_coriolis_stage)
+
 # One interpolation convention for everything that works with integration steps: the cubic Hermite of the step (positions and
 # velocities at its ends), for find_apex, integrate_at (every key), the dense-output queries and the C ABI interpolation, as
 # for the rows of the trajectory filter; the 3-point PCHIP is only a fallback. C ABI compiled in with the C++ core, as
@@ -286,6 +300,7 @@ if(WIN32)
         bclibc_test_single_point_first_step
         bclibc_test_zero_ridder_unconverged
         bclibc_test_rk4_coriolis_stage
+        bclibc_test_adaptive_coriolis_stage
         bclibc_test_hermite_single_point
         bclibc_test_max_range_iterations
         bclibc_test_vacuum
