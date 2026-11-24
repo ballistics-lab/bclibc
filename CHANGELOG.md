@@ -106,6 +106,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   started with, and reuse it in all four stages. On a 30 degree, 800 m/s G7 shot at 4000 m (latitude 45, azimuth 90) the result was off the
   Python one by 1.5e-3 ft in height and 1.8e-3 ft in windage (3e-3 ft windage at latitude -30, azimuth 0); it now agrees to 1e-6 ft. Shots
   without Coriolis (no latitude, or `flat_fire_only`) are unchanged. Euler, Velocity Verlet and the embedded RK45 engines were not changed.
+- **The embedded RK45 engines (Cash-Karp, Dormand-Prince, Tsitouras) and `tiny_bclibc`'s adaptive engine evaluate the Coriolis acceleration at
+  every stage**, with the stage's own ground velocity, as the Python scipy engine does (a derivative call per stage). It used to be computed
+  once per step at the velocity the step started with and reused in all stages; being the same in every stage it cancels in the embedded error
+  estimate, so the tolerance did not control its error (the windage error of a 30 degree, 800 m/s G7 shot at 4000 m, latitude 45, azimuth 90,
+  was 0.11 ft at rtol = atol = 1e-4 and still 0.045 ft at 1e-10, against a converged Python scipy DOP853 solution; the height error of a
+  near-vertical 85 degree shot was 0.65 ft). It is now 1e-4 ft at the default 1e-6 and below 1e-6 ft at 1e-10, shrinking with the tolerance, and
+  the tiny/bclibc windage of a 30 degree, 12000 ft shot at the default tolerance moves from 0.119 ft off the Python one to 1.7e-4 ft. The
+  derivative at the end of an accepted step is reused as the first stage of the next one (FSAL) for the whole shot, as without Coriolis; before
+  it was evaluated again every step when Coriolis was on (a few percent faster now with Coriolis, no change without). Shots without Coriolis (no
+  latitude, or `flat_fire_only`) are bit-identical. Euler and Velocity Verlet were not changed.
 - A shot that **starts outside a termination limit gets its terminal row**. The essential terminators (minimum velocity, maximum drop,
   minimum altitude) were also run on the initial point, so a shot that began outside a limit (a minimum velocity above the muzzle velocity, a
   minimum altitude above the start with the bullet falling) stopped before its first integration step: the integrator never called

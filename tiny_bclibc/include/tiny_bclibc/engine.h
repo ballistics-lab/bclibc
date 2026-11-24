@@ -369,10 +369,23 @@ static inline void tiny_bclibc__set_error(const char *msg)
     static inline tiny_bclibc__CkDeriv tiny_bclibc__ck_deriv(
         const TINY_BCLIBC_ShotProps *props,
         TINY_BCLIBC_V3dT wind,
-        TINY_BCLIBC_V3dT gpc,
+        TINY_BCLIBC_V3dT gravity,
         TINY_BCLIBC_V3dT vr,
         TINY_BCLIBC_V3dT pos)
     {
+        /* Coriolis depends on the velocity: it is evaluated here, at the ground velocity (vr + wind) of THIS state, so
+         * every stage (and the FSAL stage reused as the first of the next step) has its own, as the scipy reference
+         * does. Frozen at the step start it would cancel in the embedded error estimate and the tolerance would not
+         * control its error. Skipped when flat_fire_only is set. */
+        TINY_BCLIBC_V3dT gpc = gravity;
+        if (!props->coriolis.flat_fire_only)
+        {
+            TINY_BCLIBC_V3dT ca;
+            TINY_BCLIBC_Coriolis_acceleration_local(&props->coriolis, TINY_BCLIBC_V3dT_add(vr, wind), &ca);
+            gpc.x += ca.x;
+            gpc.y += ca.y;
+            gpc.z += ca.z;
+        }
         real_t density_ratio, mach_fps;
         TINY_BCLIBC_Atmosphere_update_density_mach(&props->atmo,
                                                    props->alt0 + pos.y, &density_ratio, &mach_fps);
@@ -506,16 +519,9 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 wind_changed = 1;
             }
 
-            TINY_BCLIBC_V3dT gpc = gravity;
-            if (!props->coriolis.flat_fire_only)
-            {
-                TINY_BCLIBC_V3dT ca;
-                TINY_BCLIBC_Coriolis_acceleration_local(&props->coriolis, vel, &ca);
-                gpc.x += ca.x;
-                gpc.y += ca.y;
-                gpc.z += ca.z;
-            }
-            if (wind_changed || !props->coriolis.flat_fire_only)
+            /* The cached first stage (FSAL: the last stage of the accepted step, Coriolis included at the end velocity)
+             * is valid for the next step unless the wind changed. */
+            if (wind_changed)
                 have_first = 0;
 
             /* Wind is only re-sampled once, at the *start* of a step, and
@@ -560,7 +566,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
             int32_t attempt;
             for (attempt = 0; attempt < 24; attempt++)
             {
-                tiny_bclibc__CkDeriv k1 = have_first ? cached_first : tiny_bclibc__ck_deriv(props, wind, gpc, vr, pos);
+                tiny_bclibc__CkDeriv k1 = have_first ? cached_first : tiny_bclibc__ck_deriv(props, wind, gravity, vr, pos);
                 cached_first = k1;
                 have_first = 1;
 
@@ -585,7 +591,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 TINY_BCLIBC_V3dT vr2 = vr, p2 = pos;
                 TINY_BCLIBC_V3dT_fma(&vr2, dv2, dt);
                 TINY_BCLIBC_V3dT_fma(&p2, dp2, dt);
-                tiny_bclibc__CkDeriv k2 = tiny_bclibc__ck_deriv(props, wind, gpc, vr2, p2);
+                tiny_bclibc__CkDeriv k2 = tiny_bclibc__ck_deriv(props, wind, gravity, vr2, p2);
 
                 TINY_BCLIBC_V3dT dv3 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
                 TINY_BCLIBC_V3dT dp3 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
@@ -596,7 +602,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 TINY_BCLIBC_V3dT vr3 = vr, p3 = pos;
                 TINY_BCLIBC_V3dT_fma(&vr3, dv3, dt);
                 TINY_BCLIBC_V3dT_fma(&p3, dp3, dt);
-                tiny_bclibc__CkDeriv k3 = tiny_bclibc__ck_deriv(props, wind, gpc, vr3, p3);
+                tiny_bclibc__CkDeriv k3 = tiny_bclibc__ck_deriv(props, wind, gravity, vr3, p3);
 
                 TINY_BCLIBC_V3dT dv4 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
                 TINY_BCLIBC_V3dT dp4 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
@@ -609,7 +615,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 TINY_BCLIBC_V3dT vr4 = vr, p4 = pos;
                 TINY_BCLIBC_V3dT_fma(&vr4, dv4, dt);
                 TINY_BCLIBC_V3dT_fma(&p4, dp4, dt);
-                tiny_bclibc__CkDeriv k4 = tiny_bclibc__ck_deriv(props, wind, gpc, vr4, p4);
+                tiny_bclibc__CkDeriv k4 = tiny_bclibc__ck_deriv(props, wind, gravity, vr4, p4);
 
                 TINY_BCLIBC_V3dT dv5 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
                 TINY_BCLIBC_V3dT dp5 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
@@ -624,7 +630,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 TINY_BCLIBC_V3dT vr5 = vr, p5 = pos;
                 TINY_BCLIBC_V3dT_fma(&vr5, dv5, dt);
                 TINY_BCLIBC_V3dT_fma(&p5, dp5, dt);
-                tiny_bclibc__CkDeriv k5 = tiny_bclibc__ck_deriv(props, wind, gpc, vr5, p5);
+                tiny_bclibc__CkDeriv k5 = tiny_bclibc__ck_deriv(props, wind, gravity, vr5, p5);
 
                 TINY_BCLIBC_V3dT dv6 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
                 TINY_BCLIBC_V3dT dp6 = TINY_BCLIBC_V3dT_make(REAL_C(0.0), REAL_C(0.0), REAL_C(0.0));
@@ -641,7 +647,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 TINY_BCLIBC_V3dT vr6 = vr, p6 = pos;
                 TINY_BCLIBC_V3dT_fma(&vr6, dv6, dt);
                 TINY_BCLIBC_V3dT_fma(&p6, dp6, dt);
-                tiny_bclibc__CkDeriv k6 = tiny_bclibc__ck_deriv(props, wind, gpc, vr6, p6);
+                tiny_bclibc__CkDeriv k6 = tiny_bclibc__ck_deriv(props, wind, gravity, vr6, p6);
 
                 /* Stage 7 -- its A-row equals the 5th-order B weights (the
                  * FSAL point), so vr7/p7 below ARE vr_next/pos_next: no
@@ -668,7 +674,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 TINY_BCLIBC_V3dT vr7 = vr, p7 = pos;
                 TINY_BCLIBC_V3dT_fma(&vr7, dv7, dt);
                 TINY_BCLIBC_V3dT_fma(&p7, dp7, dt);
-                tiny_bclibc__CkDeriv k7 = tiny_bclibc__ck_deriv(props, wind, gpc, vr7, p7);
+                tiny_bclibc__CkDeriv k7 = tiny_bclibc__ck_deriv(props, wind, gravity, vr7, p7);
 
                 vr_next = vr7;
                 pos_next = p7;

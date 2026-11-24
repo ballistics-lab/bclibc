@@ -25,12 +25,25 @@ namespace bclibc
             BCLIBC_V3dT dp;
         };
 
+        /** The one place the acceleration is built: gravity, Coriolis at the ground velocity of THIS state (vr + wind) and drag.
+         * Coriolis depends on the velocity, so it belongs to the derivative, evaluated at every stage with the stage's own
+         * velocity (as the Python reference does, a derivative call per stage); frozen at the step start it would be the same
+         * in all stages, cancel in the embedded error estimate, and the tolerance would not control its error. The FSAL stage
+         * reused as the first stage of the next step is such an evaluation, at the end velocity of the accepted step.
+         * Skipped (no cost, same bits as before) when flat_fire_only is set. */
         inline BCLIBC_Result<Deriv> derivative(const BCLIBC_ShotProps &shot,
                                 const BCLIBC_V3dT &wind,
-                                const BCLIBC_V3dT &gravity_plus_coriolis,
+                                const BCLIBC_V3dT &gravity,
                                 const BCLIBC_V3dT &vr,
                                 const BCLIBC_V3dT &pos)
         {
+            BCLIBC_V3dT gravity_plus_coriolis = gravity;
+            if (!shot.coriolis.flat_fire_only)
+            {
+                BCLIBC_V3dT coriolis{};
+                shot.coriolis.coriolis_acceleration_local(vr + wind, coriolis);
+                gravity_plus_coriolis += coriolis;
+            }
             double density_ratio, mach_fps;
             shot.atmo.update_density_factor_and_mach_for_altitude(
                 shot.alt0 + pos.y, density_ratio, mach_fps);
@@ -115,14 +128,9 @@ namespace bclibc
                     wind_changed = true;
                 }
 
-                BCLIBC_V3dT gravity_plus_coriolis = gravity;
-                if (!eng.shot.coriolis.flat_fire_only)
-                {
-                    BCLIBC_V3dT coriolis{};
-                    eng.shot.coriolis.coriolis_acceleration_local(velocity, coriolis);
-                    gravity_plus_coriolis += coriolis;
-                }
-                if (wind_changed || !eng.shot.coriolis.flat_fire_only)
+                // The cached first stage (FSAL: the last stage of the accepted step, Coriolis included at the end velocity)
+                // is valid for the next step unless the wind changed.
+                if (wind_changed)
                     have_cached_first = false;
 
                 Controller::limit_step_at_wind_boundary(
@@ -147,7 +155,7 @@ namespace bclibc
                             dv += k[j].dvr * Tableau::A(i, j);
                             dp += k[j].dp * Tableau::A(i, j);
                         }
-                        const auto derivative_result = derivative(eng.shot, wind, gravity_plus_coriolis,
+                        const auto derivative_result = derivative(eng.shot, wind, gravity,
                                                             vr + dv * dt, pos + dp * dt);
                         if (has_error(derivative_result)) return derivative_result.error();
                         k[i] = derivative_result.value();

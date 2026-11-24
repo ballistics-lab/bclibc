@@ -161,7 +161,7 @@ OrdinaryDiffEq.jl/SciML) — not because it measurably speeds up this library's 
 `BCLIBC_integrateTsitouras` (see [the top-level README](../README.md#adaptive-integration) for
 the tableau itself, per-stage drag/atmosphere recompute, and the event/row interpolation fix
 this class of integrator required). Being FSAL, it caches the first stage's derivative across
-accepted steps (invalidated on a wind-zone change or whenever Coriolis is active) and limits
+accepted steps (invalidated on a wind-zone change; Coriolis is evaluated in every stage derivative, so the cached stage carries it at the end velocity) and limits
 `dt` so a step never overshoots the next wind-zone boundary — both needed for the same reason
 they're needed in the C++ core's `ScipyRKController`: a stale cached derivative or a step that
 silently crosses into the wrong wind zone. `find_apex()` (via `integrate_at()`) and
