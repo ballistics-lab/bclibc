@@ -1471,7 +1471,10 @@ static inline void tiny_bclibc__set_error(const char *msg)
             return TINY_BCLIBC_ERR_INVALID_ARG;
         }
         TINY_BCLIBC_BaseTrajData raw;
-        int32_t rc = tiny_bclibc_integrate_at(props, TINY_BCLIBC_KEY_VEL_Y, REAL_C(0.0), &raw, out);
+        /* as bclibc's find_apex: the search for the apex does not stop on the minimum velocity (props is const: a copy) */
+        TINY_BCLIBC_ShotProps p_apex = *props;
+        p_apex.cfg.cMinimumVelocity = REAL_C(0.0);
+        int32_t rc = tiny_bclibc_integrate_at(&p_apex, TINY_BCLIBC_KEY_VEL_Y, REAL_C(0.0), &raw, out);
         if (rc != TINY_BCLIBC_OK)
         {
             if (rc == TINY_BCLIBC_ERR_INTERCEPTION) /* any other failure keeps its own message */
@@ -1641,7 +1644,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
     typedef struct tiny_bclibc__SavedLimits
     {
-        real_t max_drop, min_altitude;
+        real_t max_drop, min_altitude, min_velocity;
     } tiny_bclibc__SavedLimits;
 
     static inline tiny_bclibc__SavedLimits tiny_bclibc__lift_limits_if_downhill(TINY_BCLIBC_ShotProps *p)
@@ -1649,11 +1652,18 @@ static inline void tiny_bclibc__set_error(const char *msg)
         tiny_bclibc__SavedLimits saved;
         saved.max_drop = p->cfg.cMaximumDrop;
         saved.min_altitude = p->cfg.cMinimumAltitude;
+        saved.min_velocity = p->cfg.cMinimumVelocity;
+        /* the search must not stop on the minimum velocity (bclibc: @with_no_minimum_velocity) */
+        p->cfg.cMinimumVelocity = REAL_C(0.0);
         if (p->look_angle < REAL_C(0.0))
         {
             p->cfg.cMaximumDrop = TINY_BCLIBC_DOWNHILL_NO_LIMIT_FT;
             if (p->cfg.cMinimumAltitude > p->alt0 - TINY_BCLIBC_DOWNHILL_NO_LIMIT_FT)
                 p->cfg.cMinimumAltitude = p->alt0 - TINY_BCLIBC_DOWNHILL_NO_LIMIT_FT;
+        }
+        else
+        {
+            p->cfg.cMaximumDrop = REAL_C(0.0); /* stop at muzzle level (bclibc: @with_max_drop_zero) */
         }
         return saved;
     }
@@ -1662,6 +1672,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
     {
         p->cfg.cMaximumDrop = saved.max_drop;
         p->cfg.cMinimumAltitude = saved.min_altitude;
+        p->cfg.cMinimumVelocity = saved.min_velocity;
     }
 
     /* ── find_zero_angle_ridders — UNCHANGED ── */
@@ -2070,6 +2081,8 @@ static inline void tiny_bclibc__set_error(const char *msg)
     {
         TINY_BCLIBC_ShotProps solved_props = *props;
         solved_props.barrel_elevation = angle_rad;
+        /* bclibc takes the point from the search, which runs without the minimum velocity */
+        solved_props.cfg.cMinimumVelocity = REAL_C(0.0);
         int32_t rc;
         {
             real_t target_x_ft = distance_ft * TINY_BCLIBC_COS(props->look_angle);

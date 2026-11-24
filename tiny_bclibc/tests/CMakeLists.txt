@@ -113,6 +113,16 @@ endif()
 add_test(NAME gravity_validation COMMAND test_gravity_validation)
 set_tests_properties(gravity_validation PROPERTIES TIMEOUT 60)
 
+# ── test_min_velocity ─────────────────────────────────────────────────────
+# The maximum-range, apex and zero searches run without the caller's cMinimumVelocity (as bclibc's), and leave the
+# caller's config alone; compared with bclibc and, for the maximum range, the Python reference.
+add_executable(test_min_velocity test_min_velocity.cpp)
+target_include_directories(test_min_velocity PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(test_min_velocity PRIVATE bclibc_identity_lib ${TINY_BCLIBC_HEADERS_TARGET})
+target_compile_features(test_min_velocity PRIVATE cxx_std_17)
+add_test(NAME min_velocity COMMAND test_min_velocity)
+set_tests_properties(min_velocity PROPERTIES TIMEOUT 60)
+
 message(STATUS "tiny_bclibc identity test configured")
 message(STATUS "  bclibc root : ${BCLIBC_ROOT}")
 message(STATUS "  tiny_bclibc root: ${TINY_BCLIBC_ROOT}")

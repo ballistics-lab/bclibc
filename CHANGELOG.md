@@ -43,6 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `BCLIBC_ZeroCrossingHandler` locates the slant-height crossing with the same solver. New header `bclibc/hermite_step.hpp`.
 
 ### Fixed
+- tiny_bclibc: the maximum-range search (`tiny_bclibc_find_max_range`) and the apex search (`tiny_bclibc_find_apex`) ignore the caller's
+  `cMinimumVelocity`, as bclibc's `find_max_range` / `find_apex` do (a minimum velocity above the speed the bullet reaches made the maximum
+  range 0 ft), and a non-downhill maximum-range search stops at muzzle level (`cMaximumDrop` 0) as bclibc's. The intercept shot of
+  `tiny_bclibc_find_zero_point` / `_point_ridder` also runs without it, so a `cMinimumVelocity` above the muzzle velocity is no longer
+  `TINY_BCLIBC_ERR_INTERCEPTION`. The caller's config is not changed. New test `test_min_velocity` compares with bclibc.
 - A gravity constant of zero or a positive value (the y axis points up, the default is -32.17405 ft/s^2) in the engine config made the
   core never return: nothing ever reaches a terminator when the projectile does not fall. `integrate`, `integrate_at`, `find_apex`,
   `find_max_range` and every zero search now check `cGravityConstant` once at their entry and return a value error
