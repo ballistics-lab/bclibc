@@ -187,8 +187,12 @@ static void check_coriolis_off_unchanged()
                 const double *rec = kOffRecorded[variant][m][t];
                 if (std::getenv("BCLIBC_RECORD"))
                     std::printf("        {%.13f, %.13f},\n", r.height_ft, r.windage_ft);
-                CHECK(std::fabs(r.height_ft - rec[0]) < 1e-9);
-                CHECK(std::fabs(r.windage_ft - rec[1]) < 1e-9);
+                // The table was recorded on Linux x86_64. Other platforms (libm, FMA contraction) differ at libm-noise
+                // level, which the adaptive step controller amplifies beyond 1e-9 ft. This guard only has to catch a
+                // Coriolis leak into the OFF path, which would be ~1e-1 ft, so 1e-6 ft is ample and still far below
+                // the accuracy bounds (1e-3).
+                CHECK(std::fabs(r.height_ft - rec[0]) < 1e-6);
+                CHECK(std::fabs(r.windage_ft - rec[1]) < 1e-6);
             }
         }
     }
