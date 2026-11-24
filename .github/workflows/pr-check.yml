@@ -51,6 +51,8 @@ jobs:
   tests:
     name: Tests (${{ matrix.os }}, ${{ matrix.build_type }})
     runs-on: ${{ matrix.os }}
+    # A hung test must fail in minutes with its name, not occupy a runner for the 6 hours of the default job limit.
+    timeout-minutes: 90
     defaults:
       run:
         shell: bash
@@ -70,7 +72,7 @@ jobs:
         run: |
           cmake -S . -B build/tests -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DBCLIBC_BUILD_TESTS=ON
           cmake --build build/tests --config ${{ matrix.build_type }} --parallel
-          ctest --test-dir build/tests -C ${{ matrix.build_type }} --output-on-failure
+          ctest --test-dir build/tests -C ${{ matrix.build_type }} --output-on-failure --timeout 900
 
       - name: tiny_bclibc identity test (same results as bclibc)
         run: |
