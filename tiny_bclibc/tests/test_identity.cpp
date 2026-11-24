@@ -84,7 +84,9 @@ namespace
     bclibc::BCLIBC_ShotProps make_bclibc_shot_props(double barrel_elevation_rad = G7_BASIC::BARREL_EL_RAD,
                                                     double sight_height_ft = G7_BASIC::SIGHT_HT_FT,
                                                     double look_angle_rad = G7_BASIC::LOOK_ANGLE_RAD,
-                                                    double pressure_hpa = G7_BASIC::PRESSURE_HPA)
+                                                    double pressure_hpa = G7_BASIC::PRESSURE_HPA,
+                                                    double latitude_deg = G7_BASIC::LAT_DEG,
+                                                    double azimuth_deg = G7_BASIC::AZ_DEG)
     {
         init_g7_arrays();
 
@@ -110,8 +112,8 @@ namespace
         shot.barrel_elevation_rad = barrel_elevation_rad;
         shot.barrel_azimuth_rad = G7_BASIC::BARREL_AZ_RAD;
         shot.cant_angle_rad = G7_BASIC::CANT_ANGLE_RAD;
-        shot.latitude_deg = G7_BASIC::LAT_DEG;
-        shot.azimuth_deg = G7_BASIC::AZ_DEG;
+        shot.latitude_deg = latitude_deg;
+        shot.azimuth_deg = azimuth_deg;
         shot.calc_step = kCalcStep;
 
         return unwrap(shot.to_shot_props(), "make_bclibc_shot_props: to_shot_props() failed");
@@ -216,7 +218,9 @@ namespace
                                     double barrel_elevation_rad = G7_BASIC::BARREL_EL_RAD,
                                     double sight_height_ft = G7_BASIC::SIGHT_HT_FT,
                                     double look_angle_rad = G7_BASIC::LOOK_ANGLE_RAD,
-                                    double pressure_hpa = G7_BASIC::PRESSURE_HPA)
+                                    double pressure_hpa = G7_BASIC::PRESSURE_HPA,
+                                    double latitude_deg = G7_BASIC::LAT_DEG,
+                                    double azimuth_deg = G7_BASIC::AZ_DEG)
     {
         init_tb_g7_arrays();
 
@@ -250,8 +254,8 @@ namespace
         shot.barrel_elevation_rad = barrel_elevation_rad;
         shot.barrel_azimuth_rad = G7_BASIC::BARREL_AZ_RAD;
         shot.cant_angle_rad = G7_BASIC::CANT_ANGLE_RAD;
-        shot.latitude_deg = G7_BASIC::LAT_DEG;
-        shot.azimuth_deg = G7_BASIC::AZ_DEG;
+        shot.latitude_deg = latitude_deg;
+        shot.azimuth_deg = azimuth_deg;
         shot.config = cfg;
 
         int rc = tiny_bclibc_build_shot_props(&shot, curve_buf, out);
@@ -1207,6 +1211,51 @@ static bool test_vacuum_identity()
     return ok;
 }
 
+// Coriolis is evaluated at every stage of the adaptive step, with the stage's own velocity, in both engines (it used to be
+// one value per step, which the embedded error estimate cannot see: the tolerance did not control its error). A 30 degree,
+// 12000 ft shot, latitude 45 deg, azimuth 90 deg (the fixture bullet): both engines agree, and both are within 5e-4 ft in
+// windage of the Python scipy engine (DOP853, rtol = atol = 1e-12, Coriolis per derivative call; G7 table of fixture.hpp,
+// humidity 0.5): windage 9.1188264327 ft (zero without Coriolis, so its error is purely the Coriolis one). The once-per-step
+// Coriolis was 0.119 ft off. The height is not compared to Python: at the default tolerance both engines are 0.16 ft off it
+// already without Coriolis (a fast bullet, the steps are long), which has nothing to do with Coriolis.
+static bool test_coriolis_stage_identity()
+{
+    constexpr double kElev = 30.0 * 0.017453292519943295;
+    constexpr double kRange = 12000.0, kStep = 3000.0;
+    constexpr double kRefWindage = 9.1188264327;
+    constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
+    bool ok = true;
+
+    double bc_w[2] = {0, 0}, tb_w[2] = {0, 0};
+    for (int on = 0; on < 2; ++on)
+    {
+        const double lat = on ? 45.0 : kNaN, az = on ? 90.0 : kNaN;
+        bclibc::BCLIBC_BaseEngine bc_eng;
+        init_bclibc_engine(bc_eng, make_bclibc_shot_props(kElev, G7_BASIC::SIGHT_HT_FT, G7_BASIC::LOOK_ANGLE_RAD,
+                                                          G7_BASIC::PRESSURE_HPA, lat, az));
+        TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
+        TINY_BCLIBC_ShotProps tb_props;
+        if (make_tiny_bclibc_shot_props(&tb_props, tb_curve, kElev, G7_BASIC::SIGHT_HT_FT, G7_BASIC::LOOK_ANGLE_RAD,
+                                        G7_BASIC::PRESSURE_HPA, lat, az) != TINY_BCLIBC_OK)
+        {
+            std::printf("FAIL: tiny_bclibc_build_shot_props (Coriolis) failed: %s\n", tiny_bclibc_last_error());
+            return false;
+        }
+        auto bc_traj = run_bclibc_integrate(bc_eng, kRange, kStep);
+        auto tb_traj = run_tiny_bclibc_integrate(&tb_props, kRange, kStep);
+        ok &= identity::compare_trajectories(bc_traj, tb_traj, on ? "G7_BASIC / Coriolis on / 30 deg 12000ft@3000ft" : "G7_BASIC / Coriolis off / 30 deg 12000ft@3000ft",
+                                             kTsitourasAbsFloor, kTsitourasRelTol);
+        if (bc_traj.empty() || tb_traj.empty() || bc_traj.size() != tb_traj.size())
+            return false;
+        bc_w[on] = bc_traj.back().windage_ft;
+        tb_w[on] = tb_traj.back().windage_ft;
+    }
+    ok &= identity::compare_scalar("Coriolis windage bclibc vs tiny (ft)", bc_w[1], tb_w[1], 1e-3);
+    ok &= identity::compare_scalar("Coriolis windage bclibc vs Python (ft)", bc_w[1], kRefWindage, 5e-4);
+    ok &= identity::compare_scalar("Coriolis windage tiny vs Python (ft)", tb_w[1], kRefWindage, 5e-4);
+    return ok;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // main
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1235,6 +1284,7 @@ int main()
     all_pass &= test_downhill_no_hang();
     all_pass &= test_long_downhill_zero_point();
     all_pass &= test_vacuum_identity();
+    all_pass &= test_coriolis_stage_identity();
 
     std::printf("\n%s\n", all_pass ? "ALL TESTS PASSED" : "SOME TESTS FAILED");
     return all_pass ? 0 : 1;
