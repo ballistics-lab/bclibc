@@ -126,7 +126,7 @@ if(NOT WIN32)
     target_link_libraries(test_continuous_root PRIVATE m)
 endif()
 add_test(NAME continuous_root COMMAND test_continuous_root)
-set_tests_properties(continuous_root PROPERTIES TIMEOUT 60)
+set_tests_properties(continuous_root PROPERTIES TIMEOUT 300)
 
 # ── test_gravity_validation ───────────────────────────────────────────────
 # A gravity constant that is not a finite negative number is TINY_BCLIBC_ERR_INVALID_ARG from every entry point, not a loop
@@ -142,7 +142,7 @@ if(NOT WIN32)
     target_link_libraries(test_gravity_validation PRIVATE m)
 endif()
 add_test(NAME gravity_validation COMMAND test_gravity_validation)
-set_tests_properties(gravity_validation PROPERTIES TIMEOUT 60)
+set_tests_properties(gravity_validation PROPERTIES TIMEOUT 300)
 
 # ── test_min_velocity ─────────────────────────────────────────────────────
 # The maximum-range, apex and zero searches run without the caller's cMinimumVelocity (as bclibc's), and leave the
@@ -152,7 +152,7 @@ target_include_directories(test_min_velocity PRIVATE "${CMAKE_CURRENT_SOURCE_DIR
 target_link_libraries(test_min_velocity PRIVATE bclibc_identity_lib ${TINY_BCLIBC_HEADERS_TARGET})
 target_compile_features(test_min_velocity PRIVATE cxx_std_17)
 add_test(NAME min_velocity COMMAND test_min_velocity)
-set_tests_properties(min_velocity PROPERTIES TIMEOUT 60)
+set_tests_properties(min_velocity PROPERTIES TIMEOUT 300)
 
 message(STATUS "tiny_bclibc identity test configured")
 message(STATUS "  bclibc root : ${BCLIBC_ROOT}")

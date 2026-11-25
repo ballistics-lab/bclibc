@@ -51,7 +51,7 @@ static int run(const Case &c, double *angle)
     shot.mach_data = mach;
     shot.cd_data = cd;
     shot.drag_table_size = kG7TableSize;
-    shot.look_angle_rad = c.look_deg * M_PI / 180.0;
+    shot.look_angle_rad = c.look_deg * 3.14159265358979323846 / 180.0;
     shot.latitude_deg = std::numeric_limits<double>::quiet_NaN();
     shot.azimuth_deg = std::numeric_limits<double>::quiet_NaN();
     shot.config = TINY_BCLIBC_Config_default();
