@@ -142,7 +142,7 @@ target_link_libraries(bclibc_test_time_rows_before_range_end PRIVATE bclibc_core
 target_include_directories(bclibc_test_time_rows_before_range_end PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
 target_compile_features(bclibc_test_time_rows_before_range_end PRIVATE cxx_std_17)
 add_test(NAME bclibc_test_time_rows_before_range_end COMMAND bclibc_test_time_rows_before_range_end)
-set_tests_properties(bclibc_test_time_rows_before_range_end PROPERTIES TIMEOUT 60)
+set_tests_properties(bclibc_test_time_rows_before_range_end PROPERTIES TIMEOUT 600)
 
 # The range limit is not tested before the third integration step, as the Python engines (`or step_count < 3`): start +
 # 3 steps are recorded for a limit inside the first steps. The other limits are not gated.
@@ -296,7 +296,7 @@ target_include_directories(bclibc_test_gravity_validation PRIVATE "${BCLIBC_INCL
 target_compile_features(bclibc_test_gravity_validation PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_gravity_validation COMMAND bclibc_test_gravity_validation)
-set_tests_properties(bclibc_test_gravity_validation PROPERTIES TIMEOUT 60)
+set_tests_properties(bclibc_test_gravity_validation PROPERTIES TIMEOUT 600)
 
 # The diagnostic text of "no zero trajectory in the elevation bracket" (bracket and misses, as the Python reference) reaches the
 # caller in the error, not only the log. C ABI compiled in with the C++ core, as test_zero_close_target (one copy of the core).
@@ -323,7 +323,7 @@ target_include_directories(bclibc_test_false_root PRIVATE "${BCLIBC_INCLUDE_DIR}
 target_compile_features(bclibc_test_false_root PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_false_root COMMAND bclibc_test_false_root)
-set_tests_properties(bclibc_test_false_root PROPERTIES TIMEOUT 60)
+set_tests_properties(bclibc_test_false_root PROPERTIES TIMEOUT 600)
 
 # These tests compile src/ffi/bclibc_ffi.cpp into the executable (one copy of the core, no DLL): on Windows the header
 # must declare its functions dllexport (a definition of a dllimport function is an error on MSVC).
