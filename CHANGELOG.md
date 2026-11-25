@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The identity test compares both pairs with bclibc, including a start below the altitude limit.
 
 ### Changed
+- `-ffast-math` / `-Ofast` / `-ffinite-math-only` is now refused at compile time (`#error` in `bclibc/base_types.hpp` and `tiny_bclibc/platform.h`).
+  No shipped build uses it; measured with GCC, it removes the NaN/Inf checks (gravity, non-finite state, latitude) and makes sane shots
+  fail in the zero search. Documented in `tiny_bclibc/README.md`.
 - **One interpolation convention for everything that works with integration steps: the cubic Hermite of the step** (positions and
   velocities at its two ends; the velocity of the point is the derivative of the position polynomial, Mach is linear), for the six
   integration methods (RK4, Euler, Velocity Verlet, Cash-Karp, Dormand-Prince, Tsitouras), Euler included. The rows of the trajectory filter

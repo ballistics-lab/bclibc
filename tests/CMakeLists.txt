@@ -354,3 +354,13 @@ if(WIN32)
         endif()
     endforeach()
 endif()
+
+# -ffast-math (-ffinite-math-only) is refused at compile time by the headers (it removes the NaN/Inf checks): compiling
+# a header with it must fail. A WILL_FAIL test, so the guard cannot silently disappear. Not for MSVC (no such macro).
+if(NOT MSVC)
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/fast_math_probe.cpp" "#include \"bclibc/base_types.hpp\"\nint main() {}\n")
+    add_test(NAME fast_math_refused
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++17 -ffast-math -fsyntax-only
+                -I${BCLIBC_INCLUDE_DIR} "${CMAKE_CURRENT_BINARY_DIR}/fast_math_probe.cpp")
+    set_tests_properties(fast_math_refused PROPERTIES WILL_FAIL TRUE TIMEOUT 60)
+endif()

@@ -422,6 +422,13 @@ tiny_bclibc is an embedded subset; it matches bclibc's results (the identity tes
 
 When the iterations run out, both fail with a zero-finding error (`TINY_BCLIBC_ERR_ZERO_FINDING` here); neither accepts an unconverged bracket.
 
+## Compiler flags
+
+`-ffast-math`, `-Ofast` and `-ffinite-math-only` (MSVC: `/fp:fast`) are not supported. They let the compiler assume that no value is NaN or
+Inf, so the checks of a non-finite state, gravity and latitude can be removed, and they reorder the arithmetic that the sign-change logic of
+the apex, zero and maximum-range searches relies on: with GCC `-ffast-math`, sane shots already fail with a zero-finding error. The
+headers stop the build with `#error` when `__FINITE_MATH_ONLY__` is set; none of the shipped builds (CMake, MicroPython, WebAssembly) uses the flags.
+
 ## Error handling
 
 All public functions return `int32_t` (`TINY_BCLIBC_OK = 0` on success).

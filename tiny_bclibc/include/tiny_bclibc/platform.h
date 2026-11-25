@@ -4,6 +4,13 @@
 #include <math.h>
 #include <stdint.h>
 
+/* -ffast-math / -Ofast / -ffinite-math-only is not supported: it lets the compiler assume no NaN or Inf (the non-finite
+ * state, gravity and latitude checks can be removed) and reorders the arithmetic the sign-change logic of the apex, zero
+ * and maximum-range searches relies on (measured with GCC: sane shots then fail with a zero-finding error). */
+#if defined(__FINITE_MATH_ONLY__) && __FINITE_MATH_ONLY__
+#error "tiny_bclibc: -ffast-math / -Ofast / -ffinite-math-only is not supported; use -fno-finite-math-only (or drop the flag)"
+#endif
+
 /* ── Numeric type ───────────────────────────────────────────────────── */
 #if defined(TINY_BCLIBC_SINGLE_PRECISION)
 typedef float real_t;
