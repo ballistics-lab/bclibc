@@ -227,6 +227,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Tests: `tests/test_zero_close_target.cpp` (C ABI and C++ core: the miss of the zero shot for close targets over sight heights,
   velocities, drag tables, look angles and integrators; the cutoff; recorded zeros of far targets), and the `tiny_bclibc` identity test.
 
+### Documentation
+- `tiny_bclibc/README.md` ("Deliberate differences"): the single-precision (float32) time grid. Time-grid rows are exact to float32
+  rounding and the schedule accumulates `time_of_last += time_step` in `real_t`, so the error grows on long trajectories with a small
+  `time_step` (about 1.7e-4 s at dt = 0.01 s over 6000 m); double builds are exact to about 1e-13. No code change.
+
 ## [2.2.1] - 2026-11-21
 
 ### Added
