@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 #include "bclibc/traj_data.hpp"
 #include "tiny_bclibc/traj_data.h"
