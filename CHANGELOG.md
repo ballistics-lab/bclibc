@@ -20,9 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A raw atmosphere with base pressure `p0 <= 0` is a vacuum (density ratio 0) also within 30 ft of the base altitude, in bclibc and
   tiny_bclibc. The C ABI `BCLIBCFFI_ShotProps::atmo` takes `p0` and `density_ratio` separately, and an inconsistent pair (`p0 = 0`,
   `density_ratio != 0`) used the stored ratio near the muzzle and 0 beyond 30 ft. Atmospheres built from conditions are unchanged.
-- `-ffast-math` / `-Ofast` / `-ffinite-math-only` is now refused at compile time (`#error` in `bclibc/base_types.hpp` and `tiny_bclibc/platform.h`).
-  No shipped build uses it; measured with GCC, it removes the NaN/Inf checks (gravity, non-finite state, latitude) and makes sane shots
-  fail in the zero search. Documented in `tiny_bclibc/README.md`.
+- `-ffast-math` / `-Ofast` / `-ffinite-math-only` now warns at compile time (GCC/Clang `#pragma GCC warning` in `bclibc/base_types.hpp` and `tiny_bclibc/platform.h`;
+  no behaviour change). Such builds are unsupported and untested; the flags, the non-bit-identical results and any breakage are the
+  consumer's responsibility. Measured with GCC, the flags remove the NaN checks (gravity, non-finite state, latitude) and sane shots fail in
+  the zero search. Documented in `tiny_bclibc/README.md`.
 - **One interpolation convention for everything that works with integration steps: the cubic Hermite of the step** (positions and
   velocities at its two ends; the velocity of the point is the derivative of the position polynomial, Mach is linear), for the six
   integration methods (RK4, Euler, Velocity Verlet, Cash-Karp, Dormand-Prince, Tsitouras), Euler included. The rows of the trajectory filter

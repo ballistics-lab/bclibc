@@ -424,10 +424,11 @@ When the iterations run out, both fail with a zero-finding error (`TINY_BCLIBC_E
 
 ## Compiler flags
 
-`-ffast-math`, `-Ofast` and `-ffinite-math-only` (MSVC: `/fp:fast`) are not supported. They let the compiler assume that no value is NaN or
-Inf, so the checks of a non-finite state, gravity and latitude can be removed, and they reorder the arithmetic that the sign-change logic of
-the apex, zero and maximum-range searches relies on: with GCC `-ffast-math`, sane shots already fail with a zero-finding error. The
-headers stop the build with `#error` when `__FINITE_MATH_ONLY__` is set; none of the shipped builds (CMake, MicroPython, WebAssembly) uses the flags.
+`-ffast-math`, `-Ofast` and `-ffinite-math-only` (MSVC: `/fp:fast`) are not supported or tested. They let the compiler assume that no value is
+NaN or Inf, so the NaN-as-"not set" checks (latitude and azimuth defaults, gravity, non-finite state) can be removed, and sane shots may then
+fail with a zero-finding error; results are not bit-identical to a normal build. The compiler flags are the consumer's choice and
+responsibility: the headers only warn at compile time (GCC/Clang, when `__FINITE_MATH_ONLY__` is set; MSVC has no such macro, so `/fp:fast`
+is not detected) and change nothing else. None of the shipped builds (CMake, MicroPython, WebAssembly) uses the flags.
 
 ## Error handling
 

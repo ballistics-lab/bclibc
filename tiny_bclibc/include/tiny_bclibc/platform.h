@@ -4,11 +4,12 @@
 #include <math.h>
 #include <stdint.h>
 
-/* -ffast-math / -Ofast / -ffinite-math-only is not supported: it lets the compiler assume no NaN or Inf (the non-finite
- * state, gravity and latitude checks can be removed) and reorders the arithmetic the sign-change logic of the apex, zero
- * and maximum-range searches relies on (measured with GCC: sane shots then fail with a zero-finding error). */
+/* -ffast-math / -Ofast / -ffinite-math-only is not supported: it lets the compiler assume no NaN or Inf, which removes the
+ * NaN-as-"not set" checks (latitude/azimuth defaults, gravity and state finite checks); sane shots may then fail with a
+ * zero-finding error. Only a compile-time warning (no behaviour change); _Pragma("GCC warning") works in GCC and Clang, C and C++,
+ * and is not a pedantic extension warning. MSVC /fp:fast has no such macro. */
 #if defined(__FINITE_MATH_ONLY__) && __FINITE_MATH_ONLY__
-#error "tiny_bclibc: -ffast-math / -Ofast / -ffinite-math-only is not supported; use -fno-finite-math-only (or drop the flag)"
+_Pragma("GCC warning \"tiny_bclibc: -ffast-math / -Ofast / -ffinite-math-only lets the compiler assume no NaN or Inf and removes the NaN checks (latitude/azimuth defaults, gravity, state), so sane shots may fail with zero-finding errors; this configuration is unsupported and untested, and its results and any breakage are the responsibility of whoever chose the flags\"")
 #endif
 
 /* ── Numeric type ───────────────────────────────────────────────────── */
