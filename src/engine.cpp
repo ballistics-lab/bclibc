@@ -962,6 +962,42 @@ namespace bclibc
     };
 
     /**
+     * @brief A bracketed root that ended on the angle tolerance is a root, not a jump of the error function.
+     *
+     * The miss at the target is not continuous for a lofted shot near the vertical (a shot that falls short and one that
+     * carries past the target differ by thousands of feet) and Ridder's method converges on such a jump all the same. A real
+     * root leaves an error that is tiny against the errors at the ends of the initial search bracket (at most 0.005 of the
+     * smaller one on the measured grid, all six integration methods); a jump leaves one of their order (at least 1.27).
+     * The ratio is the same as the Python reference's CONTINUOUS_ROOT_RATIO. Scale free. Not applied to the exits on the
+     * height accuracy (|f| < cZeroFindingAccuracy), which are roots by construction.
+     */
+    static constexpr double kContinuousRootRatio = 0.45;
+
+    static bool is_continuous_root(double f_root, double f_low0, double f_high0)
+    {
+        return std::fabs(f_root) <= kContinuousRootRatio * std::fmin(std::fabs(f_low0), std::fabs(f_high0));
+    }
+
+    static BCLIBC_Error discontinuity_error(
+        double f_root, double f_low0, double f_high0, int iterations, double angle_rad, int lofted)
+    {
+        // The same text as the Python reference's ZeroFindingError; the error owns a copy of it.
+        char reason[BCLIBC_SolverZeroFindingError::kMessageCapacity];
+        std::snprintf(
+            reason,
+            sizeof reason,
+            "No continuous %s zero: the error at the returned angle (%.4f deg), %.2f ft, is comparable to the "
+            "bracket-end errors f(low)=%.2f, f(high)=%.2f (a discontinuity, not a root)",
+            lofted ? "lofted" : "low",
+            angle_rad * 57.29577951308232,
+            f_root,
+            f_low0,
+            f_high0);
+        BCLIBC_WARN("%s", reason);
+        return BCLIBC_Error{BCLIBC_SolverZeroFindingError{reason, std::fabs(f_root), iterations, angle_rad}};
+    }
+
+    /**
      * @brief Finds the zero angle using Ridder's method.
      *
      * @param distance Target slant distance in feet.
@@ -1112,6 +1148,11 @@ namespace bclibc
             f_high = f_high_result.value();
         }
 
+        // The errors at the ends of the initial bracket: the scale of the error function for the discontinuity check below
+        // (never updated by the loop).
+        const double f_low0 = f_low;
+        const double f_high0 = f_high;
+
         if (f_low * f_high >= 0)
         {
             // The same text as the Python reference's ZeroFindingError; the error owns a copy of it.
@@ -1201,6 +1242,8 @@ namespace bclibc
 
             if (std::fabs(next_angle - mid_angle) < kRiddersAngleTolRad)
             {
+                if (!is_continuous_root(f_next, f_low0, f_high0))
+                    return discontinuity_error(f_next, f_low0, f_high0, i + 1, next_angle, lofted);
                 return return_with_point(next_angle, next_hit);
             }
 
@@ -1231,6 +1274,8 @@ namespace bclibc
 
             if (std::fabs(high_angle - low_angle) < kRiddersAngleTolRad)
             {
+                if (!is_continuous_root(f_next, f_low0, f_high0))
+                    return discontinuity_error(f_next, f_low0, f_high0, i + 1, next_angle, lofted);
                 if (result_out != nullptr)
                 {
                     return return_with_point(next_angle, next_hit);

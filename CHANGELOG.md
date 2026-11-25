@@ -52,6 +52,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `BCLIBC_ZeroCrossingHandler` locates the slant-height crossing with the same solver. New header `bclibc/hermite_step.hpp`.
 
 ### Fixed
+- A lofted zero search no longer returns a jump of the error function as a root (class C18). The miss at the target is not
+  continuous for a lofted shot near the vertical, and Ridder's method converged on the jump: `find_zero_angle` / `find_zero_point`
+  returned an angle "within the angle tolerance" that misses by hundreds of feet or never reaches the target (175 gr G7, 800 m/s,
+  5 m/s tail wind, 100 m zero: 88.4362 deg, 1300 ft short). At the two angle-tolerance exits (the step below 1e-7 rad, the collapse
+  of the bracket) the search now fails with a `ZeroFindingError` ("No continuous lofted zero: ...") when the error at the returned
+  angle is more than 0.45 of the smaller error at the ends of the initial bracket (as the Python reference's
+  `CONTINUOUS_ROOT_RATIO`; measured on a 3360-run grid over the six methods: real roots at most 0.005, jumps at least 1.27).
+  The exits on the height accuracy and real roots are unchanged. The same check is in `tiny_bclibc` (low zero only: never fires there).
 - **The last time row before the range limit is no longer lost for the adaptive methods** (Cash-Karp, Dormand-Prince, Tsitouras, and
   `tiny_bclibc`). A RANGE row restarts the time schedule from its own time, and the trajectory filter emitted the range rows of a step
   before its time rows; a wide adaptive step that holds both the last time row (e.g. t = 3.3 s of a `time_step` 0.3) and the row at the

@@ -311,6 +311,20 @@ target_compile_features(bclibc_test_zero_no_bracket_message PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_zero_no_bracket_message COMMAND bclibc_test_zero_no_bracket_message)
 
+# A lofted zero that is a jump of the error function, not a root (class C18): "No continuous lofted zero", on all six methods;
+# real lofted roots (recorded elevations, 1e-7 rad) and the low zero are unchanged. C ABI compiled in with the C++ core.
+add_executable(bclibc_test_false_root
+    test_false_root.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_false_root PRIVATE bclibc_core)
+target_include_directories(bclibc_test_false_root PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_false_root PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_false_root COMMAND bclibc_test_false_root)
+set_tests_properties(bclibc_test_false_root PROPERTIES TIMEOUT 60)
+
 # These tests compile src/ffi/bclibc_ffi.cpp into the executable (one copy of the core, no DLL): on Windows the header
 # must declare its functions dllexport (a definition of a dllimport function is an error on MSVC).
 if(WIN32)
@@ -332,7 +346,8 @@ if(WIN32)
         bclibc_test_max_range_iterations
         bclibc_test_vacuum
         bclibc_test_gravity_validation
-        bclibc_test_zero_no_bracket_message)
+        bclibc_test_zero_no_bracket_message
+        bclibc_test_false_root)
         if(TARGET ${_t})
             target_compile_definitions(${_t} PRIVATE BCLIBC_FFI_EXPORT)
         endif()
