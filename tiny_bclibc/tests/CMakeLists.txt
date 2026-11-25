@@ -97,6 +97,37 @@ target_compile_definitions(test_ridder_unconverged PRIVATE TINY_RIDDER_ITER_CAP=
 target_compile_features(test_ridder_unconverged PRIVATE cxx_std_17)
 add_test(NAME ridder_unconverged COMMAND test_ridder_unconverged)
 
+# ── test_continuous_root ──────────────────────────────────────────────────
+# The angle-tolerance exits of the Ridder search reject a root that is a jump of the error function (class C18, as bclibc). The
+# low zero is continuous, so with the real ratio (0.45) the check never fires; this test is built against a copy of the headers
+# whose ratio is lowered to 1e-30, which makes every angle-tolerance exit a failure and so proves that both exits are checked.
+set(TINY_CONTINUOUS_PATCHED_DIR "${CMAKE_CURRENT_BINARY_DIR}/continuous_root_include")
+foreach(hdr IN LISTS TINY_RIDDER_HEADERS)
+    get_filename_component(hdr_name "${hdr}" NAME)
+    file(READ "${hdr}" hdr_text)
+    if(hdr_name STREQUAL "engine.h")
+        string(REPLACE "#define TINY_BCLIBC_CONTINUOUS_ROOT_RATIO REAL_C(0.45)" "#define TINY_BCLIBC_CONTINUOUS_ROOT_RATIO REAL_C(1e-30)" patched_text "${hdr_text}")
+        if(patched_text STREQUAL hdr_text)
+            message(FATAL_ERROR "test_continuous_root: the ratio define not found in ${hdr} (update this test)")
+        endif()
+        set(hdr_text "${patched_text}")
+    endif()
+    file(GENERATE OUTPUT "${TINY_CONTINUOUS_PATCHED_DIR}/tiny_bclibc/${hdr_name}" CONTENT "${hdr_text}")
+endforeach()
+
+add_executable(test_continuous_root test_continuous_root.cpp)
+target_include_directories(test_continuous_root PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${TINY_CONTINUOUS_PATCHED_DIR}"
+    "${TINY_BCLIBC_ROOT}/generated"
+)
+target_compile_features(test_continuous_root PRIVATE cxx_std_17)
+if(NOT WIN32)
+    target_link_libraries(test_continuous_root PRIVATE m)
+endif()
+add_test(NAME continuous_root COMMAND test_continuous_root)
+set_tests_properties(continuous_root PROPERTIES TIMEOUT 60)
+
 # ── test_gravity_validation ───────────────────────────────────────────────
 # A gravity constant that is not a finite negative number is TINY_BCLIBC_ERR_INVALID_ARG from every entry point, not a loop
 # that never returns (the bad-gravity calls never returned before the check: hence the time limit).

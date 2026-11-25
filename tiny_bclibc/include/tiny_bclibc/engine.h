@@ -1689,6 +1689,21 @@ static inline void tiny_bclibc__set_error(const char *msg)
         p->cfg.cMinimumVelocity = saved.min_velocity;
     }
 
+    /* A bracketed root that ended on the angle tolerance must be a root, not a jump of the error function (bclibc and the
+     * Python reference: CONTINUOUS_ROOT_RATIO = 0.45): |f(root)| <= 0.45 * min(|f(low)|, |f(high)|) of the INITIAL bracket.
+     * The exits on the height accuracy are roots by construction and are not checked. The error function of the low zero
+     * (this search has no lofted mode) is continuous, so the check does not fire there: on a grid of 8320 low zeros the
+     * largest ratio at those exits was 2.5e-4 in double and 1.8e-3 in float. It is kept for the identical contract. */
+    #define TINY_BCLIBC_CONTINUOUS_ROOT_RATIO REAL_C(0.45)
+    #define TINY_BCLIBC_DISCONTINUITY_MSG \
+        "tiny_bclibc_find_zero_angle: No continuous low zero: the error at the returned angle is comparable to the " \
+        "bracket-end errors (a discontinuity, not a root)"
+    TINY_BCLIBC_INTERNAL int tiny_bclibc__is_continuous_root(real_t f_root, real_t f_low0, real_t f_high0)
+    {
+        const real_t a = TINY_BCLIBC_FABS(f_low0), b = TINY_BCLIBC_FABS(f_high0);
+        return TINY_BCLIBC_FABS(f_root) <= TINY_BCLIBC_CONTINUOUS_ROOT_RATIO * (a < b ? a : b);
+    }
+
     /* ── find_zero_angle_ridders — UNCHANGED ── */
     TINY_BCLIBC_INTERNAL int32_t tiny_bclibc__find_zero_angle_ridders(
         const TINY_BCLIBC_ShotProps *props,
@@ -1844,6 +1859,10 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 return rc_fin;
         }
 
+        /* The errors at the ends of the initial bracket: the scale for the discontinuity check at the angle-tolerance exits. */
+        const real_t f_low0 = f_low;
+        const real_t f_high0 = f_high;
+
         if (f_low * f_high >= REAL_C(0.0))
         {
             tiny_bclibc__set_error("tiny_bclibc_find_zero_angle: no bracket");
@@ -1901,6 +1920,11 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
             if (TINY_BCLIBC_FABS(next_angle - mid_angle) < angle_tol)
             {
+                if (!tiny_bclibc__is_continuous_root(f_next, f_low0, f_high0))
+                {
+                    tiny_bclibc__set_error(TINY_BCLIBC_DISCONTINUITY_MSG);
+                    return TINY_BCLIBC_ERR_ZERO_FINDING;
+                }
                 p.barrel_elevation = next_angle;
                 *out_angle_rad = next_angle;
                 return TINY_BCLIBC_OK;
@@ -1926,6 +1950,11 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
             if (TINY_BCLIBC_FABS(high_angle - low_angle) < angle_tol)
             {
+                if (!tiny_bclibc__is_continuous_root(f_next, f_low0, f_high0))
+                {
+                    tiny_bclibc__set_error(TINY_BCLIBC_DISCONTINUITY_MSG);
+                    return TINY_BCLIBC_ERR_ZERO_FINDING;
+                }
                 /* The angle of the last evaluation, as BCLIBC_BaseEngine::find_zero_angle_ridder returns it (the point
                  * of find_zero_point is fired at it), not the midpoint of the bracket. */
                 p.barrel_elevation = next_angle;
