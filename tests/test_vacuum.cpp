@@ -12,6 +12,7 @@
 // is stopped by the finite-state check of the integration: an error, in every entry point, not a loop. These calls run
 // with no time limit in the test: before the check they never returned.
 
+#include "bclibc/base_types.hpp"
 #include "bclibc/ffi/bclibc_ffi.h"
 
 #include <cmath>
@@ -318,8 +319,37 @@ static void test_non_finite(const Engine &e)
     }
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// Part 3: an inconsistent raw atmosphere (BCLIBCFFI_ShotProps::atmo takes p0 and density_ratio separately): base pressure 0
+// with a non-zero density ratio. A vacuum is no air at any altitude, as Python (pressure <= 0 -> density 0); the stored
+// density ratio must not apply within 30 ft of the base altitude while 0 applies beyond it.
+// ---------------------------------------------------------------------------------------------------------------------
+
+static void test_raw_inconsistent_vacuum()
+{
+    for (double p0 : {0.0, -5.0})
+    {
+        const bclibc::BCLIBC_Atmosphere a(59.0, 0.0, p0, 1116.0, 1.0, -60.0);
+        for (double alt : {0.0, 10.0, -29.0, 31.0, 500.0, -500.0})
+        {
+            double rho = -1.0, mach = -1.0;
+            a.update_density_factor_and_mach_for_altitude(alt, rho, mach);
+            if (rho != 0.0)
+                std::fprintf(stderr, "  raw vacuum p0=%g alt=%g: density ratio %g\n", p0, alt, rho);
+            CHECK(rho == 0.0);
+            CHECK(std::isfinite(mach) && mach > 0.0);
+        }
+    }
+    // Control: a real atmosphere keeps its stored density ratio near the base altitude.
+    const bclibc::BCLIBC_Atmosphere air(59.0, 0.0, 1013.25, 1116.0, 1.0, -60.0);
+    double rho = 0.0, mach = 0.0;
+    air.update_density_factor_and_mach_for_altitude(10.0, rho, mach);
+    CHECK(rho == 1.0);
+}
+
 int main()
 {
+    test_raw_inconsistent_vacuum();
     for (const Engine &e : kEngines)
     {
         std::fprintf(stderr, "vacuum: %s\n", e.name);

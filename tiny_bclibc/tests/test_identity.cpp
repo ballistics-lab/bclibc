@@ -1188,6 +1188,20 @@ static bool test_vacuum_identity()
     ok &= identity::compare_scalar("vacuum max range angle (rad)", tb_angle, 0.7853981633974483, 2e-5);
     (void)kFt;
 
+    // A raw atmosphere with p0 = 0 and a non-zero density ratio is a vacuum at every altitude, also within 30 ft of the
+    // base altitude (bclibc: the same rule).
+    {
+        TINY_BCLIBC_Atmosphere raw = tb_props.atmo;
+        raw.p0 = 0.0;
+        raw.density_ratio = 1.0;
+        for (double alt : {0.0, 10.0, -29.0, 31.0, 500.0})
+        {
+            real_t rho = 1.0, mach = 0.0;
+            TINY_BCLIBC_Atmosphere_update_density_mach(&raw, static_cast<real_t>(raw.a0 + alt), &rho, &mach);
+            if (rho != 0.0 || !(mach > 0.0)) { std::printf("FAIL: tiny raw vacuum (p0 = 0, density 1) at +%g ft: rho %g\n", alt, (double)rho); ok = false; }
+        }
+    }
+
     // A NaN gravity: an error in both engines (rc != OK, a message), not a loop (no alarm here: it returned).
     tb_props.cfg.cGravityConstant = std::nan("");
     TINY_BCLIBC_TrajectoryData apex_nan;

@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The identity test compares both pairs with bclibc, including a start below the altitude limit.
 
 ### Changed
+- A raw atmosphere with base pressure `p0 <= 0` is a vacuum (density ratio 0) also within 30 ft of the base altitude, in bclibc and
+  tiny_bclibc. The C ABI `BCLIBCFFI_ShotProps::atmo` takes `p0` and `density_ratio` separately, and an inconsistent pair (`p0 = 0`,
+  `density_ratio != 0`) used the stored ratio near the muzzle and 0 beyond 30 ft. Atmospheres built from conditions are unchanged.
 - `-ffast-math` / `-Ofast` / `-ffinite-math-only` is now refused at compile time (`#error` in `bclibc/base_types.hpp` and `tiny_bclibc/platform.h`).
   No shipped build uses it; measured with GCC, it removes the NaN/Inf checks (gravity, non-finite state, latitude) and makes sane shots
   fail in the zero search. Documented in `tiny_bclibc/README.md`.

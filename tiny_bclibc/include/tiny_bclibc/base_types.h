@@ -158,7 +158,8 @@ extern "C"
         const real_t alt_diff = altitude - a->a0;
         if (TINY_BCLIBC_FABS(alt_diff) < REAL_C(30.0))
         {
-            *density_ratio_out = a->density_ratio;
+            /* A raw atmosphere with p0 <= 0 is a vacuum whatever its density ratio says (as bclibc and Python) */
+            *density_ratio_out = (a->p0 <= REAL_C(0.0)) ? REAL_C(0.0) : a->density_ratio;
             *mach_out = a->mach;
             return;
         }
