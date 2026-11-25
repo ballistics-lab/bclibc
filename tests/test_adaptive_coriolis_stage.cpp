@@ -19,14 +19,13 @@
 // effect (the height with Coriolis minus the one without it, at the same tolerance) is compared to the reference effect.
 // The C++ core differs from the Python one by about 1e-6 ft already (the unit constants), the floor of the bounds.
 //
-// The control: without Coriolis (no latitude, or a latitude without azimuth = flat fire) the engines give the result they
-// always gave, recorded before the change.
+// The control: without Coriolis (no latitude, or a latitude without azimuth = flat fire) the two OFF routes agree exactly,
+// and differ clearly from Coriolis ON (see check_coriolis_off_unchanged).
 
 #include "bclibc/ffi/bclibc_ffi.h"
 
 #include <cmath>
 #include <cstdio>
-#include <cstdlib>
 #include <cstring>
 
 static int failures = 0;
@@ -169,31 +168,48 @@ static void check_error_vs_tolerance()
     }
 }
 
-// Coriolis off: the result of the engines before the change (30 deg, 4000 m), recorded from them: (height ft, windage ft)
-// for each method x tolerance. "no latitude": NaN latitude; "flat fire": a latitude without azimuth.
-#include "adaptive_coriolis_off_guard.inc"
-
+// Coriolis off, platform independent. A table recorded on one platform is not valid on another: the adaptive step controller
+// amplifies libm / FMA differences beyond any tolerance that would still catch a leak. So both sides are computed here, in the
+// same process on the same platform, and must agree bit for bit (1e-12 ft allowed):
+//   A: no latitude          -> Coriolis structurally off (flat_fire_only set, all terms zero)
+//   B: latitude, no azimuth -> flat fire: the shot API sets flat_fire_only itself when the azimuth is absent
+//      (BCLIBC_Coriolis::from_lat_az), so the Coriolis acceleration is disabled by the flag while the latitude is used.
+// (The Shot descriptor has no flat_fire_only field of its own; an azimuth together with the flag is not expressible here.)
+// Any Coriolis leak into the OFF path changes B or A by far more than 1e-12 ft. The flat-fire windage offset (see below)
+// is why the windage is compared at latitude 0 only.
 static void check_coriolis_off_unchanged()
 {
-    for (int variant = 0; variant < 2; ++variant)
+    for (int m = 0; m < 3; ++m)
     {
-        const double lat = variant == 0 ? std::nan("") : 45.0;
-        for (int m = 0; m < 3; ++m)
+        for (int t = 0; t < 4; ++t)
         {
-            for (int t = 0; t < 4; ++t)
-            {
-                BCLIBCFFI_TrajectoryData r;
-                CHECK(fire(make_shot(lat, std::nan(""), 30.0), kMethods[m], kTols[t], 4000.0, &r));
-                const double *rec = kOffRecorded[variant][m][t];
-                if (std::getenv("BCLIBC_RECORD"))
-                    std::printf("        {%.13f, %.13f},\n", r.height_ft, r.windage_ft);
-                // The table was recorded on Linux x86_64. Other platforms (libm, FMA contraction) differ at libm-noise
-                // level, which the adaptive step controller amplifies beyond 1e-9 ft. This guard only has to catch a
-                // Coriolis leak into the OFF path, which would be ~1e-1 ft, so 1e-6 ft is ample and still far below
-                // the accuracy bounds (1e-3).
-                CHECK(std::fabs(r.height_ft - rec[0]) < 1e-6);
-                CHECK(std::fabs(r.windage_ft - rec[1]) < 1e-6);
-            }
+            BCLIBCFFI_TrajectoryData a, b45, b0;
+            CHECK(fire(make_shot(std::nan(""), std::nan(""), 30.0), kMethods[m], kTols[t], 4000.0, &a));
+            CHECK(fire(make_shot(45.0, std::nan(""), 30.0), kMethods[m], kTols[t], 4000.0, &b45));
+            CHECK(fire(make_shot(0.0, std::nan(""), 30.0), kMethods[m], kTols[t], 4000.0, &b0));
+            // Height is purely the integrated one (flat fire adds no vertical offset without an azimuth).
+            CHECK(std::fabs(a.height_ft - b45.height_ft) < 1e-12);
+            CHECK(std::fabs(a.height_ft - b0.height_ft) < 1e-12);
+            // Flat fire adds a post-hoc horizontal drift omega * x * sin(lat) * t to the windage, not part of the integration;
+            // it vanishes at latitude 0 (sin 0 == 0), where the windage must match exactly too.
+            CHECK(std::fabs(a.windage_ft - b0.windage_ft) < 1e-12);
+        }
+    }
+}
+
+// Not vacuous: Coriolis ON (lat 45, azimuth 90) differs from OFF by far more than the bound above (measured ~9 ft in
+// height-effect / windage on this shot).
+static void check_coriolis_on_differs()
+{
+    for (int m = 0; m < 3; ++m)
+    {
+        for (int t = 0; t < 4; ++t)
+        {
+            BCLIBCFFI_TrajectoryData on, off;
+            CHECK(fire(make_shot(45.0, 90.0, 30.0), kMethods[m], kTols[t], 4000.0, &on));
+            CHECK(fire(make_shot(std::nan(""), std::nan(""), 30.0), kMethods[m], kTols[t], 4000.0, &off));
+            CHECK(std::fabs(on.height_ft - off.height_ft) > 1e-2);
+            CHECK(std::fabs(on.windage_ft - off.windage_ft) > 1e-2);
         }
     }
 }
@@ -202,5 +218,6 @@ int main()
 {
     check_error_vs_tolerance();
     check_coriolis_off_unchanged();
+    check_coriolis_on_differs();
     return failures ? 1 : 0;
 }
