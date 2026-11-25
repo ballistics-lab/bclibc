@@ -344,6 +344,9 @@ endif()
 # dialog nobody closes on a CI runner (the test hangs instead of failing).
 # One copy rule for all of them (they share one directory): per-test POST_BUILD copies of the same file to the same
 # destination race under `cmake --build --parallel`. A single target does the copy, and the tests depend on it.
+# The destination is a directory fixed here (RUNTIME_OUTPUT_DIRECTORY of those tests), never $<TARGET_FILE_DIR:test>: a
+# generator expression naming a test inside the copy target makes the target depend on that test, and with the
+# tests depending on the copy target that is a dependency cycle (CMake refuses to configure).
 if(WIN32)
     set(_ffi_dll_tests)
     foreach(_t
@@ -355,12 +358,14 @@ if(WIN32)
         endif()
     endforeach()
     if(_ffi_dll_tests)
-        list(GET _ffi_dll_tests 0 _first_ffi_test)
+        set(_ffi_dll_dir "${CMAKE_CURRENT_BINARY_DIR}/ffi_dll_tests/$<CONFIG>")
         add_custom_target(bclibc_ffi_dll_for_tests
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:bclibc_ffi> $<TARGET_FILE_DIR:${_first_ffi_test}>
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${_ffi_dll_dir}"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:bclibc_ffi> "${_ffi_dll_dir}"
             DEPENDS bclibc_ffi
             COMMENT "bclibc_ffi.dll next to the tests")
         foreach(_t ${_ffi_dll_tests})
+            set_target_properties(${_t} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${_ffi_dll_dir}")
             add_dependencies(${_t} bclibc_ffi_dll_for_tests)
         endforeach()
     endif()
