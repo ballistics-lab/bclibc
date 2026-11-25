@@ -340,19 +340,30 @@ if(WIN32)
 endif()
 
 # The tests that link the shared bclibc_ffi need bclibc_ffi.dll next to the executable on Windows: the DLL is built into
-# ${CMAKE_BINARY_DIR}/bin, the test into its own directory, and a missing DLL makes the process wait for a system error
+# ${CMAKE_BINARY_DIR}/bin, the tests into this directory, and a missing DLL makes the process wait for a system error
 # dialog nobody closes on a CI runner (the test hangs instead of failing).
+# One copy rule for all of them (they share one directory): per-test POST_BUILD copies of the same file to the same
+# destination race under `cmake --build --parallel`. A single target does the copy, and the tests depend on it.
 if(WIN32)
+    set(_ffi_dll_tests)
     foreach(_t
         bclibc_test_ffi_adaptive
         bclibc_test_zero_limits
         bclibc_test_ffi_fixed_stats)
         if(TARGET ${_t})
-            add_custom_command(TARGET ${_t} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:bclibc_ffi> $<TARGET_FILE_DIR:${_t}>
-                COMMENT "bclibc_ffi.dll next to ${_t}")
+            list(APPEND _ffi_dll_tests ${_t})
         endif()
     endforeach()
+    if(_ffi_dll_tests)
+        list(GET _ffi_dll_tests 0 _first_ffi_test)
+        add_custom_target(bclibc_ffi_dll_for_tests
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:bclibc_ffi> $<TARGET_FILE_DIR:${_first_ffi_test}>
+            DEPENDS bclibc_ffi
+            COMMENT "bclibc_ffi.dll next to the tests")
+        foreach(_t ${_ffi_dll_tests})
+            add_dependencies(${_t} bclibc_ffi_dll_for_tests)
+        endforeach()
+    endif()
 endif()
 
 # -ffast-math (-ffinite-math-only) is refused at compile time by the headers (it removes the NaN/Inf checks): compiling

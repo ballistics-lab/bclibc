@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The identity test compares both pairs with bclibc, including a start below the altitude limit.
 
 ### Changed
+- tests (Windows): `bclibc_ffi.dll` is copied next to the tests that link it by one custom target they depend on, not by a POST_BUILD copy
+  per test (three copies of one file to one directory raced under `cmake --build --parallel`).
 - A raw atmosphere with base pressure `p0 <= 0` is a vacuum (density ratio 0) also within 30 ft of the base altitude, in bclibc and
   tiny_bclibc. The C ABI `BCLIBCFFI_ShotProps::atmo` takes `p0` and `density_ratio` separately, and an inconsistent pair (`p0 = 0`,
   `density_ratio != 0`) used the stored ratio near the muzzle and 0 beyond 30 ft. Atmospheres built from conditions are unchanged.
