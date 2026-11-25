@@ -1016,6 +1016,30 @@ static inline void tiny_bclibc__set_error(const char *msg)
         return 0;
     }
 
+    /* Time rows of [start, end] up to time `until` (strictly before it when exclusive). A RANGE row restarts the time
+     * schedule from its own time (c->time_of_last), so the time rows due before it are emitted first: a wide adaptive step
+     * holds both the last time row and the range-limit row, and the time loop that ran after the range loop found its
+     * next row behind the clock and lost it (as in bclibc's filter). */
+    static inline void tiny_bclibc__emit_time_rows(
+        tiny_bclibc__IntegrateCtx *c, const TINY_BCLIBC_BaseTrajData *start, const TINY_BCLIBC_BaseTrajData *end,
+        real_t until, int exclusive)
+    {
+        const real_t time_step = c->req->time_step;
+        if (!(time_step > REAL_C(0.0)))
+            return;
+        while (c->time_of_last + time_step <= until + REAL_C(1e-9))
+        {
+            real_t rt = c->time_of_last + time_step;
+            if (exclusive && !(rt < until))
+                break;
+            TINY_BCLIBC_BaseTrajData r;
+            if (!tiny_bclibc__hermite_at_time(start, end, rt, &r))
+                break;
+            c->time_of_last = rt;
+            tiny_bclibc__integrate_emit(c, &r, TINY_BCLIBC_TRAJ_FLAG_RANGE);
+        }
+    }
+
     static inline int32_t tiny_bclibc__integrate_on_interval(
         const TINY_BCLIBC_BaseTrajData *start, const TINY_BCLIBC_BaseTrajData *end, void *ctx_)
     {
@@ -1035,24 +1059,14 @@ static inline void tiny_bclibc__set_error(const char *msg)
                     r = *end;
                 else if (!tiny_bclibc__hermite_at_x(start, end, rd, &r))
                     break;
+                tiny_bclibc__emit_time_rows(c, start, end, r.time, 1);
                 c->range_step_index++;
                 tiny_bclibc__integrate_emit(c, &r, TINY_BCLIBC_TRAJ_FLAG_RANGE);
                 c->time_of_last = r.time;
             }
         }
 
-        if (req->time_step > REAL_C(0.0))
-        {
-            while (c->time_of_last + req->time_step <= end->time + REAL_C(1e-9))
-            {
-                real_t rt = c->time_of_last + req->time_step;
-                TINY_BCLIBC_BaseTrajData r;
-                if (!tiny_bclibc__hermite_at_time(start, end, rt, &r))
-                    break;
-                c->time_of_last = rt;
-                tiny_bclibc__integrate_emit(c, &r, TINY_BCLIBC_TRAJ_FLAG_RANGE);
-            }
-        }
+        tiny_bclibc__emit_time_rows(c, start, end, end->time, 0);
 
         if ((c->active_flags & TINY_BCLIBC_TRAJ_FLAG_APEX) &&
             start->vy > REAL_C(0.0) && end->vy <= REAL_C(0.0))

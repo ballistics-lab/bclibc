@@ -1260,6 +1260,53 @@ static bool test_coriolis_stage_identity()
 // main
 // ═══════════════════════════════════════════════════════════════════════════
 
+// A RANGE row restarts the time schedule, so the time rows of a wide adaptive step that holds both a time row and the
+// range-limit row must be emitted before the range row (they were lost: the last time row before the range end was
+// missing). bclibc and tiny_bclibc, Tsitouras: same rows for several time steps and range steps (the last step before the
+// limit holds a time row for some of them); each time row is on the schedule (0.0.. previous row + time_step).
+static bool test_time_rows_before_range_end_identity()
+{
+    bool ok = true;
+    for (const double range_step : {1000.0, 3000.0})
+        for (const double time_step : {0.07, 0.1, 0.13, 0.3, 0.5})
+        {
+            bclibc::BCLIBC_BaseEngine bc_eng;
+            init_bclibc_engine(bc_eng, make_bclibc_shot_props());
+            TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
+            TINY_BCLIBC_ShotProps tb_props;
+            if (make_tiny_bclibc_shot_props(&tb_props, tb_curve) != TINY_BCLIBC_OK) return false;
+
+            std::vector<bclibc::BCLIBC_TrajectoryData> bc;
+            bclibc::BCLIBC_TerminationReason reason = bclibc::BCLIBC_TerminationReason::NO_TERMINATE;
+            bc_eng.integrate_filtered(3000.0, range_step, time_step, bclibc::BCLIBC_TRAJ_FLAG_RANGE, bc, reason, nullptr);
+
+            TINY_BCLIBC_TrajectoryRequest req;
+            req.range_limit_ft = 3000.0; req.range_step_ft = range_step; req.time_step = time_step;
+            req.filter_flags = TINY_BCLIBC_TRAJ_FLAG_RANGE;
+            int32_t written = 0, total = 0, rsn = 0;
+            tiny_bclibc_integrate(&tb_props, &req, nullptr, 0, &written, &total, &rsn);
+            std::vector<TINY_BCLIBC_TrajectoryData> tb(static_cast<size_t>(total));
+            tiny_bclibc_integrate(&tb_props, &req, tb.data(), total, &written, &total, &rsn);
+            tb.resize(static_cast<size_t>(written));
+
+            char name[96];
+            std::snprintf(name, sizeof name, "time rows before range end / range_step %g / time_step %g", range_step, time_step);
+            ok &= identity::compare_trajectories(bc, tb, name, kTsitourasAbsFloor, kTsitourasRelTol);
+            // every row after the first is a time row (previous + time_step) or a range row (multiple of range_step or
+            // the limit): none is lost between the last of them and the end
+            for (size_t i = 1; i < tb.size(); ++i)
+            {
+                const double q = std::fabs(tb[i].distance_ft / range_step - std::floor(tb[i].distance_ft / range_step + 0.5)) * range_step;
+                const bool range_row = q < 1e-6 || std::fabs(tb[i].distance_ft - 3000.0) < 1e-6;
+                const bool time_row = std::fabs(tb[i].time - tb[i - 1].time - time_step) < 1e-9;
+                // no time row is lost: consecutive rows are never further apart than the time step
+                if (tb[i].time - tb[i - 1].time > time_step + 1e-9) { std::printf("FAIL: %s: gap before row %zu exceeds the time step\n", name, i); ok = false; }
+                if (!range_row && !time_row) { std::printf("FAIL: %s: row %zu is neither a time nor a range row\n", name, i); ok = false; }
+            }
+        }
+    return ok;
+}
+
 int main()
 {
     std::printf("bclibc ↔ tbclibc identity test (calc_step=%.4fs, tol=%.0e)\n\n",
@@ -1285,6 +1332,7 @@ int main()
     all_pass &= test_long_downhill_zero_point();
     all_pass &= test_vacuum_identity();
     all_pass &= test_coriolis_stage_identity();
+    all_pass &= test_time_rows_before_range_end_identity();
 
     std::printf("\n%s\n", all_pass ? "ALL TESTS PASSED" : "SOME TESTS FAILED");
     return all_pass ? 0 : 1;

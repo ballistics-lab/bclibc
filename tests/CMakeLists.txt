@@ -133,6 +133,17 @@ target_compile_features(bclibc_test_start_outside_limit PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_start_outside_limit COMMAND bclibc_test_start_outside_limit)
 
+# The time rows of the last step before the range end are kept for the adaptive methods too (they were dropped).
+add_executable(bclibc_test_time_rows_before_range_end
+    test_time_rows_before_range_end.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+target_link_libraries(bclibc_test_time_rows_before_range_end PRIVATE bclibc_core)
+target_include_directories(bclibc_test_time_rows_before_range_end PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_time_rows_before_range_end PRIVATE cxx_std_17)
+add_test(NAME bclibc_test_time_rows_before_range_end COMMAND bclibc_test_time_rows_before_range_end)
+set_tests_properties(bclibc_test_time_rows_before_range_end PROPERTIES TIMEOUT 60)
+
 # The range limit is not tested before the third integration step, as the Python engines (`or step_count < 3`): start +
 # 3 steps are recorded for a limit inside the first steps. The other limits are not gated.
 add_executable(bclibc_test_min_steps_gate
@@ -309,6 +320,7 @@ if(WIN32)
         bclibc_test_zero_downhill
         bclibc_test_windsock_reset
         bclibc_test_start_outside_limit
+        bclibc_test_time_rows_before_range_end
         bclibc_test_min_steps_gate
         bclibc_test_zero_ridder_angle
         bclibc_test_lofted_bound

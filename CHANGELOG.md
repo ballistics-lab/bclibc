@@ -43,6 +43,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `BCLIBC_ZeroCrossingHandler` locates the slant-height crossing with the same solver. New header `bclibc/hermite_step.hpp`.
 
 ### Fixed
+- **The last time row before the range limit is no longer lost for the adaptive methods** (Cash-Karp, Dormand-Prince, Tsitouras, and
+  `tiny_bclibc`). A RANGE row restarts the time schedule from its own time, and the trajectory filter emitted the range rows of a step
+  before its time rows; a wide adaptive step that holds both the last time row (e.g. t = 3.3 s of a `time_step` 0.3) and the row at the
+  range limit lost the time row, which RK4, Euler and Velocity Verlet (small steps) kept. The time rows due before a range row are now
+  emitted first (`BCLIBC_TrajectoryDataFilter::handle_step`, `tiny_bclibc__integrate_on_interval`). Rows that were already present are
+  unchanged; with a small step this adds the time row in the rare case it falls in the same step before a range row. New tests
+  `bclibc_test_time_rows_before_range_end` and the identity test `test_time_rows_before_range_end_identity`.
 - tiny_bclibc: the maximum-range search (`tiny_bclibc_find_max_range`) and the apex search (`tiny_bclibc_find_apex`) ignore the caller's
   `cMinimumVelocity`, as bclibc's `find_max_range` / `find_apex` do (a minimum velocity above the speed the bullet reaches made the maximum
   range 0 ft), and a non-downhill maximum-range search stops at muzzle level (`cMaximumDrop` 0) as bclibc's. The intercept shot of

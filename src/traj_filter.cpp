@@ -177,6 +177,29 @@ namespace bclibc
         // Accepted Cash-Karp steps may be much wider than output sampling
         // intervals.  Produce all requested rows from this one step instead
         // of retaining a history only to interpolate it later.
+        //
+        // Time rows are emitted up to time `until` (exclusive of `exclusive_until`): a RANGE row restarts the time schedule
+        // from its own time (the schedule's single "last record" clock), so the time rows due before it must be emitted
+        // first. A wide step holds both (the last step before the range limit, the 1500 m row after a 3.3 s row); the time
+        // loop below ran after the range loop and found its next row already behind the clock, losing the row. With the
+        // small steps of the fixed-step methods a range row and an earlier time row rarely share a step.
+        const auto emit_time_rows = [&](double until, bool exclusive_until)
+        {
+            if (!(this->time_step > 0.0)) return;
+            while (this->time_of_last_record + this->time_step - this->EPSILON <= until)
+            {
+                const double record_time = this->time_of_last_record + this->time_step;
+                if (exclusive_until && !(record_time < until)) break;
+                BCLIBC_BaseTrajData sample;
+                if (!hermite_step::at_time(start, end, record_time, sample))
+                {
+                    break;
+                }
+                this->time_of_last_record = record_time;
+                this->add_row(rows, sample, BCLIBC_TRAJ_FLAG_RANGE);
+            }
+        };
+
         if (this->range_step > 0.0)
         {
             while (this->next_record_distance + this->range_step - this->EPSILON <= end.px)
@@ -193,26 +216,14 @@ namespace bclibc
                 {
                     break;
                 }
+                emit_time_rows(sample.time, true);
                 this->next_record_distance += this->range_step;
                 this->time_of_last_record = sample.time;
                 this->add_row(rows, sample, BCLIBC_TRAJ_FLAG_RANGE);
             }
         }
 
-        if (this->time_step > 0.0)
-        {
-            while (this->time_of_last_record + this->time_step - this->EPSILON <= end.time)
-            {
-                const double record_time = this->time_of_last_record + this->time_step;
-                BCLIBC_BaseTrajData sample;
-                if (!hermite_step::at_time(start, end, record_time, sample))
-                {
-                    break;
-                }
-                this->time_of_last_record = record_time;
-                this->add_row(rows, sample, BCLIBC_TRAJ_FLAG_RANGE);
-            }
-        }
+        emit_time_rows(end.time, false);
 
         if ((this->filter & BCLIBC_TRAJ_FLAG_APEX) && start.vy > 0.0 && end.vy <= 0.0)
         {
