@@ -1501,6 +1501,60 @@ static inline void tiny_bclibc__set_error(const char *msg)
         return TINY_BCLIBC_OK;
     }
 
+    /* ── Aiming a trial shot (the exact canted frame) ──
+     * A weapon canted by c about the line of sight (look angle L) and pitched by r in its sight plane points at (look frame:
+     * x along the line of sight, y up, z right) (cos r, sin r cos c, sin r sin c); in the world frame
+     *   x = cos L cos r - sin L sin r cos c,  y = sin L cos r + cos L sin r cos c,  z = sin r sin c,
+     * elevation E = atan2(y, hypot(x, z)), azimuth Az = atan2(z, x). The searches' unknown is the elevation E; for it
+     * r = asin(sin E / R) - phi, R = hypot(sin L, cos L cos c), phi = atan2(sin L, cos L cos c), and the props get the E and
+     * Az of that pitch, so the shot that is solved is the shot that is fired. An elevation the cant cannot reach
+     * (|sin E / R| > 1) is clamped to the reachable limit. Mirrors BCLIBC_BaseEngine::set_aim (and the Python reference's
+     * ShotProps.set_pitch). Without a cant (cant_sine == 0) it is barrel_elevation = E and nothing else: the old path,
+     * bit for bit, at no cost. */
+    static inline void tiny_bclibc__set_aim(TINY_BCLIBC_ShotProps *p, real_t elevation_rad)
+    {
+        if (p->cant_sine == REAL_C(0.0))
+        {
+            p->barrel_elevation = elevation_rad;
+            return;
+        }
+        const real_t look = p->look_angle;
+        const real_t a = TINY_BCLIBC_SIN(look);
+        const real_t b = TINY_BCLIBC_COS(look) * p->cant_cosine;
+        const real_t big_r = TINY_BCLIBC_HYPOT(a, b);
+        real_t ratio = big_r > REAL_C(1e-12) ? TINY_BCLIBC_SIN(elevation_rad) / big_r : REAL_C(2.0);
+        if (TINY_BCLIBC_FABS(ratio) > REAL_C(1.0))
+            ratio = TINY_BCLIBC_COPYSIGN(REAL_C(1.0), ratio); /* not reachable with this cant: the nearest reachable pitch */
+        const real_t r = TINY_BCLIBC_ASIN(ratio) - TINY_BCLIBC_ATAN2(a, b);
+        const real_t cos_r = TINY_BCLIBC_COS(r), sin_r = TINY_BCLIBC_SIN(r);
+        const real_t x = TINY_BCLIBC_COS(look) * cos_r - a * sin_r * p->cant_cosine;
+        const real_t y = a * cos_r + TINY_BCLIBC_COS(look) * sin_r * p->cant_cosine;
+        const real_t z = sin_r * p->cant_sine;
+        p->barrel_elevation = TINY_BCLIBC_ATAN2(y, TINY_BCLIBC_HYPOT(x, z));
+        p->barrel_azimuth = TINY_BCLIBC_ATAN2(z, x);
+    }
+
+    /* The angle of a very close shot (closer than 2 * max(|sight height|, calc_step)): the straight line from the bore (at
+     * height sh, the negative sight height with the cant applied) to the target. With a cant the line is not in the vertical
+     * plane (the bore is also offset sideways by sin(cant) * sight_height): the shot of the exact canted frame (set_aim) that
+     * crosses the line of sight at the target, ignoring gravity and drag, is pitched by r = atan2(h cos L, D + h cos c sin L)
+     * in its sight plane (h the sight height, D the slant distance), and the angle is its elevation. Without a cant it is
+     * the former atan2(dy, dx), computed as before. Mirrors BCLIBC_BaseEngine::init_zero_calculation. */
+    static inline real_t tiny_bclibc__close_shot_angle(const TINY_BCLIBC_ShotProps *p, real_t distance_ft, real_t tx, real_t ty,
+                                                       real_t sh)
+    {
+        if (p->cant_sine == REAL_C(0.0))
+            return TINY_BCLIBC_ATAN2(ty - sh, tx);
+        const real_t look = p->look_angle;
+        const real_t h = p->sight_height;
+        const real_t r = TINY_BCLIBC_ATAN2(h * TINY_BCLIBC_COS(look), distance_ft + h * p->cant_cosine * TINY_BCLIBC_SIN(look));
+        const real_t cos_r = TINY_BCLIBC_COS(r), sin_r = TINY_BCLIBC_SIN(r);
+        const real_t x = TINY_BCLIBC_COS(look) * cos_r - TINY_BCLIBC_SIN(look) * sin_r * p->cant_cosine;
+        const real_t y = TINY_BCLIBC_SIN(look) * cos_r + TINY_BCLIBC_COS(look) * sin_r * p->cant_cosine;
+        const real_t z = sin_r * p->cant_sine;
+        return TINY_BCLIBC_ATAN2(y, TINY_BCLIBC_HYPOT(x, z));
+    }
+
     /* ── error_at_distance ── */
     static inline int32_t tiny_bclibc__error_at_distance_checked(
         TINY_BCLIBC_ShotProps *props_mut,
@@ -1509,7 +1563,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         real_t target_y_ft,
         real_t *out_error)
     {
-        props_mut->barrel_elevation = angle_rad;
+        tiny_bclibc__set_aim(props_mut, angle_rad);
         tiny_bclibc__AtCtx ctx;
         const int32_t run_rc = tiny_bclibc__integrate_at_run(props_mut, TINY_BCLIBC_KEY_POS_X, target_x_ft, &ctx);
         if (run_rc != TINY_BCLIBC_OK)
@@ -1609,11 +1663,11 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
     static inline int32_t tiny_bclibc__range_for_angle(TINY_BCLIBC_ShotProps *props_mut, real_t angle_rad, real_t *out_range)
     {
-        props_mut->barrel_elevation = angle_rad;
+        tiny_bclibc__set_aim(props_mut, angle_rad);
         /* A shot that cannot rise above a downhill line of sight has no crossing: see BCLIBC_BaseEngine::range_for_angle. */
         if (props_mut->look_angle < REAL_C(0.0))
         {
-            const real_t v_perp = props_mut->muzzle_velocity * TINY_BCLIBC_SIN(angle_rad - props_mut->look_angle);
+            const real_t v_perp = props_mut->muzzle_velocity * TINY_BCLIBC_SIN(props_mut->barrel_elevation - props_mut->look_angle);
             const real_t h0 = -props_mut->cant_cosine * props_mut->sight_height * TINY_BCLIBC_COS(props_mut->look_angle);
             const real_t g = TINY_BCLIBC_FABS(props_mut->cfg.cGravityConstant);
             const real_t peak = (v_perp > REAL_C(0.0) && g > REAL_C(0.0))
@@ -1736,7 +1790,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         }
         if (TINY_BCLIBC_FABS(distance_ft) < REAL_C(2.0) * tiny_bclibc__fmax(TINY_BCLIBC_FABS(sh), p.calc_step))
         {
-            *out_angle_rad = TINY_BCLIBC_ATAN2(ty - sh, tx);
+            *out_angle_rad = tiny_bclibc__close_shot_angle(&p, distance_ft, tx, ty, sh);
             return TINY_BCLIBC_OK;
         }
 
@@ -1998,6 +2052,12 @@ static inline void tiny_bclibc__set_error(const char *msg)
         const real_t damping_rate = REAL_C(0.7);
         real_t last_correction = REAL_C(0.0);
 
+        /* The unknown is the elevation E of the vertical plane (aim); with a cant the props' elevation and azimuth follow it
+         * (tiny_bclibc__set_aim). The first trial is the shot as given, aimed consistently. */
+        real_t aim = p->barrel_elevation;
+        if (p->cant_sine != REAL_C(0.0))
+            tiny_bclibc__set_aim(p, aim);
+
         while (iterations < cMaxIterations)
         {
             TINY_BCLIBC_BaseTrajData raw;
@@ -2007,9 +2067,10 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 return TINY_BCLIBC_ERR_ZERO_FINDING;
 
             if (REAL_C(2.0) * raw.px < target_x_ft &&
-                p->barrel_elevation == REAL_C(0.0) && look_angle_rad < REAL_C(1.5))
+                aim == REAL_C(0.0) && look_angle_rad < REAL_C(1.5))
             {
-                p->barrel_elevation = REAL_C(0.01);
+                aim = REAL_C(0.01);
+                tiny_bclibc__set_aim(p, aim);
                 iterations++;
                 continue;
             }
@@ -2020,7 +2081,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
             height_error_ft = TINY_BCLIBC_FABS(height_diff_ft);
 
             real_t traj_angle = TINY_BCLIBC_ATAN2(raw.vy, raw.vx);
-            real_t d_el = p->barrel_elevation - look_angle_rad;
+            real_t d_el = aim - look_angle_rad;
             real_t d_tr = traj_angle - look_angle_rad;
             real_t cos_el = TINY_BCLIBC_COS(d_el), cos_tr = TINY_BCLIBC_COS(d_tr);
             real_t denom_prod = cos_el * cos_tr;
@@ -2045,7 +2106,8 @@ static inline void tiny_bclibc__set_error(const char *msg)
                 damping_factor *= damping_rate;
                 if (damping_factor < REAL_C(0.3))
                     return TINY_BCLIBC_ERR_ZERO_FINDING;
-                p->barrel_elevation -= last_correction;
+                aim -= last_correction;
+                tiny_bclibc__set_aim(p, aim);
                 correction = last_correction;
             }
             else if (damping_factor < REAL_C(1.0))
@@ -2058,19 +2120,20 @@ static inline void tiny_bclibc__set_error(const char *msg)
 
             if (height_error_ft <= cZeroFindingAccuracy && range_error_ft <= ALLOWED_ZERO_ERROR_FT)
             {
-                *out_angle_rad = p->barrel_elevation;
+                *out_angle_rad = aim;
                 return TINY_BCLIBC_OK;
             }
 
             real_t applied = correction * damping_factor;
-            p->barrel_elevation += applied;
+            aim += applied;
+            tiny_bclibc__set_aim(p, aim);
             last_correction = applied;
             iterations++;
         }
 
         if (height_error_ft <= cZeroFindingAccuracy && range_error_ft <= ALLOWED_ZERO_ERROR_FT)
         {
-            *out_angle_rad = p->barrel_elevation;
+            *out_angle_rad = aim;
             return TINY_BCLIBC_OK;
         }
         return TINY_BCLIBC_ERR_ZERO_FINDING;
@@ -2102,7 +2165,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         }
         if (TINY_BCLIBC_FABS(distance_ft) < REAL_C(2.0) * tiny_bclibc__fmax(TINY_BCLIBC_FABS(sh), props->calc_step))
         {
-            *out_angle_rad = TINY_BCLIBC_ATAN2(ty - sh, tx);
+            *out_angle_rad = tiny_bclibc__close_shot_angle(props, distance_ft, tx, ty, sh);
             return TINY_BCLIBC_OK;
         }
 
@@ -2123,7 +2186,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         TINY_BCLIBC_ZeroPointResult *out)
     {
         TINY_BCLIBC_ShotProps solved_props = *props;
-        solved_props.barrel_elevation = angle_rad;
+        tiny_bclibc__set_aim(&solved_props, angle_rad); /* with a cant, the azimuth of the canted barrel too */
         /* bclibc takes the point from the search, which runs without the minimum velocity */
         solved_props.cfg.cMinimumVelocity = REAL_C(0.0);
         int32_t rc;

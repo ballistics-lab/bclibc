@@ -86,7 +86,8 @@ namespace
                                                     double look_angle_rad = G7_BASIC::LOOK_ANGLE_RAD,
                                                     double pressure_hpa = G7_BASIC::PRESSURE_HPA,
                                                     double latitude_deg = G7_BASIC::LAT_DEG,
-                                                    double azimuth_deg = G7_BASIC::AZ_DEG)
+                                                    double azimuth_deg = G7_BASIC::AZ_DEG,
+                                                    double cant_angle_rad = G7_BASIC::CANT_ANGLE_RAD)
     {
         init_g7_arrays();
 
@@ -111,7 +112,7 @@ namespace
         shot.look_angle_rad = look_angle_rad;
         shot.barrel_elevation_rad = barrel_elevation_rad;
         shot.barrel_azimuth_rad = G7_BASIC::BARREL_AZ_RAD;
-        shot.cant_angle_rad = G7_BASIC::CANT_ANGLE_RAD;
+        shot.cant_angle_rad = cant_angle_rad;
         shot.latitude_deg = latitude_deg;
         shot.azimuth_deg = azimuth_deg;
         shot.calc_step = kCalcStep;
@@ -220,7 +221,8 @@ namespace
                                     double look_angle_rad = G7_BASIC::LOOK_ANGLE_RAD,
                                     double pressure_hpa = G7_BASIC::PRESSURE_HPA,
                                     double latitude_deg = G7_BASIC::LAT_DEG,
-                                    double azimuth_deg = G7_BASIC::AZ_DEG)
+                                    double azimuth_deg = G7_BASIC::AZ_DEG,
+                                    double cant_angle_rad = G7_BASIC::CANT_ANGLE_RAD)
     {
         init_tb_g7_arrays();
 
@@ -253,7 +255,7 @@ namespace
         shot.look_angle_rad = look_angle_rad;
         shot.barrel_elevation_rad = barrel_elevation_rad;
         shot.barrel_azimuth_rad = G7_BASIC::BARREL_AZ_RAD;
-        shot.cant_angle_rad = G7_BASIC::CANT_ANGLE_RAD;
+        shot.cant_angle_rad = cant_angle_rad;
         shot.latitude_deg = latitude_deg;
         shot.azimuth_deg = azimuth_deg;
         shot.config = cfg;
@@ -1321,6 +1323,105 @@ static bool test_time_rows_before_range_end_identity()
     return ok;
 }
 
+// A canted weapon: the zero is solved in the exact canted frame (class C37). For every trial elevation E of the vertical
+// plane the azimuth of the canted barrel follows the model (BCLIBC_BaseEngine::set_aim, tiny_bclibc__set_aim), so both
+// engines solve the same shot, and the shot fired with the zero's (E, Az) -- the closed form below, not the engines' own --
+// hits the target. A canted weapon pitched by r in its sight plane (look angle L, cant c) points at, in the world frame,
+//   x = cos L cos r - sin L sin r cos c,  y = sin L cos r + cos L sin r cos c,  z = sin r sin c,
+//   E = atan2(y, hypot(x, z)),  Az = atan2(z, x);   inverse: r = asin(sin E / R) - phi,
+//   R = hypot(sin L, cos L cos c), phi = atan2(sin L, cos L cos c).
+static bool test_exact_cant_zero()
+{
+    constexpr double APEX_MAX_RAD = 0.0003; // the vertical-shot threshold of the library's default
+    constexpr double ALLOWED_ERR = 0.001; // ft
+    constexpr double kDegToRad = 0.017453292519943295;
+    constexpr double kSightFt = 0.164;
+    constexpr double kMissTolFt = 1e-3;
+
+    bool ok = true;
+    for (const double cant_deg : {10.0, 45.0})
+        for (const double look_deg : {0.0, 5.0})
+            for (const double dist_ft : {1000.0, 3000.0})
+            {
+                const double look = look_deg * kDegToRad, cant = cant_deg * kDegToRad;
+                bclibc::BCLIBC_BaseEngine bc_eng2; // zero_angle takes the slant distance
+                init_bclibc_engine(bc_eng2, make_bclibc_shot_props(look, kSightFt, look, G7_BASIC::PRESSURE_HPA,
+                                                                   G7_BASIC::LAT_DEG, G7_BASIC::AZ_DEG, cant));
+                auto bc_angle_result = bc_eng2.zero_angle(dist_ft, APEX_MAX_RAD, ALLOWED_ERR);
+                if (bclibc::has_error(bc_angle_result))
+                {
+                    std::printf("FAIL: bclibc zero_angle failed (cant %g, look %g, %g ft)\n", cant_deg, look_deg, dist_ft);
+                    ok = false;
+                    continue;
+                }
+                const double bc_angle = bc_angle_result.value();
+
+                TINY_BCLIBC_CurvePoint tb_curve[kG7TableSize];
+                TINY_BCLIBC_ShotProps tb_props;
+                if (make_tiny_bclibc_shot_props(&tb_props, tb_curve, look, kSightFt, look,
+                                                G7_BASIC::PRESSURE_HPA, G7_BASIC::LAT_DEG, G7_BASIC::AZ_DEG, cant) != TINY_BCLIBC_OK)
+                    return false;
+                double tb_angle = 0.0;
+                const int rc = tiny_bclibc_find_zero_angle(&tb_props, dist_ft, &tb_angle);
+                if (rc != TINY_BCLIBC_OK)
+                {
+                    std::printf("FAIL: tiny_bclibc_find_zero_angle rc=%d (cant %g, look %g, %g ft): %s\n", rc, cant_deg, look_deg,
+                                dist_ft, tiny_bclibc_last_error());
+                    ok = false;
+                    continue;
+                }
+
+                // The shot fired with the closed-form (E, Az) of the tiny_bclibc zero, at the target, in both engines.
+                const double a = std::sin(look), b = std::cos(look) * std::cos(cant);
+                const double r = std::asin(std::sin(tb_angle) / std::hypot(a, b)) - std::atan2(a, b);
+                const double x = std::cos(look) * std::cos(r) - std::sin(look) * std::sin(r) * std::cos(cant);
+                const double y = std::sin(look) * std::cos(r) + std::cos(look) * std::sin(r) * std::cos(cant);
+                const double z = std::sin(r) * std::sin(cant);
+                const double fire_el = std::atan2(y, std::hypot(x, z)), fire_az = std::atan2(z, x);
+
+                TINY_BCLIBC_ShotProps tb_fire = tb_props;
+                tb_fire.barrel_elevation = fire_el;
+                tb_fire.barrel_azimuth = fire_az;
+                TINY_BCLIBC_BaseTrajData raw;
+                TINY_BCLIBC_TrajectoryData full;
+                const double tx = dist_ft * std::cos(look), ty = dist_ft * std::sin(look);
+                if (tiny_bclibc_integrate_at(&tb_fire, TINY_BCLIBC_KEY_POS_X, tx, &raw, &full) != TINY_BCLIBC_OK)
+                {
+                    ok = false;
+                    continue;
+                }
+                const double tb_miss = raw.py - ty;
+
+                bclibc::BCLIBC_BaseEngine bc_fire;
+                init_bclibc_engine(bc_fire, make_bclibc_shot_props(fire_el, kSightFt, look, G7_BASIC::PRESSURE_HPA, G7_BASIC::LAT_DEG,
+                                                                   G7_BASIC::AZ_DEG, cant));
+                bc_fire.shot.barrel_azimuth = fire_az;
+                bclibc::BCLIBC_BaseTrajData bc_raw;
+                bclibc::BCLIBC_TrajectoryData bc_full;
+                if (bclibc::has_error(bc_fire.integrate_at(bclibc::BCLIBC_BaseTrajData_InterpKey::POS_X, tx, bc_raw, bc_full)))
+                {
+                    ok = false;
+                    continue;
+                }
+                const double bc_miss = bc_raw.py - ty;
+
+                std::printf("  cant %g, look %g, %g ft: bclibc %.9f rad, tiny_bclibc %.9f rad; Az %.6f deg; fired miss: tiny %.2e ft, bclibc %.2e ft\n",
+                            cant_deg, look_deg, dist_ft, bc_angle, tb_angle, fire_az / kDegToRad, tb_miss, bc_miss);
+                ok &= identity::compare_scalar("canted zero: bclibc vs tiny_bclibc (rad)", bc_angle, tb_angle, 1e-6);
+                if (std::fabs(tb_miss) >= kMissTolFt)
+                {
+                    std::printf("FAIL: tiny_bclibc canted zero fired with the closed-form (E, Az) misses by %.5f ft\n", tb_miss);
+                    ok = false;
+                }
+                if (std::fabs(bc_miss) >= kMissTolFt)
+                {
+                    std::printf("FAIL: bclibc canted zero fired with the closed-form (E, Az) misses by %.5f ft\n", bc_miss);
+                    ok = false;
+                }
+            }
+    return ok;
+}
+
 int main()
 {
     std::printf("bclibc ↔ tbclibc identity test (calc_step=%.4fs, tol=%.0e)\n\n",
@@ -1332,6 +1433,7 @@ int main()
     all_pass &= test_g7_basic_tsitouras_parity();
     all_pass &= test_g7_basic_zero_angle();
     all_pass &= test_g7_basic_zero_point();
+    all_pass &= test_exact_cant_zero();
     all_pass &= test_g7_basic_find_apex();
     all_pass &= test_g7_find_apex_first_step();
     all_pass &= test_min_steps_gate();

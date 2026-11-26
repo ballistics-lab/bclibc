@@ -21,6 +21,9 @@ typedef float real_t;
 #define TINY_BCLIBC_COS cosf
 #define TINY_BCLIBC_SIN sinf
 #define TINY_BCLIBC_POW powf
+#define TINY_BCLIBC_ASIN asinf
+#define TINY_BCLIBC_HYPOT hypotf
+#define TINY_BCLIBC_COPYSIGN copysignf
 #define TINY_BCLIBC_EXP expf
 #define REAL_C(x) x##f
 #else
@@ -31,6 +34,9 @@ typedef double real_t;
 #define TINY_BCLIBC_COS cos
 #define TINY_BCLIBC_SIN sin
 #define TINY_BCLIBC_POW pow
+#define TINY_BCLIBC_ASIN asin
+#define TINY_BCLIBC_HYPOT hypot
+#define TINY_BCLIBC_COPYSIGN copysign
 #define TINY_BCLIBC_EXP exp
 #define REAL_C(x) x
 #endif
