@@ -802,8 +802,14 @@ extern "C"
     } BCLIBCFFI_ZeroInit;
 
     /**
-     * @brief Vertical error of a shot fired at angle_rad, measured where x reaches target_x_ft:
-     * (hit.y - target_y_ft) - |hit.x - target_x_ft|.
+     * @brief Vertical error of a shot fired at angle_rad, measured where x reaches target_x_ft.
+     *
+     * angle_rad is the total elevation of the barrel in the vertical plane. With a cant (cant_angle_rad != 0) the azimuth
+     * of the canted barrel that has this elevation follows from the exact canted-frame model (the shot's barrel_azimuth_rad
+     * is not used; an elevation the cant cannot reach is clamped to the reachable limit); without a cant the azimuth of the
+     * shot is used as given. The same holds for the other solver entries (range_for_angle, the zero and max-range searches).
+     *
+     * The error is (hit.y - target_y_ft) - |hit.x - target_x_ft|.
      *
      * When the trajectory ends before target_x_ft (minimum velocity, maximum drop or minimum altitude) the error is
      * measured at its last point instead: it is still finite and signed (a shot that falls short is negative), which

@@ -298,6 +298,51 @@ namespace bclibc
     };
 
     /**
+     * Elevation and azimuth of a barrel pitched by r in a sight plane canted by c about the line of sight at look angle L:
+     * the direction (cos r, sin r cos c, sin r sin c) of the look frame (x along the line of sight, y up, z right) in the
+     * world frame. See BCLIBC_BaseEngine::set_aim.
+     */
+    static inline void canted_direction(
+        double look, double cant_cos, double cant_sin, double r, double &elevation, double &azimuth)
+    {
+        const double cos_r = std::cos(r);
+        const double sin_r = std::sin(r);
+        const double x = std::cos(look) * cos_r - std::sin(look) * sin_r * cant_cos;
+        const double y = std::sin(look) * cos_r + std::cos(look) * sin_r * cant_cos;
+        const double z = sin_r * cant_sin;
+        elevation = std::atan2(y, std::hypot(x, z));
+        azimuth = std::atan2(z, x);
+    }
+
+    void BCLIBC_BaseEngine::set_aim(double elevation_rad)
+    {
+        this->aim_elevation = elevation_rad;
+        if (this->shot.cant_sine == 0.0)
+        {
+            // No cant: the elevation is the unknown itself and the azimuth is the caller's. The same value, bit for bit, as
+            // before the exact canted frame (nothing else is computed).
+            this->shot.barrel_elevation = elevation_rad;
+            return;
+        }
+
+        const double look = this->shot.look_angle;
+
+        // sin(E) = a cos(r) + b sin(r) = R sin(r + phi)
+        const double a = std::sin(look);
+        const double b = std::cos(look) * this->shot.cant_cosine;
+        const double big_r = std::hypot(a, b);
+        double ratio = big_r > 1e-12 ? std::sin(elevation_rad) / big_r : 2.0;
+        if (std::fabs(ratio) > 1.0 + 1e-12)
+        {
+            ratio = std::copysign(1.0, ratio); // not reachable with this cant: the nearest reachable pitch
+        }
+        const double r = std::asin(std::fmax(-1.0, std::fmin(1.0, ratio))) - std::atan2(a, b);
+
+        canted_direction(look, this->shot.cant_cosine, this->shot.cant_sine, r,
+                         this->shot.barrel_elevation, this->shot.barrel_azimuth);
+    }
+
+    /**
      * @brief Finds the apex (highest point) of the trajectory.
      *
      * @param apex_out Output variable to store apex trajectory data.
@@ -375,7 +420,7 @@ namespace bclibc
         const auto gravity_result = this->check_gravity();
         if (has_error(gravity_result)) return gravity_result.error();
 
-        this->shot.barrel_elevation = angle_rad;
+        this->set_aim(angle_rad);
 
         BCLIBC_TerminationReason reason;
 
@@ -464,7 +509,26 @@ namespace bclibc
         if (std::fabs(result.slant_range_ft) < 2.0 * std::fmax(std::fabs(result.start_height_ft),
                                                                this->shot.calc_step))
         {
-            result.look_angle_rad = std::atan2(result.target_y_ft - result.start_height_ft, result.target_x_ft);
+            // With a cant the straight line from the bore to the target is not in the vertical plane: the bore is also offset
+            // sideways (the engine starts the shot at z = -cant_sine * sight_height). The shot of the exact canted frame (see
+            // set_aim) that crosses the line of sight at the target, ignoring gravity and drag as here, is pitched by
+            // r = atan2(h cos L, D + h cos c sin L) in its sight plane (h the sight height, D the slant distance; for L = 0
+            // the straight line of the bore to the target), and the angle returned is its elevation. Without a cant this
+            // is the former atan2(dy, dx) (L + r), computed as before.
+            if (this->shot.cant_sine != 0.0)
+            {
+                const double h = this->shot.sight_height;
+                const double look = this->shot.look_angle;
+                const double r = std::atan2(
+                    h * std::cos(look),
+                    result.slant_range_ft + h * this->shot.cant_cosine * std::sin(look));
+                double azimuth;
+                canted_direction(look, this->shot.cant_cosine, this->shot.cant_sine, r, result.look_angle_rad, azimuth);
+            }
+            else
+            {
+                result.look_angle_rad = std::atan2(result.target_y_ft - result.start_height_ft, result.target_x_ft);
+            }
             return std::monostate{};
         }
 
@@ -633,6 +697,17 @@ namespace bclibc
             &this->config.cMinimumAltitude,
             zero_search_min_altitude(this->config.cMinimumAltitude, this->shot.alt0, required_drop_ft));
 
+        // The unknown is the elevation E of the vertical plane (aim_elevation); with a cant the shot's elevation and azimuth
+        // follow it (see set_aim). The first trial is the shot as given, aimed consistently.
+        if (this->shot.cant_sine != 0.0)
+        {
+            this->set_aim(this->shot.barrel_elevation);
+        }
+        else
+        {
+            this->aim_elevation = this->shot.barrel_elevation;
+        }
+
         // Main iteration loop
         while (iterations_count < _cMaxIterations)
         {
@@ -667,9 +742,9 @@ namespace bclibc
             }
 
             current_distance = hit.px;
-            if (2 * current_distance < target_x_ft && this->shot.barrel_elevation == 0.0 && look_angle_rad < 1.5)
+            if (2 * current_distance < target_x_ft && this->aim_elevation == 0.0 && look_angle_rad < 1.5)
             {
-                this->shot.barrel_elevation = 0.01;
+                this->set_aim(0.01);
                 iterations_count++;
                 continue;
             }
@@ -683,7 +758,7 @@ namespace bclibc
             height_error_ft = std::fabs(height_diff_ft);
             trajectory_angle = std::atan2(hit.vy, hit.vx);
 
-            double sensitivity = (std::tan(this->shot.barrel_elevation - look_angle_rad) * std::tan(trajectory_angle - look_angle_rad));
+            double sensitivity = (std::tan(this->aim_elevation - look_angle_rad) * std::tan(trajectory_angle - look_angle_rad));
             double denominator;
             if (sensitivity < -0.5)
             {
@@ -706,7 +781,7 @@ namespace bclibc
                             "Distance non-convergent",
                             range_error_ft,
                             iterations_count,
-                            this->shot.barrel_elevation}};
+                            this->aim_elevation}};
                     }
                 }
                 else if (height_error_ft > std::fabs(prev_height_error_ft))
@@ -718,10 +793,10 @@ namespace bclibc
                             "Error non-convergent",
                             height_error_ft,
                             iterations_count,
-                            this->shot.barrel_elevation}};
+                            this->aim_elevation}};
                     }
                     // Revert previous adjustment
-                    this->shot.barrel_elevation -= last_correction;
+                    this->set_aim(this->aim_elevation - last_correction);
                     correction = last_correction;
                 }
                 else if (damping_factor < 1.0)
@@ -735,7 +810,7 @@ namespace bclibc
                 if (height_error_ft > _cZeroFindingAccuracy || range_error_ft > ALLOWED_ZERO_ERROR_FEET)
                 {
                     double applied_correction = correction * damping_factor;
-                    this->shot.barrel_elevation += applied_correction;
+                    this->set_aim(this->aim_elevation + applied_correction);
                     last_correction = applied_correction;
                 }
                 else
@@ -750,7 +825,7 @@ namespace bclibc
                     "Correction denominator is zero",
                     height_error_ft,
                     iterations_count,
-                    this->shot.barrel_elevation}};
+                    this->aim_elevation}};
             }
 
             iterations_count++;
@@ -762,12 +837,12 @@ namespace bclibc
                 "Zero finding failed to converge after maximum iterations",
                 height_error_ft,
                 iterations_count,
-                this->shot.barrel_elevation}};
+                this->aim_elevation}};
         }
 
         if (result_out != nullptr)
         {
-            result_out->angle_rad = this->shot.barrel_elevation;
+            result_out->angle_rad = this->aim_elevation;
             auto point_result = BCLIBC_TrajectoryData::from_base(this->shot, hit, BCLIBC_TRAJ_FLAG_RANGE);
             if (has_error(point_result)) return point_result.error();
             result_out->point = point_result.value();
@@ -775,7 +850,7 @@ namespace bclibc
         }
 
         // success
-        return this->shot.barrel_elevation;
+        return this->aim_elevation;
     };
 
     /**
@@ -803,7 +878,7 @@ namespace bclibc
         const auto gravity_result = this->check_gravity();
         if (has_error(gravity_result)) return gravity_result.error();
 
-        this->shot.barrel_elevation = angle_rad;
+        this->set_aim(angle_rad);
 
         // A shot that cannot rise above a downhill line of sight has no crossing to find, and with the limits lifted by
         // find_max_range it would be integrated until the range limit: answer "no crossing" without integrating. The
@@ -811,7 +886,7 @@ namespace bclibc
         // line plus (v sin(elevation - look))^2 / (2 g cos(look)); it must reach the line. (Wind is not considered.)
         if (this->shot.look_angle < 0.0)
         {
-            const double v_perp = this->shot.muzzle_velocity * std::sin(angle_rad - this->shot.look_angle);
+            const double v_perp = this->shot.muzzle_velocity * std::sin(this->shot.barrel_elevation - this->shot.look_angle);
             const double h0 = -this->shot.cant_cosine * this->shot.sight_height * std::cos(this->shot.look_angle);
             const double g = std::fabs(this->config.cGravityConstant);
             const double peak = (v_perp > 0.0 && g > 0.0) ? h0 + v_perp * v_perp / (2.0 * g * std::cos(this->shot.look_angle)) : h0;
@@ -1172,7 +1247,7 @@ namespace bclibc
                 reason,
                 target_y_ft,
                 0,
-                this->shot.barrel_elevation}};
+                this->aim_elevation}};
         }
 
         // 4. Ridder's method implementation

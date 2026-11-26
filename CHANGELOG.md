@@ -15,6 +15,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The identity test compares both pairs with bclibc, including a start below the altitude limit.
 
 ### Changed
+- **The zero, max-range and error searches solve in the exact canted frame (class C37; `tiny_bclibc` follows).** A weapon canted by `c` about
+  the line of sight (look angle `L`) and pitched by `r` in its sight plane points, in the world frame, at
+  `x = cos L cos r - sin L sin r cos c`, `y = sin L cos r + cos L sin r cos c`, `z = sin r sin c`: elevation `E = atan2(y, hypot(x, z))`,
+  azimuth `Az = atan2(z, x)` (`c = 0` is exactly `E = L + r`, `Az = 0`). The searches' unknown is the elevation `E` of the vertical plane; for
+  every trial elevation `BCLIBC_BaseEngine::set_aim` (`tiny_bclibc__set_aim`) now derives the azimuth from this model
+  (`r = asin(sin E / R) - phi`, `R = hypot(sin L, cos L cos c)`, `phi = atan2(sin L, cos L cos c)`) and aims the trial shot with both, so the shot
+  that is solved is the shot that is fired with `(E, Az(E))` (the Python reference's `ShotProps.set_pitch`). Before, the trial shots kept the
+  azimuth of the caller's shot (0), so with a cant a zero fired with the azimuth of the canted barrel missed, and the lofted zero of a canted
+  rifle ended about a kilometre off. An elevation the cant cannot reach (`|sin E / R| > 1`, the elevation is at most `asin(R)`) is clamped to
+  the reachable limit. Entries: `find_zero_angle` / `find_zero_point` (low and lofted, Newton and Ridder), `find_max_range`,
+  `error_at_distance`, `range_for_angle`, `zero_angle_newton`, and the same in the adaptive and `_shot` C ABI forms; `integrate` / `find_apex`
+  are unchanged (they receive the final elevation and azimuth). **Without a cant (`cant_sine == 0`) the new computation is skipped and every
+  result is bit-identical to before** (verified on all six methods, look angles 0 and +-5 degrees, 6 shots, zero low/lofted/point/Newton,
+  max range, apex, error_at_distance, range_for_angle, rows; double and float `tiny_bclibc`). With a cant the elevation of a zero moves, for
+  ordinary shots by less than 1e-4 degree (G7 175 gr 800 m/s: cant 10 degrees, 1000 m, 0.725181 to 0.725184 degrees; cant 45 degrees, 1000 m,
+  0.724385 to 0.724478, and at look 5 degrees 5.721565 to 5.721259 degrees, the largest of the grid, 3e-4); the maximum range of a canted shot is
+  now the range of a shot that can be fired (cant 10: 18098.1 to 17936.8 ft at 36.64 degrees; cant 45: 18098.2 to 15079.4 ft at 23.91
+  degrees); the lofted zero of cant 10 at 300 m is 79.8678 degrees elevation, 80.637 degrees azimuth (it was 88.41 degrees with azimuth 0 and
+  missed by a kilometre). The very close shot shortcut of `init_zero_calculation` (a target closer than twice the sight height) follows the same
+  model with a cant: the angle is the elevation of the shot that crosses the line of sight at the target, pitched by
+  `r = atan2(h cos L, D + h cos c sin L)` (`h` sight height, `D` slant distance; at look 0 the straight line from the bore, which is also offset
+  sideways, to the target), where it was `atan2(dy, dx)` (cant 30 degrees, sight 0.5 m, target 2.56 ft: 29.05 to 27.84 degrees); a target so
+  close that this pitch is beyond the maximum elevation the cant can reach has no elevation to answer with and is clamped (the call still answers).
+  Re-recorded guard: `tests/false_root_guard.inc` row `cant300` (rk4 1.5430550728187127 to 1.393955345706509 rad, 88.41 to 79.87 degrees; the 36
+  other rows, cant 0, are unchanged); `test_zero_close_target.cpp` cant shortcut expectation. New test `bclibc_test_exact_cant` and an identity case
+  for a canted zero in `tiny_bclibc`.
 - tests (Windows): `bclibc_ffi.dll` is copied next to the tests that link it by one custom target they depend on, not by a POST_BUILD copy
   per test (three copies of one file to one directory raced under `cmake --build --parallel`).
 - A raw atmosphere with base pressure `p0 <= 0` is a vacuum (density ratio 0) also within 30 ft of the base altitude, in bclibc and

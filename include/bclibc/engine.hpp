@@ -113,6 +113,14 @@ namespace bclibc
         BCLIBC_ShotProps shot;
         BCLIBC_IntegrateCallable integrate_func;
 
+        /**
+         * The unknown of the zero, max-range and error searches: the total elevation E of the barrel in the vertical
+         * plane, as last given to set_aim(). With a cant it is not shot.barrel_elevation (set_aim() stores the elevation
+         * and azimuth the canted barrel has at E, which is E up to rounding while E is reachable). Without a cant it is
+         * always shot.barrel_elevation.
+         */
+        double aim_elevation = 0.0;
+
         BCLIBC_BaseEngine() = default;
 
         /**
@@ -190,6 +198,23 @@ namespace bclibc
          * BCLIBC_RuntimeError if apex cannot be determined.
          */
         BCLIBC_Result<std::monostate> find_apex(BCLIBC_BaseTrajData &apex_out);
+
+        /**
+         * @brief Aims the shot at total elevation elevation_rad, for a trial of a search (the exact canted frame).
+         *
+         * A weapon canted by c about the line of sight (look angle L) and pitched by r in its sight plane points at
+         * (look frame: x along the line of sight, y up, z right) (cos r, sin r cos c, sin r sin c); in the world
+         * frame x = cos L cos r - sin L sin r cos c, y = sin L cos r + cos L sin r cos c, z = sin r sin c, with
+         * elevation E = atan2(y, hypot(x, z)) and azimuth Az = atan2(z, x). The searches' unknown is E; for it the
+         * pitch is r = asin(sin E / R) - phi, R = hypot(sin L, cos L cos c), phi = atan2(sin L, cos L cos c), and
+         * shot.barrel_elevation / shot.barrel_azimuth become the E and Az of that pitch, so the shot that is solved is the
+         * shot that is fired. An elevation that the cant cannot reach (|sin E / R| > 1) is clamped to the reachable
+         * limit, as the Python reference (ShotProps.set_pitch) does.
+         *
+         * Without a cant (cant_sine == 0) this is shot.barrel_elevation = elevation_rad and nothing else (the azimuth of the
+         * shot is untouched).
+         */
+        void set_aim(double elevation_rad);
 
         /**
          * @brief Computes the vertical error at a specific horizontal distance.

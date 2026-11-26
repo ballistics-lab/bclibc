@@ -262,22 +262,42 @@ static void test_abi_cant()
                     const double d = target * kFt;
                     double angle = 0.0;
                     int32_t rc = BCLIBCFFI_find_zero_angle_shot(&shot, d, &angle, &err);
-                    CHECK_ZERO("cant find_zero_angle_shot", rc, angle, shot, d);
                     BCLIBCFFI_ZeroPointResult zp;
                     std::memset(&zp, 0, sizeof zp);
+                    // In the exact canted frame (class C37) the solvers' unknown is the elevation E, which the pitch r in the
+                    // sight plane reaches only up to its maximum (r <= 90 deg - phi, phi = atan2(sin L, cos L cos c)); a
+                    // target so close that the straight line from the bore needs a steeper pitch (a sight 0.5 m above the
+                    // bore, 60 deg of cant, a target 5 or 10 cm away) has no elevation to answer with: the elevation is
+                    // clamped to the reachable limit and the shot cannot hit. The call still answers.
+                    const double kPiLocal = 3.14159265358979323846;
+                    const double look_rad = look * kPiLocal / 180.0, cant_rad = cant * kPiLocal / 180.0;
+                    const double r_needed = std::atan2(shot.sight_height_ft * std::cos(look_rad),
+                                                       d + shot.sight_height_ft * std::cos(cant_rad) * std::sin(look_rad));
+                    const double r_max = kPiLocal / 2.0 - std::atan2(std::sin(look_rad), std::cos(look_rad) * std::cos(cant_rad));
+                    if (r_needed > r_max + 1e-9)
+                    {
+                        CHECK(rc == BCLIBCFFI_OK);
+                        CHECK(BCLIBCFFI_find_zero_point_shot(&shot, d, &zp, &err) == BCLIBCFFI_OK);
+                        continue;
+                    }
+                    CHECK_ZERO("cant find_zero_angle_shot", rc, angle, shot, d);
                     rc = BCLIBCFFI_find_zero_point_shot(&shot, d, &zp, &err);
                     CHECK_ZERO("cant find_zero_point_shot", rc, zp.angle_rad, shot, d);
                 }
-    // The shortcut itself: atan2(h * cos(cant), x) at look 0, and the cutoff is 2 * h * cos(cant).
+    // The shortcut itself, at look 0, and the cutoff is 2 * h * cos(cant). The bore is offset by h * cos(cant) up and
+    // h * sin(cant) sideways from the line of sight, so the straight line to the target rises by
+    // atan2(h * cos(cant), hypot(x, h * sin(cant))) in the exact canted frame (class C37; before the angle was
+    // atan2(h * cos(cant), x): at cant 30 and sight 0.5 m, target 1.8 * cutoff/2, 29.05 to 27.84 degrees).
     for (double cant : {30.0, 60.0})
     {
         const BCLIBCFFI_Shot shot = make_shot(method, t, 0.5, v, 0.0, cant);
         const double h = shot.sight_height_ft * std::cos(shot.cant_angle_rad);
+        const double lateral = shot.sight_height_ft * std::sin(shot.cant_angle_rad);
         BCLIBCFFI_ZeroInit zi;
         std::memset(&zi, 0, sizeof zi);
         CHECK(BCLIBCFFI_zero_init_shot(&shot, 1.8 * h, &zi, &err) == BCLIBCFFI_OK);
         CHECK(zi.status == BCLIBCFFI_ZERO_INIT_DONE);
-        CHECK(std::fabs(zi.look_angle_rad - std::atan2(h, 1.8 * h)) < 1e-12);
+        CHECK(std::fabs(zi.look_angle_rad - std::atan2(h, std::hypot(1.8 * h, lateral))) < 1e-12);
         CHECK(BCLIBCFFI_zero_init_shot(&shot, 2.2 * h, &zi, &err) == BCLIBCFFI_OK);
         CHECK(zi.status == BCLIBCFFI_ZERO_INIT_CONTINUE);
     }
