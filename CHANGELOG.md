@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The identity test compares both pairs with bclibc, including a start below the altitude limit.
 
 ### Changed
+- **Max-range and zero searches with a cant no longer bracket above the reachable elevation (class C38; `tiny_bclibc` follows).** With a cant the
+  elevation `E` that `set_aim` can reach is at most `asin(R)`, `R = hypot(sin L, cos L cos cant)` (30 degrees at cant 60 and a horizontal look).
+  The golden-section search of the maximum range bracketed `(0, 90 degrees)`: for a large cant its first probes (34.4 and 55.6 degrees) were both
+  above the limit, `set_aim` clamped both to the same state, their ranges were equal, `yc > yd` was false and the search walked towards 90 degrees,
+  away from the real maximum (about 13 degrees), returning a max range of about 0 and `OutOfRange` for a shot whose zero exists (cant 60 degrees,
+  target 0.1 or 0.2 m, sight height 0.05 m, look 0: zero 12.92 and 6.97 degrees). `find_max_range` (and the golden-section search inside
+  `tiny_bclibc`'s Ridder zero) now clips the bracket to `[-asin(R), asin(R)]` when `cant_sine != 0` (`R >= 1` or a non-finite `R` keeps the bracket).
+  **Without a cant the bounds are untouched and every result is bit-identical to before.** The lofted bracket, the Ridder bracket (it ends at the angle
+  of the maximum), `find_apex`, the Newton start guesses and `range_for_angle` do not compare clamped probes and are unchanged.
 - **The zero, max-range and error searches solve in the exact canted frame (class C37; `tiny_bclibc` follows).** A weapon canted by `c` about
   the line of sight (look angle `L`) and pitched by `r` in its sight plane points, in the world frame, at
   `x = cos L cos r - sin L sin r cos c`, `y = sin L cos r + cos L sin r cos c`, `z = sin r sin c`: elevation `E = atan2(y, hypot(x, z))`,

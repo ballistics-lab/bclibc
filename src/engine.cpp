@@ -983,6 +983,19 @@ namespace bclibc
         double inv_phi_sq = 0.38196601125010515;          // inv_phi^2
         double a = low_angle_deg * 0.017453292519943295;  // Convert to radians
         double b = high_angle_deg * 0.017453292519943295; // Convert to radians
+        if (this->shot.cant_sine != 0.0)
+        {
+            // With a cant the elevation E the search brackets cannot exceed asin(R), R = hypot(sin L, cos L cos cant) (see
+            // set_aim). Probes above that limit would all be clamped to one state (equal ranges, `yc > yd` false) and the
+            // search would walk away from the maximum, towards the upper bound. Without a cant the bounds are untouched.
+            const double reach = std::hypot(std::sin(look_angle_rad), std::cos(look_angle_rad) * this->shot.cant_cosine);
+            if (std::isfinite(reach) && reach < 1.0)
+            {
+                const double limit = std::asin(reach);
+                b = std::fmin(b, limit);
+                a = std::fmax(a, -limit);
+            }
+        }
         double h = b - a;
         double c = a + inv_phi_sq * h;
         double d = a + inv_phi * h;

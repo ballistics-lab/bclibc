@@ -154,6 +154,22 @@ target_compile_features(test_min_velocity PRIVATE cxx_std_17)
 add_test(NAME min_velocity COMMAND test_min_velocity)
 set_tests_properties(min_velocity PROPERTIES TIMEOUT 300)
 
+# ── test_cant_max_range_bracket ───────────────────────────────────────────
+# The max-range search of a canted shot brackets only the reachable elevations asin(R) (class C38): the close zero at cant 60 deg
+# and a scan of the reachable elevations as the reference of the maximum range. Headers only.
+add_executable(test_cant_max_range_bracket test_cant_max_range_bracket.cpp)
+target_include_directories(test_cant_max_range_bracket PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${TINY_BCLIBC_ROOT}/include"
+    "${TINY_BCLIBC_ROOT}/generated"
+)
+target_compile_features(test_cant_max_range_bracket PRIVATE cxx_std_17)
+if(NOT WIN32)
+    target_link_libraries(test_cant_max_range_bracket PRIVATE m)
+endif()
+add_test(NAME cant_max_range_bracket COMMAND test_cant_max_range_bracket)
+set_tests_properties(cant_max_range_bracket PROPERTIES TIMEOUT 600)
+
 message(STATUS "tiny_bclibc identity test configured")
 message(STATUS "  bclibc root : ${BCLIBC_ROOT}")
 message(STATUS "  tiny_bclibc root: ${TINY_BCLIBC_ROOT}")

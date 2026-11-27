@@ -341,6 +341,21 @@ target_compile_features(bclibc_test_exact_cant PRIVATE cxx_std_17)
 add_test(NAME bclibc_test_exact_cant COMMAND bclibc_test_exact_cant)
 set_tests_properties(bclibc_test_exact_cant PROPERTIES TIMEOUT 600)
 
+# The max-range search of a canted shot brackets only the reachable elevations asin(R) (class C38): the close zero at cant 60 deg
+# (the golden-section probes above the limit were all clamped to one state and the search walked away from the maximum) and a
+# scan of the reachable elevations as the reference of the maximum range.
+add_executable(bclibc_test_cant_max_range_bracket
+    test_cant_max_range_bracket.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_cant_max_range_bracket PRIVATE bclibc_core)
+target_include_directories(bclibc_test_cant_max_range_bracket PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_cant_max_range_bracket PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_cant_max_range_bracket COMMAND bclibc_test_cant_max_range_bracket)
+set_tests_properties(bclibc_test_cant_max_range_bracket PROPERTIES TIMEOUT 600)
+
 # These tests compile src/ffi/bclibc_ffi.cpp into the executable (one copy of the core, no DLL): on Windows the header
 # must declare its functions dllexport (a definition of a dllimport function is an error on MSVC).
 if(WIN32)
@@ -364,7 +379,8 @@ if(WIN32)
         bclibc_test_gravity_validation
         bclibc_test_zero_no_bracket_message
         bclibc_test_false_root
-        bclibc_test_exact_cant)
+        bclibc_test_exact_cant
+        bclibc_test_cant_max_range_bracket)
         if(TARGET ${_t})
             target_compile_definitions(${_t} PRIVATE BCLIBC_FFI_EXPORT)
         endif()

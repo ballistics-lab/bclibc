@@ -1758,6 +1758,25 @@ static inline void tiny_bclibc__set_error(const char *msg)
         return TINY_BCLIBC_FABS(f_root) <= TINY_BCLIBC_CONTINUOUS_ROOT_RATIO * (a < b ? a : b);
     }
 
+    /* With a cant the elevation E that tiny_bclibc__set_aim can reach is |E| <= asin(R), R = hypot(sin L, cos L cos cant). A golden-section
+     * search that brackets elevations up to 90 deg would probe above it: all those probes are clamped to one state, their ranges are
+     * equal, `yc > yd` is false and the search walks away from the maximum. So the bracket [a, b] is clipped to the reachable limit
+     * (only with a cant: without one the bounds are untouched, bit for bit). Mirrors BCLIBC_BaseEngine::find_max_range. */
+    static inline void tiny_bclibc__clip_bracket_to_reach(const TINY_BCLIBC_ShotProps *p, real_t *a, real_t *b)
+    {
+        if (p->cant_sine == REAL_C(0.0))
+            return;
+        const real_t reach = TINY_BCLIBC_HYPOT(TINY_BCLIBC_SIN(p->look_angle), TINY_BCLIBC_COS(p->look_angle) * p->cant_cosine);
+        if (reach < REAL_C(1.0) && reach == reach)
+        {
+            const real_t limit = TINY_BCLIBC_ASIN(reach);
+            if (*b > limit)
+                *b = limit;
+            if (*a < -limit)
+                *a = -limit;
+        }
+    }
+
     /* ── find_zero_angle_ridders — UNCHANGED ── */
     TINY_BCLIBC_INTERNAL int32_t tiny_bclibc__find_zero_angle_ridders(
         const TINY_BCLIBC_ShotProps *props,
@@ -1797,6 +1816,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         real_t inv_phi = REAL_C(0.6180339887498949);
         real_t inv_phi_sq = REAL_C(0.38196601125010515);
         real_t a = REAL_C(0.0), b = REAL_C(1.5707963267948966);
+        tiny_bclibc__clip_bracket_to_reach(&p, &a, &b);
         real_t h = b - a;
         real_t c2 = a + inv_phi_sq * h;
         real_t d = a + inv_phi * h;
@@ -2263,7 +2283,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         return tiny_bclibc__zero_point_at_angle(props, distance_ft, angle_rad, out);
     }
 
-    /* ── find_max_range — UNCHANGED (uses range_for_angle, now Cash-Karp) ── */
+    /* ── find_max_range (the bracket is clipped to the reachable elevation with a cant) ── */
     TINY_BCLIBC_FUNC int32_t tiny_bclibc_find_max_range(
         const TINY_BCLIBC_ShotProps *props,
         real_t low_deg,
@@ -2283,6 +2303,7 @@ static inline void tiny_bclibc__set_error(const char *msg)
         real_t inv_phi_sq = REAL_C(0.38196601125010515);
         real_t a = low_deg * TINY_BCLIBC_DEG_TO_RAD;
         real_t b = high_deg * TINY_BCLIBC_DEG_TO_RAD;
+        tiny_bclibc__clip_bracket_to_reach(&p, &a, &b);
         real_t h = b - a;
         real_t c2 = a + inv_phi_sq * h;
         real_t d = a + inv_phi * h;
