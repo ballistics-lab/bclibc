@@ -7,7 +7,207 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `tiny_bclibc_find_zero_angle_ridder` and `tiny_bclibc_find_zero_point_ridder`: the Ridder-only zero search of bclibc
+  (`find_zero_angle_ridder`, `find_zero_point`) and Python (`find_zero_angle`, `find_zero_point`), without the Newton step. They run the
+  maximum-range search first and return `TINY_BCLIBC_ERR_OUT_OF_RANGE` for a target beyond the maximum range or a start below
+  `cMinimumAltitude`. `tiny_bclibc_find_zero_angle` / `tiny_bclibc_find_zero_point` are unchanged (Newton first, as `zero_angle_with_fallback`).
+  The identity test compares both pairs with bclibc, including a start below the altitude limit.
+
+### Changed
+- **Max-range and zero searches with a cant no longer bracket above the reachable elevation (class C38; `tiny_bclibc` follows).** With a cant the
+  elevation `E` that `set_aim` can reach is at most `asin(R)`, `R = hypot(sin L, cos L cos cant)` (30 degrees at cant 60 and a horizontal look).
+  The golden-section search of the maximum range bracketed `(0, 90 degrees)`: for a large cant its first probes (34.4 and 55.6 degrees) were both
+  above the limit, `set_aim` clamped both to the same state, their ranges were equal, `yc > yd` was false and the search walked towards 90 degrees,
+  away from the real maximum (about 13 degrees), returning a max range of about 0 and `OutOfRange` for a shot whose zero exists (cant 60 degrees,
+  target 0.1 or 0.2 m, sight height 0.05 m, look 0: zero 12.92 and 6.97 degrees). `find_max_range` (and the golden-section search inside
+  `tiny_bclibc`'s Ridder zero) now clips the bracket to `[-asin(R), asin(R)]` when `cant_sine != 0` (`R >= 1` or a non-finite `R` keeps the bracket).
+  **Without a cant the bounds are untouched and every result is bit-identical to before.** The lofted bracket, the Ridder bracket (it ends at the angle
+  of the maximum), `find_apex`, the Newton start guesses and `range_for_angle` do not compare clamped probes and are unchanged.
+- **The zero, max-range and error searches solve in the exact canted frame (class C37; `tiny_bclibc` follows).** A weapon canted by `c` about
+  the line of sight (look angle `L`) and pitched by `r` in its sight plane points, in the world frame, at
+  `x = cos L cos r - sin L sin r cos c`, `y = sin L cos r + cos L sin r cos c`, `z = sin r sin c`: elevation `E = atan2(y, hypot(x, z))`,
+  azimuth `Az = atan2(z, x)` (`c = 0` is exactly `E = L + r`, `Az = 0`). The searches' unknown is the elevation `E` of the vertical plane; for
+  every trial elevation `BCLIBC_BaseEngine::set_aim` (`tiny_bclibc__set_aim`) now derives the azimuth from this model
+  (`r = asin(sin E / R) - phi`, `R = hypot(sin L, cos L cos c)`, `phi = atan2(sin L, cos L cos c)`) and aims the trial shot with both, so the shot
+  that is solved is the shot that is fired with `(E, Az(E))` (the Python reference's `ShotProps.set_pitch`). Before, the trial shots kept the
+  azimuth of the caller's shot (0), so with a cant a zero fired with the azimuth of the canted barrel missed, and the lofted zero of a canted
+  rifle ended about a kilometre off. An elevation the cant cannot reach (`|sin E / R| > 1`, the elevation is at most `asin(R)`) is clamped to
+  the reachable limit. Entries: `find_zero_angle` / `find_zero_point` (low and lofted, Newton and Ridder), `find_max_range`,
+  `error_at_distance`, `range_for_angle`, `zero_angle_newton`, and the same in the adaptive and `_shot` C ABI forms; `integrate` / `find_apex`
+  are unchanged (they receive the final elevation and azimuth). **Without a cant (`cant_sine == 0`) the new computation is skipped and every
+  result is bit-identical to before** (verified on all six methods, look angles 0 and +-5 degrees, 6 shots, zero low/lofted/point/Newton,
+  max range, apex, error_at_distance, range_for_angle, rows; double and float `tiny_bclibc`). With a cant the elevation of a zero moves, for
+  ordinary shots by less than 1e-4 degree (G7 175 gr 800 m/s: cant 10 degrees, 1000 m, 0.725181 to 0.725184 degrees; cant 45 degrees, 1000 m,
+  0.724385 to 0.724478, and at look 5 degrees 5.721565 to 5.721259 degrees, the largest of the grid, 3e-4); the maximum range of a canted shot is
+  now the range of a shot that can be fired (cant 10: 18098.1 to 17936.8 ft at 36.64 degrees; cant 45: 18098.2 to 15079.4 ft at 23.91
+  degrees); the lofted zero of cant 10 at 300 m is 79.8678 degrees elevation, 80.637 degrees azimuth (it was 88.41 degrees with azimuth 0 and
+  missed by a kilometre). The very close shot shortcut of `init_zero_calculation` (a target closer than twice the sight height) follows the same
+  model with a cant: the angle is the elevation of the shot that crosses the line of sight at the target, pitched by
+  `r = atan2(h cos L, D + h cos c sin L)` (`h` sight height, `D` slant distance; at look 0 the straight line from the bore, which is also offset
+  sideways, to the target), where it was `atan2(dy, dx)` (cant 30 degrees, sight 0.5 m, target 2.56 ft: 29.05 to 27.84 degrees); a target so
+  close that this pitch is beyond the maximum elevation the cant can reach has no elevation to answer with and is clamped (the call still answers).
+  Re-recorded guard: `tests/false_root_guard.inc` row `cant300` (rk4 1.5430550728187127 to 1.393955345706509 rad, 88.41 to 79.87 degrees; the 36
+  other rows, cant 0, are unchanged); `test_zero_close_target.cpp` cant shortcut expectation. New test `bclibc_test_exact_cant` and an identity case
+  for a canted zero in `tiny_bclibc`.
+- tests (Windows): `bclibc_ffi.dll` is copied next to the tests that link it by one custom target they depend on, not by a POST_BUILD copy
+  per test (three copies of one file to one directory raced under `cmake --build --parallel`).
+- A raw atmosphere with base pressure `p0 <= 0` is a vacuum (density ratio 0) also within 30 ft of the base altitude, in bclibc and
+  tiny_bclibc. The C ABI `BCLIBCFFI_ShotProps::atmo` takes `p0` and `density_ratio` separately, and an inconsistent pair (`p0 = 0`,
+  `density_ratio != 0`) used the stored ratio near the muzzle and 0 beyond 30 ft. Atmospheres built from conditions are unchanged.
+- `-ffast-math` / `-Ofast` / `-ffinite-math-only` now warns at compile time (GCC/Clang `#pragma GCC warning` in `bclibc/base_types.hpp` and `tiny_bclibc/platform.h`;
+  no behaviour change). Such builds are unsupported and untested; the flags, the non-bit-identical results and any breakage are the
+  consumer's responsibility. Measured with GCC, the flags remove the NaN checks (gravity, non-finite state, latitude) and sane shots fail in
+  the zero search. Documented in `tiny_bclibc/README.md`.
+- **One interpolation convention for everything that works with integration steps: the cubic Hermite of the step** (positions and
+  velocities at its two ends; the velocity of the point is the derivative of the position polynomial, Mach is linear), for the six
+  integration methods (RK4, Euler, Velocity Verlet, Cash-Karp, Dormand-Prince, Tsitouras), Euler included. The rows of the trajectory filter
+  (range, time, apex, Mach, zero) already used it; `find_apex`, `integrate_at` / `integrate_raw_at` (every key but position.x) and the
+  dense-output queries (`BCLIBC_BaseTrajSeq::get_at`, `interpolate_at`, `get_at_slant_height`, `BCLIBC_BaseTrajData::interpolate`, and the
+  C ABI `BCLIBCFFI_dense_get_at`, `BCLIBCFFI_dense_get_at_slant_height`, `BCLIBCFFI_base_traj_interpolate`, `BCLIBCFFI_base_traj_interpolate_at`;
+  signatures unchanged) used a 3-point PCHIP of the raw points. The 3-point PCHIP stays only as the fallback when no step brackets the query
+  (`BCLIBC_SinglePointHandler` fed raw points only, a key that is not monotone around the bracket). The drag table (Mach to CD) PCHIP is
+  untouched. The header text that said "3-point PCHIP" is updated. `tiny_bclibc` follows in lockstep.
+  What changes for the user (largest differences, before to after, over `find_apex` at 5, 45 and 89.99 degrees and `integrate_at` for time,
+  position.x / .y, velocity.x / .y and Mach, 800 m/s G7 0.31 shots): RK4 and Velocity Verlet move by at most 3.5e-4 ft in position, 4e-4 fps in
+  velocity, 2.4e-7 s in time and 2e-5 ft in the apex height (the Hermite and the PCHIP of the raw points agree for them; the recorded-value
+  guard holds to 1e-6 relative). Euler: the apex of a vertical shot moves from 23.846668 s to 23.790193 s, the value of the Python Euler engine
+  (12861.4212 to 12861.5566 ft), the apex of a 5 and a 45 degree shot by 2.4e-4 s and 2.9e-4 s (0.23 and 0.12 ft of range), other keys by up to
+  0.3 ft and 0.15 fps; Euler is first order, its step moves the position by the new velocity, so a Hermite with the old velocity as slope bows
+  inside the step: a documented property, not a special case. Cash-Karp, Dormand-Prince and Tsitouras: the PCHIP across their wide steps was 10 to
+  1000 times less accurate than the Hermite (measured against the same method at a tolerance of 1e-11 in the research behind this change), and
+  the answers move accordingly: at a relative tolerance of 1e-8 by up to 6e-4 s in the apex time, 0.08 ft in its height, 0.4 ft in position and 0.7
+  fps in velocity (1.4 ft in height for Cash-Karp), and at 1e-6, where the steps are wider, by up to 0.008 s, 0.1 ft in the apex height and 19 ft
+  in position (Cash-Karp).
+  Solver: the Hermite crossing is solved by a bracketed Newton iteration on the polynomial of the key (positions cubic, velocities quadratic, Mach
+  linear; the bracket [0, 1] is kept and a step that leaves it becomes a bisection) instead of 40 bisections of the full interpolant. It gives
+  the same roots to the roundoff of the step (1e-15 of the step length instead of 1e-12) and makes the Hermite path faster than the one it
+  replaces: trajectory rows by range are 1.1 to 4 times faster (the 40 bisections per row were the cost of the filter), `get_at` of the dense
+  output 1.7 to 2.6 times faster than the 3-point PCHIP, `find_apex` and `integrate_at` unchanged within measurement noise.
+  `BCLIBC_ZeroCrossingHandler` locates the slant-height crossing with the same solver. New header `bclibc/hermite_step.hpp`.
+
 ### Fixed
+- A lofted zero search no longer returns a jump of the error function as a root (class C18). The miss at the target is not
+  continuous for a lofted shot near the vertical, and Ridder's method converged on the jump: `find_zero_angle` / `find_zero_point`
+  returned an angle "within the angle tolerance" that misses by hundreds of feet or never reaches the target (175 gr G7, 800 m/s,
+  5 m/s tail wind, 100 m zero: 88.4362 deg, 1300 ft short). At the two angle-tolerance exits (the step below 1e-7 rad, the collapse
+  of the bracket) the search now fails with a `ZeroFindingError` ("No continuous lofted zero: ...") when the error at the returned
+  angle is more than 0.45 of the smaller error at the ends of the initial bracket (as the Python reference's
+  `CONTINUOUS_ROOT_RATIO`; measured on a 3360-run grid over the six methods: real roots at most 0.005, jumps at least 1.27).
+  The exits on the height accuracy and real roots are unchanged. The same check is in `tiny_bclibc` (low zero only: never fires there).
+- **The last time row before the range limit is no longer lost for the adaptive methods** (Cash-Karp, Dormand-Prince, Tsitouras, and
+  `tiny_bclibc`). A RANGE row restarts the time schedule from its own time, and the trajectory filter emitted the range rows of a step
+  before its time rows; a wide adaptive step that holds both the last time row (e.g. t = 3.3 s of a `time_step` 0.3) and the row at the
+  range limit lost the time row, which RK4, Euler and Velocity Verlet (small steps) kept. The time rows due before a range row are now
+  emitted first (`BCLIBC_TrajectoryDataFilter::handle_step`, `tiny_bclibc__integrate_on_interval`). Rows that were already present are
+  unchanged; with a small step this adds the time row in the rare case it falls in the same step before a range row. New tests
+  `bclibc_test_time_rows_before_range_end` and the identity test `test_time_rows_before_range_end_identity`.
+- tiny_bclibc: the maximum-range search (`tiny_bclibc_find_max_range`) and the apex search (`tiny_bclibc_find_apex`) ignore the caller's
+  `cMinimumVelocity`, as bclibc's `find_max_range` / `find_apex` do (a minimum velocity above the speed the bullet reaches made the maximum
+  range 0 ft), and a non-downhill maximum-range search stops at muzzle level (`cMaximumDrop` 0) as bclibc's. The intercept shot of
+  `tiny_bclibc_find_zero_point` / `_point_ridder` also runs without it, so a `cMinimumVelocity` above the muzzle velocity is no longer
+  `TINY_BCLIBC_ERR_INTERCEPTION`. The caller's config is not changed. New test `test_min_velocity` compares with bclibc.
+- A gravity constant of zero or a positive value (the y axis points up, the default is -32.17405 ft/s^2) in the engine config made the
+  core never return: nothing ever reaches a terminator when the projectile does not fall. `integrate`, `integrate_at`, `find_apex`,
+  `find_max_range` and every zero search now check `cGravityConstant` once at their entry and return a value error
+  (`BCLIBC_InvalidArgumentError`, "Value error (gravity_constant must be negative and finite ...)", `BCLIBCFFI_ERR_INVALID_ARG` in the C
+  ABI) for a gravity that is zero, positive, NaN or infinite. `tiny_bclibc` returns `TINY_BCLIBC_ERR_INVALID_ARG` from the same entry points
+  (`tiny_bclibc_find_apex` used to turn every integration failure into `TINY_BCLIBC_ERR_RUNTIME`; it now passes this one through). Results for a
+  negative gravity are unchanged.
+
+- **The "no zero trajectory" error of the Ridder search carries its diagnostic text.** When the two ends of the elevation bracket
+  do not straddle the target, bclibc formatted "No low|lofted zero trajectory in elevation range (A, B deg). Errors at bracket:
+  f(low)=X, f(high)=Y" (the text of the Python reference's `ZeroFindingError`) but only logged it, because
+  `BCLIBC_SolverZeroFindingError` held a non-owning `const char *` and could not carry a stack buffer out of the function; the
+  returned error said only "No lofted zero trajectory in elevation search bracket". The payload now owns a fixed 256-byte buffer
+  (no heap, no exceptions; longer texts are cut), so `BCLIBC_Error::what()` and the C ABI `BCLIBCFFI_Error.message` (already 512
+  bytes, no layout change) hold the same text as Python, numbers included, and the native Python engines raise it after a repin.
+  The `message` member of `BCLIBC_SolverZeroFindingError` is replaced by `what()` (read the text there); its numeric fields are
+  unchanged. The other zero-finding errors (non-convergence, distance non-convergent, ...) carry constant texts that match
+  Python's, and `tiny_bclibc` reports constant strings (no numbers), so they are unchanged.
+- **A vacuum atmosphere (pressure 0) no longer hangs `integrate`, `find_apex`, `find_max_range` and every zero search** (all six integration
+  methods; `tiny_bclibc` too). The density ratio for an altitude more than 30 ft from the base altitude divided by the base pressure,
+  `0 / 0 = NaN` for a vacuum; the integrators carried the NaN, no terminator ever compared true, and nothing returned. A vacuum is now
+  drag-free flight: the density ratio is 0 at every altitude (`BCLIBC_Atmosphere::update_density_factor_and_mach_for_altitude`,
+  `TINY_BCLIBC_Atmosphere_update_density_mach`), and the speed of sound stays what the temperature gives (finite, positive). Nothing
+  changes for a shot with a pressure above 0.
+- **A state that becomes non-finite stops the integration with an error instead of looping.** The essential terminators (and the Tsitouras loop of
+  `tiny_bclibc`) check once per step that the position and velocity are finite; if not, the integration fails with a
+  `BCLIBC_SolverRuntimeError` (C ABI `BCLIBCFFI_ERR_SOLVER_RUNTIME`; `TINY_BCLIBC_ERR_RUNTIME`), e.g. for a NaN gravity, pressure, temperature,
+  muzzle velocity or elevation. `integrate_at`, `find_apex`, `error_at_distance`, the zero solvers, `range_for_angle`
+  (new `range_for_angle_checked`; `BCLIBCFFI_range_for_angle_*` returns the error) and `find_max_range`, and the plain
+  `BCLIBCFFI_integrate` / `BCLIBCFFI_integrate_shot`, used to drop the status of the integration and now return it. No new error codes.
+- The **golden-section search for the maximum range follows the Python reference**: `cMaxIterations` iterations, stopping when the bracket is
+  narrower than 1e-6 rad. The C++ core ran a fixed 100 iterations and stopped at 1e-5 rad. With the default config the angle of maximum range
+  moves by up to 4e-6 rad and the maximum range by up to 0.1 ft when the maximum lies at an edge of the bracket (12144.611 -> 12144.710 ft for
+  the bracket 0..10 deg, as Python); with `cMaxIterations` 0, 1 or 5 the result is now the coarse Python one (17726 ft instead of 18098 ft at 0,
+  the centre of the initial bracket). The search is the bracket of the lofted/low Ridder zero search too, so `last_barrel_elevation` in zero-finding
+  errors and the bracket of the zero search follow Python; the zero angles move only within the zeroing accuracy. `tiny_bclibc` keeps its fixed limits
+  (see its README, "Deliberate differences from bclibc").
+- `find_apex` equals the `APEX` row of the filter for every integration method. For Euler it did not: on a vertical shot (89.99 degrees,
+  G7 0.31, 800 m/s) `find_apex` returned 23.846668 s and the filter row 23.790163 s (the Python Euler engine: 23.790193 s), 6e-2 s apart, and on
+  a 5 degree shot 2.4e-4 s and 0.23 ft of range.
+- The **range limit is not tested before the third integration step**, as in the Python engines (`while x <= range_limit or step_count < 3`)
+  and `tiny_bclibc`. The C++ gate (`BCLIBC_EssentialTerminators`) also counted the initial sample and opened after two steps, so a shot whose range
+  limit lies inside the first steps ended with the start and two steps where the reference has the start and three. The rows are unchanged
+  (they are interpolated at the requested ranges), but the dense steps returned by `integrate_dense_shot` / `integrate_adaptive_shot` (the data later
+  queries interpolate from) had one step fewer, and `integration_step_count` was 2 instead of 3. The minimum velocity, maximum drop and minimum
+  altitude limits were never gated (in Python either) and are unchanged. The adaptive methods, which have no Python reference, follow the
+  fixed-step convention: three accepted steps.
+- The **upper bound of the lofted zero search is 89.9 degrees**, as in the Python reference (`math.radians(89.9)` = 1.5690509975429023). The C++
+  core used 1.5690308719637473 (a mistyped constant, 89.8988 degrees), in the code shared by all six engines (RK4, Euler, Velocity Verlet, Cash-Karp,
+  Dormand-Prince, Tsitouras). It shows as a different `last_barrel_elevation` in "No lofted zero trajectory" errors and as a slightly different
+  bracket for a lofted zero near the bound. `tiny_bclibc` has no lofted search and is not affected.
+- The **single-point handler finds a key crossing inside the first integration step** (`BCLIBC_SinglePointHandler`, used by `find_apex`,
+  `integrate_at` / `integrate_raw_at`). Its three-point window was only tested between its 2nd and 3rd points, so the segment from the start
+  point to the end of the first step was never examined: the apex of a shot with a tiny elevation (relative angle 0.001 deg, apex at 1.4 ms)
+  failed with "No apex flagged", and `integrate_at(time, t)` failed for every `t` before the end of the first step, `t = 0` included. The
+  segment is now tested once, when the third point arrives, with the same three-point interpolation as the later steps; crossings in later steps
+  are unchanged (recorded-value guard). `tiny_bclibc` had the same defect and is fixed the same way (identity test added).
+- The Ridder zero search **fails when it runs out of iterations** instead of accepting an unconverged result. After the loop
+  `find_zero_angle_ridder` accepted a bracket narrower than 10 angle tolerances, or a bracket end whose error was below
+  10 * `cZeroFindingAccuracy`, so a search that had not converged returned an angle that could miss by feet (a lofted zero changes
+  its miss by up to 6e6 ft per radian). It now returns `BCLIBC_SolverZeroFindingError` ("Ridder's method failed to converge.",
+  `BCLIBCFFI_ERR_ZERO_FINDING`), as the Python reference raises `ZeroFindingError`. The accepting paths (which returned the bracket midpoint
+  without a point and the last angle with one) and the unreachable "converged but no return" block are removed. `tiny_bclibc` fails the same way
+  (`TINY_BCLIBC_ERR_ZERO_FINDING`, "not converged"). A search that converged is unchanged; one that used to be accepted on the fallback now
+  fails and needs a larger `cMaxIterations`.
+- **RK4 evaluates the Coriolis acceleration in each of its four stages**, with the stage's own ground velocity, as the Python RK4
+  (`py_ballisticcalc/engines/rk4.py`, `coriolis_fn(ground_vel)` per stage). It used to evaluate it once per step, at the velocity the step
+  started with, and reuse it in all four stages. On a 30 degree, 800 m/s G7 shot at 4000 m (latitude 45, azimuth 90) the result was off the
+  Python one by 1.5e-3 ft in height and 1.8e-3 ft in windage (3e-3 ft windage at latitude -30, azimuth 0); it now agrees to 1e-6 ft. Shots
+  without Coriolis (no latitude, or `flat_fire_only`) are unchanged. Euler, Velocity Verlet and the embedded RK45 engines were not changed.
+- **The embedded RK45 engines (Cash-Karp, Dormand-Prince, Tsitouras) and `tiny_bclibc`'s adaptive engine evaluate the Coriolis acceleration at
+  every stage**, with the stage's own ground velocity, as the Python scipy engine does (a derivative call per stage). It used to be computed
+  once per step at the velocity the step started with and reused in all stages; being the same in every stage it cancels in the embedded error
+  estimate, so the tolerance did not control its error (the windage error of a 30 degree, 800 m/s G7 shot at 4000 m, latitude 45, azimuth 90,
+  was 0.11 ft at rtol = atol = 1e-4 and still 0.045 ft at 1e-10, against a converged Python scipy DOP853 solution; the height error of a
+  near-vertical 85 degree shot was 0.65 ft). It is now 1e-4 ft at the default 1e-6 and below 1e-6 ft at 1e-10, shrinking with the tolerance, and
+  the tiny/bclibc windage of a 30 degree, 12000 ft shot at the default tolerance moves from 0.119 ft off the Python one to 1.7e-4 ft. The
+  derivative at the end of an accepted step is reused as the first stage of the next one (FSAL) for the whole shot, as without Coriolis; before
+  it was evaluated again every step when Coriolis was on (a few percent faster now with Coriolis, no change without). Shots without Coriolis (no
+  latitude, or `flat_fire_only`) are bit-identical. Euler and Velocity Verlet were not changed.
+- A shot that **starts outside a termination limit gets its terminal row**. The essential terminators (minimum velocity, maximum drop,
+  minimum altitude) were also run on the initial point, so a shot that began outside a limit (a minimum velocity above the muzzle velocity, a
+  minimum altitude above the start with the bullet falling) stopped before its first integration step: the integrator never called
+  `handle_step()`, `BCLIBC_TrajectoryDataFilter::finalize()` found nothing newer than the start row and the result was `[RANGE t=0]` alone. The
+  limits are now tested after a step, as the Python engines do (they integrate one step, then test), and the result is
+  `[RANGE t=0, NONE t=dt]` with the same termination reason, for RK4, Euler, Velocity Verlet and the embedded RK45 engines. `tiny_bclibc`
+  tests the limits at step ends only and is not affected.
+- The **wind sock is rewound at the start of every integration** (`BCLIBC_WindSock::reset()`, called by RK4, Euler, Velocity Verlet and the
+  embedded RK45 engines). Every integration used to continue from the wind segment the previous one had ended on, so the trial shots of a
+  zero or maximum-range search (`find_zero_angle`, `find_zero_point`, `find_max_range`, a lofted zero, Newton's `zero_angle` with more than
+  one segment) saw the wind of their predecessors: a wind that ended inside the trajectory was ignored, and the zero or maximum range was that of
+  still air (a 30 m/s head wind to 1000 m changed the zero of an 800 m/s shot by 0.2 ft, a 5 m/s wind to 3000 m made a lofted zero miss by
+  thousands of feet). The Python engines build a new sock per integration and were right. `tiny_bclibc` copies the sock per integration and
+  is not affected.
+- `find_zero_angle` returns the same angle as `find_zero_point`: the bracket-width exit of the Ridder loop returned the midpoint of the
+  bracket without a point and `next_angle` with one; it now returns `next_angle` in both (`BCLIBC_BaseEngine` and `tiny_bclibc`). The returned
+  angle changes by up to the bracket width; the angle of a search that did not take that exit is unchanged.
+- The angle tolerance of the Ridder zero search is **1e-7 rad**, as in the Python reference (py_ballisticcalc `base_engine.py`); it was 1e-5 rad
+  (the constant introduced to decouple it from the height accuracy `cZeroFindingAccuracy`, with an unjustified value). A near-vertical lofted
+  zero changes its miss by up to 6e6 ft per radian, so the search used to return an angle that missed by feet (3.5, 16.8 and 2.1 ft at 50, 100
+  and 300 m for an 800 m/s G7 shot). `tiny_bclibc` keeps 1e-5 (single-precision floats cannot resolve 1e-7 rad above 1 rad).
 - The zero angle of a shot with a **downhill look angle** no longer fails with `OutOfRangeError` / `BCLIBCFFI_ERR_OUT_OF_RANGE`
   ("maximum possible range" of a few feet) for a target well within range. The Ridder zero search (`find_zero_angle_ridder`,
   `find_zero_point`, `BCLIBCFFI_find_zero_{angle,point}_lofted_*` with `lofted == 0`, `BCLIBCFFI_find_max_range_*`, and `tiny_bclibc`'s
@@ -61,6 +261,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `BCLIBCFFI_ZeroInit::look_angle_rad` of a `DONE` close shot is the corrected angle.
   Tests: `tests/test_zero_close_target.cpp` (C ABI and C++ core: the miss of the zero shot for close targets over sight heights,
   velocities, drag tables, look angles and integrators; the cutoff; recorded zeros of far targets), and the `tiny_bclibc` identity test.
+
+### Documentation
+- `tiny_bclibc/README.md` ("Deliberate differences"): the single-precision (float32) time grid. Time-grid rows are exact to float32
+  rounding and the schedule accumulates `time_of_last += time_step` in `real_t`, so the error grows on long trajectories with a small
+  `time_step` (about 1.7e-4 s at dt = 0.01 s over 6000 m); double builds are exact to about 1e-13. No code change.
 
 ## [2.2.1] - 2026-11-21
 

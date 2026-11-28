@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.13)
 
+# M_PI and friends are not defined by <cmath> on MSVC unless asked for.
+if(MSVC)
+    add_compile_definitions(_USE_MATH_DEFINES)
+endif()
+
 find_package(Threads REQUIRED)
 
 add_executable(bclibc_tests
@@ -72,6 +77,20 @@ target_compile_features(bclibc_test_zero_close_target PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_zero_close_target COMMAND bclibc_test_zero_close_target)
 
+# The angle tolerance of the Ridder zero search (1e-7 rad, as the Python reference): the lofted zero and the high-elevation
+# zeros of py-ballisticcalc issue #204 hit the target, the flat 300 m zero is unchanged. One binary with the C ABI layer
+# compiled in, as bclibc_test_zero_close_target.
+add_executable(bclibc_test_zero_ridder_tol
+    test_zero_ridder_tol.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_zero_ridder_tol PRIVATE bclibc_core)
+target_include_directories(bclibc_test_zero_ridder_tol PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_zero_ridder_tol PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_zero_ridder_tol COMMAND bclibc_test_zero_ridder_tol)
+
 # The zero angle (Ridder path) and the maximum range of a shot with a downhill look angle: the maximum-range search must
 # follow the shot down to a line of sight that lies below the muzzle (C ABI and C++ core), and the results that did not
 # depend on the defect are unchanged (recorded values).
@@ -85,3 +104,327 @@ target_include_directories(bclibc_test_zero_downhill PRIVATE "${BCLIBC_INCLUDE_D
 target_compile_features(bclibc_test_zero_downhill PRIVATE cxx_std_17)
 
 add_test(NAME bclibc_test_zero_downhill COMMAND bclibc_test_zero_downhill)
+
+# The wind sock is rewound at the start of every integration: the trial shots of a zero or max-range solve with a wind of
+# more than one segment (or one finite segment) must not start with the sock the previous trial left behind.
+# C ABI compiled in with the C++ core, as test_zero_close_target (one copy of the core).
+add_executable(bclibc_test_windsock_reset
+    test_windsock_reset.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_windsock_reset PRIVATE bclibc_core)
+target_include_directories(bclibc_test_windsock_reset PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_windsock_reset PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_windsock_reset COMMAND bclibc_test_windsock_reset)
+
+# A shot that starts outside a termination limit (minimum velocity above the muzzle velocity, minimum altitude above the
+# start) still ends with its terminal row [RANGE t=0, NONE t=dt], as the Python engines. C ABI compiled in with the C++
+# core, as bclibc_test_zero_close_target.
+add_executable(bclibc_test_start_outside_limit
+    test_start_outside_limit.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_start_outside_limit PRIVATE bclibc_core)
+target_include_directories(bclibc_test_start_outside_limit PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_start_outside_limit PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_start_outside_limit COMMAND bclibc_test_start_outside_limit)
+
+# The time rows of the last step before the range end are kept for the adaptive methods too (they were dropped).
+add_executable(bclibc_test_time_rows_before_range_end
+    test_time_rows_before_range_end.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+target_link_libraries(bclibc_test_time_rows_before_range_end PRIVATE bclibc_core)
+target_include_directories(bclibc_test_time_rows_before_range_end PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_time_rows_before_range_end PRIVATE cxx_std_17)
+add_test(NAME bclibc_test_time_rows_before_range_end COMMAND bclibc_test_time_rows_before_range_end)
+set_tests_properties(bclibc_test_time_rows_before_range_end PROPERTIES TIMEOUT 600)
+
+# The range limit is not tested before the third integration step, as the Python engines (`or step_count < 3`): start +
+# 3 steps are recorded for a limit inside the first steps. The other limits are not gated.
+add_executable(bclibc_test_min_steps_gate
+    test_min_steps_gate.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_min_steps_gate PRIVATE bclibc_core)
+target_include_directories(bclibc_test_min_steps_gate PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_min_steps_gate PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_min_steps_gate COMMAND bclibc_test_min_steps_gate)
+
+# find_zero_angle() and find_zero_point() return the same angle for the same search (the bracket-width exit of the
+# Ridder loop used to return the midpoint of the bracket without a point and next_angle with one); the angles of searches
+# that never took that exit are unchanged (recorded values).
+add_executable(bclibc_test_zero_ridder_angle
+    test_zero_ridder_angle.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_zero_ridder_angle PRIVATE bclibc_core)
+target_include_directories(bclibc_test_zero_ridder_angle PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_zero_ridder_angle PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_zero_ridder_angle COMMAND bclibc_test_zero_ridder_angle)
+
+# The upper bound of the lofted zero search is 89.9 degrees (math.radians(89.9), as the Python reference), reported as the
+# last barrel elevation of an unreachable lofted zero, on all six engines. C ABI compiled in with the C++ core.
+add_executable(bclibc_test_lofted_bound
+    test_lofted_bound.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_lofted_bound PRIVATE bclibc_core)
+target_include_directories(bclibc_test_lofted_bound PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_lofted_bound PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_lofted_bound COMMAND bclibc_test_lofted_bound)
+
+# A key crossing inside the first integration step (the apex of a 0.001 deg shot, integrate_at time 0) is found by the
+# single-point handler (find_apex, integrate_at), for RK4, Euler, Velocity Verlet and an adaptive method; crossings in
+# later steps are unchanged (recorded values). C ABI compiled in with the C++ core, as test_zero_close_target.
+add_executable(bclibc_test_single_point_first_step
+    test_single_point_first_step.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_single_point_first_step PRIVATE bclibc_core)
+target_include_directories(bclibc_test_single_point_first_step PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_single_point_first_step PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_single_point_first_step COMMAND bclibc_test_single_point_first_step)
+
+# The Ridder zero search fails (BCLIBCFFI_ERR_ZERO_FINDING) when it runs out of iterations instead of accepting a narrow
+# bracket or a small end error; with the default iterations the same searches converge. C ABI compiled in, as above.
+add_executable(bclibc_test_zero_ridder_unconverged
+    test_zero_ridder_unconverged.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_zero_ridder_unconverged PRIVATE bclibc_core)
+target_include_directories(bclibc_test_zero_ridder_unconverged PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_zero_ridder_unconverged PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_zero_ridder_unconverged COMMAND bclibc_test_zero_ridder_unconverged)
+
+# RK4 evaluates the Coriolis acceleration in each of its four stages, with the stage's own velocity (as the Python RK4):
+# the 4000 m height and windage of a 30 degree shot match the Python engine to 1e-6 ft, and the result without Coriolis is
+# unchanged. C ABI compiled in with the C++ core, as test_zero_close_target (one copy of the core).
+add_executable(bclibc_test_rk4_coriolis_stage
+    test_rk4_coriolis_stage.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_rk4_coriolis_stage PRIVATE bclibc_core)
+target_include_directories(bclibc_test_rk4_coriolis_stage PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_rk4_coriolis_stage PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_rk4_coriolis_stage COMMAND bclibc_test_rk4_coriolis_stage)
+
+# The embedded RK45 engines (Cash-Karp, Dormand-Prince, Tsitouras) evaluate the Coriolis acceleration at every stage, with the
+# stage's own velocity, so the tolerance controls its error (before, one value per step: the error did not shrink with the
+# tolerance); the result without Coriolis is unchanged. C ABI compiled in with the C++ core, as test_zero_close_target.
+add_executable(bclibc_test_adaptive_coriolis_stage
+    test_adaptive_coriolis_stage.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_adaptive_coriolis_stage PRIVATE bclibc_core)
+target_include_directories(bclibc_test_adaptive_coriolis_stage PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_adaptive_coriolis_stage PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_adaptive_coriolis_stage COMMAND bclibc_test_adaptive_coriolis_stage)
+
+# One interpolation convention for everything that works with integration steps: the cubic Hermite of the step (positions and
+# velocities at its ends), for find_apex, integrate_at (every key), the dense-output queries and the C ABI interpolation, as
+# for the rows of the trajectory filter; the 3-point PCHIP is only a fallback. C ABI compiled in with the C++ core, as
+# test_zero_close_target.
+add_executable(bclibc_test_hermite_single_point
+    test_hermite_single_point.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_hermite_single_point PRIVATE bclibc_core)
+target_include_directories(bclibc_test_hermite_single_point PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_hermite_single_point PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_hermite_single_point COMMAND bclibc_test_hermite_single_point)
+
+# The golden-section search for the maximum range follows the Python reference (cMaxIterations iterations, stop at a
+# bracket of 1e-6 rad): the maximum range and its angle equal the recorded Python values. C ABI compiled in with the C++
+# core, as bclibc_test_zero_close_target (one copy of the core).
+add_executable(bclibc_test_max_range_iterations
+    test_max_range_iterations.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_max_range_iterations PRIVATE bclibc_core)
+target_include_directories(bclibc_test_max_range_iterations PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_max_range_iterations PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_max_range_iterations COMMAND bclibc_test_max_range_iterations)
+
+# A vacuum (pressure 0) is drag-free flight (the density ratio of the altitude was 0 / 0 = NaN and nothing returned), and a
+# state that becomes NaN by another route is an error, not a loop. One binary with the C ABI layer compiled in. The
+# non-finite part never returned before the finite-state check, so the test has a time limit as a safety net.
+add_executable(bclibc_test_vacuum
+    test_vacuum.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_vacuum PRIVATE bclibc_core)
+target_include_directories(bclibc_test_vacuum PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_vacuum PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_vacuum COMMAND bclibc_test_vacuum)
+set_tests_properties(bclibc_test_vacuum PROPERTIES TIMEOUT 300)
+
+# A gravity constant that is not a finite negative number (0, positive, NaN, infinity) is a value error from every entry
+# class, not a loop that never returns. C ABI compiled in with the C++ core. The bad-gravity calls never returned before the
+# check, so the test has a time limit as a safety net.
+add_executable(bclibc_test_gravity_validation
+    test_gravity_validation.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_gravity_validation PRIVATE bclibc_core)
+target_include_directories(bclibc_test_gravity_validation PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_gravity_validation PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_gravity_validation COMMAND bclibc_test_gravity_validation)
+set_tests_properties(bclibc_test_gravity_validation PROPERTIES TIMEOUT 600)
+
+# The diagnostic text of "no zero trajectory in the elevation bracket" (bracket and misses, as the Python reference) reaches the
+# caller in the error, not only the log. C ABI compiled in with the C++ core, as test_zero_close_target (one copy of the core).
+add_executable(bclibc_test_zero_no_bracket_message
+    test_zero_no_bracket_message.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_zero_no_bracket_message PRIVATE bclibc_core)
+target_include_directories(bclibc_test_zero_no_bracket_message PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_zero_no_bracket_message PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_zero_no_bracket_message COMMAND bclibc_test_zero_no_bracket_message)
+
+# A lofted zero that is a jump of the error function, not a root (class C18): "No continuous lofted zero", on all six methods;
+# real lofted roots (recorded elevations, 1e-7 rad) and the low zero are unchanged. C ABI compiled in with the C++ core.
+add_executable(bclibc_test_false_root
+    test_false_root.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_false_root PRIVATE bclibc_core)
+target_include_directories(bclibc_test_false_root PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_false_root PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_false_root COMMAND bclibc_test_false_root)
+set_tests_properties(bclibc_test_false_root PROPERTIES TIMEOUT 600)
+
+# The zero, max-range and error searches solve in the exact canted frame (class C37): for every trial elevation the azimuth of the
+# canted barrel follows the model (the Python reference's ShotProps.set_pitch), so the shot that is solved is the shot that is
+# fired; the closed form of the model is computed in the test. C ABI compiled in with the C++ core. cant == 0 is bit-identical
+# (the guards of the other tests).
+add_executable(bclibc_test_exact_cant
+    test_exact_cant.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_exact_cant PRIVATE bclibc_core)
+target_include_directories(bclibc_test_exact_cant PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_exact_cant PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_exact_cant COMMAND bclibc_test_exact_cant)
+set_tests_properties(bclibc_test_exact_cant PROPERTIES TIMEOUT 600)
+
+# The max-range search of a canted shot brackets only the reachable elevations asin(R) (class C38): the close zero at cant 60 deg
+# (the golden-section probes above the limit were all clamped to one state and the search walked away from the maximum) and a
+# scan of the reachable elevations as the reference of the maximum range.
+add_executable(bclibc_test_cant_max_range_bracket
+    test_cant_max_range_bracket.cpp
+    "${BCLIBC_SRC_DIR}/ffi/bclibc_ffi.cpp"
+)
+
+target_link_libraries(bclibc_test_cant_max_range_bracket PRIVATE bclibc_core)
+target_include_directories(bclibc_test_cant_max_range_bracket PRIVATE "${BCLIBC_INCLUDE_DIR}" "${CMAKE_BINARY_DIR}/generated")
+target_compile_features(bclibc_test_cant_max_range_bracket PRIVATE cxx_std_17)
+
+add_test(NAME bclibc_test_cant_max_range_bracket COMMAND bclibc_test_cant_max_range_bracket)
+set_tests_properties(bclibc_test_cant_max_range_bracket PROPERTIES TIMEOUT 600)
+
+# These tests compile src/ffi/bclibc_ffi.cpp into the executable (one copy of the core, no DLL): on Windows the header
+# must declare its functions dllexport (a definition of a dllimport function is an error on MSVC).
+if(WIN32)
+    foreach(_t
+        bclibc_test_zero_close_target
+        bclibc_test_zero_ridder_tol
+        bclibc_test_zero_downhill
+        bclibc_test_windsock_reset
+        bclibc_test_start_outside_limit
+        bclibc_test_time_rows_before_range_end
+        bclibc_test_min_steps_gate
+        bclibc_test_zero_ridder_angle
+        bclibc_test_lofted_bound
+        bclibc_test_single_point_first_step
+        bclibc_test_zero_ridder_unconverged
+        bclibc_test_rk4_coriolis_stage
+        bclibc_test_adaptive_coriolis_stage
+        bclibc_test_hermite_single_point
+        bclibc_test_max_range_iterations
+        bclibc_test_vacuum
+        bclibc_test_gravity_validation
+        bclibc_test_zero_no_bracket_message
+        bclibc_test_false_root
+        bclibc_test_exact_cant
+        bclibc_test_cant_max_range_bracket)
+        if(TARGET ${_t})
+            target_compile_definitions(${_t} PRIVATE BCLIBC_FFI_EXPORT)
+        endif()
+    endforeach()
+endif()
+
+# The tests that link the shared bclibc_ffi need bclibc_ffi.dll next to the executable on Windows: the DLL is built into
+# ${CMAKE_BINARY_DIR}/bin, the tests into this directory, and a missing DLL makes the process wait for a system error
+# dialog nobody closes on a CI runner (the test hangs instead of failing).
+# One copy rule for all of them (they share one directory): per-test POST_BUILD copies of the same file to the same
+# destination race under `cmake --build --parallel`. A single target does the copy, and the tests depend on it.
+# The destination is a directory fixed here (RUNTIME_OUTPUT_DIRECTORY of those tests), never $<TARGET_FILE_DIR:test>: a
+# generator expression naming a test inside the copy target makes the target depend on that test, and with the
+# tests depending on the copy target that is a dependency cycle (CMake refuses to configure).
+if(WIN32)
+    set(_ffi_dll_tests)
+    foreach(_t
+        bclibc_test_ffi_adaptive
+        bclibc_test_zero_limits
+        bclibc_test_ffi_fixed_stats)
+        if(TARGET ${_t})
+            list(APPEND _ffi_dll_tests ${_t})
+        endif()
+    endforeach()
+    if(_ffi_dll_tests)
+        set(_ffi_dll_dir "${CMAKE_CURRENT_BINARY_DIR}/ffi_dll_tests/$<CONFIG>")
+        add_custom_target(bclibc_ffi_dll_for_tests
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${_ffi_dll_dir}"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:bclibc_ffi> "${_ffi_dll_dir}"
+            DEPENDS bclibc_ffi
+            COMMENT "bclibc_ffi.dll next to the tests")
+        foreach(_t ${_ffi_dll_tests})
+            set_target_properties(${_t} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${_ffi_dll_dir}")
+            add_dependencies(${_t} bclibc_ffi_dll_for_tests)
+        endforeach()
+    endif()
+endif()
+
+# -ffast-math (-ffinite-math-only) makes the headers warn at compile time (it removes the NaN/Inf checks): compiling a
+# header with it must print the warning, so the guard cannot silently disappear. GCC/Clang only (no such macro in MSVC).
+if(NOT MSVC)
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/fast_math_probe.cpp" "#include \"bclibc/base_types.hpp\"\nint main() {}\n")
+    add_test(NAME fast_math_warns
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++17 -ffast-math -fsyntax-only
+                -I${BCLIBC_INCLUDE_DIR} "${CMAKE_CURRENT_BINARY_DIR}/fast_math_probe.cpp")
+    set_tests_properties(fast_math_warns PROPERTIES PASS_REGULAR_EXPRESSION "ffast-math.*unsupported" TIMEOUT 60)
+endif()

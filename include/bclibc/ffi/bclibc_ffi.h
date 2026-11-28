@@ -566,7 +566,9 @@ extern "C"
     /**
      * The point of a trajectory where the field `key` has the value `value`, interpolated from the three points
      * around it (BCLIBC_TrajectoryData::interpolate): every field is interpolated, the key field is set to `value`
-     * and `flag` (BCLIBCFFI_TrajFlag) is the flag of the result.
+     * and `flag` (BCLIBCFFI_TrajFlag) is the flag of the result. A trajectory record carries no velocity of its own, so
+     * there is no step to build a Hermite on: this stays a 3-point interpolation (PCHIP or linear), as the fallback of the
+     * step-based queries (BCLIBCFFI_dense_get_at, BCLIBCFFI_base_traj_interpolate).
      * @param key     BCLIBCFFI_TrajectoryInterpKey
      * @param method  BCLIBCFFI_InterpMethod
      * @return BCLIBCFFI_OK, or an error code (fills *err), for example when two of the points have the same key.
@@ -800,8 +802,14 @@ extern "C"
     } BCLIBCFFI_ZeroInit;
 
     /**
-     * @brief Vertical error of a shot fired at angle_rad, measured where x reaches target_x_ft:
-     * (hit.y - target_y_ft) - |hit.x - target_x_ft|.
+     * @brief Vertical error of a shot fired at angle_rad, measured where x reaches target_x_ft.
+     *
+     * angle_rad is the total elevation of the barrel in the vertical plane. With a cant (cant_angle_rad != 0) the azimuth
+     * of the canted barrel that has this elevation follows from the exact canted-frame model (the shot's barrel_azimuth_rad
+     * is not used; an elevation the cant cannot reach is clamped to the reachable limit); without a cant the azimuth of the
+     * shot is used as given. The same holds for the other solver entries (range_for_angle, the zero and max-range searches).
+     *
+     * The error is (hit.y - target_y_ft) - |hit.x - target_x_ft|.
      *
      * When the trajectory ends before target_x_ft (minimum velocity, maximum drop or minimum altitude) the error is
      * measured at its last point instead: it is still finite and signed (a shot that falls short is negative), which
@@ -904,12 +912,16 @@ extern "C"
     // Working with dense output
     //
     // The accepted-step stream from the integrate calls above is a plain array of BCLIBCFFI_DenseStep. These
-    // calls interpolate in it and turn a step into a full trajectory record, so callers need no PCHIP or
+    // calls interpolate in it and turn a step into a full trajectory record, so callers need no Hermite, PCHIP or
     // shot-physics code of their own. `steps` must be time-ordered, as the integrate calls return it.
     // ============================================================================
 
     /**
-     * @brief Interpolated step where `key` reaches `value` (3-point PCHIP, or the exact step when one matches).
+     * @brief Interpolated step where `key` reaches `value`: the cubic Hermite of the stream step that holds the value
+     * (positions and velocities at its two ends; the velocity of the point is the derivative of the position polynomial,
+     * Mach is linear), the exact step when one matches. This is the convention of every step-based query of the library
+     * (the rows of the trajectory filter, find_apex, integrate_at). The 3-point PCHIP of the raw steps is only a fallback
+     * for a value that no step brackets (a key that is not monotone over the three steps around the bracket).
      *
      * @param start_from_time Only steps with time >= this are searched; 0 or negative disables it (ignored for TIME).
      * Fails with BCLIBCFFI_ERR_INTERCEPTION when the value is not inside the stream.
@@ -923,7 +935,10 @@ extern "C"
         BCLIBCFFI_DenseStep *out,
         BCLIBCFFI_Error *err);
 
-    /** Interpolated step where the slant height (height above the line of sight at look_angle_rad) reaches `value`. */
+    /**
+     * Interpolated step where the slant height (height above the line of sight at look_angle_rad) reaches `value`: the
+     * Hermite of the stream step that holds it (see BCLIBCFFI_dense_get_at), the 3-point PCHIP only as the fallback.
+     */
     BCLIBC_API int32_t BCLIBCFFI_dense_get_at_slant_height(
         const BCLIBCFFI_DenseStep *steps,
         int32_t count,
@@ -981,8 +996,11 @@ extern "C"
         BCLIBCFFI_Error *err);
 
     /**
-     * The point where `key` is `value`, through three points (BCLIBC_BaseTrajData::interpolate): every field is
-     * interpolated (PCHIP), except time and mach, which are set to `value` when they are the key.
+     * The point where `key` is `value`, from three consecutive points (BCLIBC_BaseTrajData::interpolate): the points are
+     * taken as two integration steps, (p0, p1) and (p1, p2), and the value is located on the cubic Hermite of the one that
+     * brackets it (positions and velocities at its ends; the velocity of the result is the derivative of the position
+     * polynomial, Mach is linear), as in every step-based query of the library. Only when neither step brackets the value
+     * is the 3-point PCHIP used, interpolating every field. The key field of the result is set to `value`.
      * @return BCLIBCFFI_OK, BCLIBCFFI_ERR_DOMAIN when two of the points have the same key value (f64_0, f64_1 are
      * the first two key values), BCLIBCFFI_ERR_INVALID_ARGUMENT for a NULL point or an unknown key.
      */
@@ -996,8 +1014,9 @@ extern "C"
         BCLIBCFFI_Error *err);
 
     /**
-     * The same through the points idx-1, idx, idx+1 of `steps` (BCLIBC_BaseTrajSeq::interpolate_at). A negative idx
-     * counts from the end; the valid range is [1, count-2].
+     * The same through the points idx-1, idx, idx+1 of `steps` (BCLIBC_BaseTrajSeq::interpolate_at): Hermite of the step
+     * (idx-1, idx) or (idx, idx+1) that holds the value, the 3-point PCHIP as the fallback. A negative idx counts from the
+     * end; the valid range is [1, count-2].
      * @return BCLIBCFFI_OK, BCLIBCFFI_ERR_OUT_OF_BOUNDS for an idx outside it (f64_0 = idx after the correction of a
      * negative one, f64_1 = 1, f64_2 = count-2), BCLIBCFFI_ERR_DOMAIN for equal key values.
      */

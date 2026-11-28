@@ -26,7 +26,7 @@ namespace bclibc
      *
      * IMPORTANT, KNOWN LIMITATION (see project issue tracker before relying on
      * this for anything beyond experimentation): the drag coefficient AND
-     * atmosphere sample are recomputed fresh at each of the 6 stages, from
+     * atmosphere sample (and the Coriolis acceleration, which depends on the velocity) are recomputed fresh at each of the 6 stages, from
      * that stage's own intermediate velocity/altitude -- unlike
      * @ref BCLIBC_integrateRK4, which freezes both once per step. This is not
      * an oversight: an earlier variant that froze them (mirroring RK4's own

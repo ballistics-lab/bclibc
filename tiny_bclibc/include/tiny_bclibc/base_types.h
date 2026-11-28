@@ -69,6 +69,8 @@ extern "C"
         real_t cZeroFindingAccuracy;
         real_t cMinimumVelocity;
         real_t cMaximumDrop;
+        /* Kept for config compatibility with bclibc, NOT read by the zero search: tiny_bclibc uses fixed iteration
+         * limits on purpose (embedded subset): 50 for Ridder's method and 40 for the Newton iteration. */
         int32_t cMaxIterations;
         real_t cGravityConstant;
         real_t cMinimumAltitude;
@@ -156,7 +158,8 @@ extern "C"
         const real_t alt_diff = altitude - a->a0;
         if (TINY_BCLIBC_FABS(alt_diff) < REAL_C(30.0))
         {
-            *density_ratio_out = a->density_ratio;
+            /* A raw atmosphere with p0 <= 0 is a vacuum whatever its density ratio says (as bclibc and Python) */
+            *density_ratio_out = (a->p0 <= REAL_C(0.0)) ? REAL_C(0.0) : a->density_ratio;
             *mach_out = a->mach;
             return;
         }
@@ -172,8 +175,12 @@ extern "C"
         const real_t pressure = a->p0 * TINY_BCLIBC_POW(
                                             REAL_C(1.0) + TINY_BCLIBC_LAPSE_RATE_K_FT * alt_diff / base_kelvin,
                                             TINY_BCLIBC_PRESSURE_EXPONENT);
-        const real_t density_delta = (base_kelvin * pressure) / (a->p0 * kelvin);
-        *density_ratio_out = a->density_ratio * density_delta;
+        /* A vacuum (base pressure 0 or less) has no air at any altitude: density ratio 0. The ratio divides by the base
+         * pressure, 0 / 0 = NaN for a vacuum, which the integration carried for ever. (A NaN pressure is not a vacuum: it
+         * is stopped by the finite-state check of the integration.) The speed of sound stays finite, from the temperature. */
+        *density_ratio_out = (a->p0 <= REAL_C(0.0))
+                                 ? REAL_C(0.0)
+                                 : a->density_ratio * ((base_kelvin * pressure) / (a->p0 * kelvin));
         *mach_out = TINY_BCLIBC_SQRT(kelvin) * TINY_BCLIBC_SPEED_SOUND_METRIC * TINY_BCLIBC_M_TO_FEET;
     }
 

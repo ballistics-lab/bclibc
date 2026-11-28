@@ -22,26 +22,48 @@ namespace bclibc
         constexpr const char *what() const noexcept { return message; }
     };
 
-    /** Zero-finding failed to converge; carries the last iteration's diagnostics. */
+    /**
+     * Zero-finding failed to converge; carries the last iteration's diagnostics.
+     *
+     * Unlike the other payloads, the message is OWNED: it is copied into a fixed buffer of the payload, so a text
+     * formatted at the point of failure (the "No low zero trajectory in elevation range (A, B deg). Errors at bracket:
+     * f(low)=X, f(high)=Y" of the Ridder search, the same text the Python reference raises) can be returned in the error
+     * from a stack-local buffer. A longer text is cut to kMessageCapacity - 1 characters. what() points into this
+     * object, so read it from the error you hold (copying the payload copies the text, no pointer is shared); no heap.
+     */
     struct BCLIBC_SolverZeroFindingError
     {
-        const char *message = "Zero finding error";
+        /** Size of the message buffer, terminator included; fits the longest bracket message (the numbers print with %.2f). */
+        static constexpr std::size_t kMessageCapacity = 256;
+
+        char message_text[kMessageCapacity] = {};
         double zero_finding_error = 0.0;
         int iterations_count = 0;
         double last_barrel_elevation_rad = 0.0;
 
-        constexpr BCLIBC_SolverZeroFindingError() noexcept = default;
+        constexpr BCLIBC_SolverZeroFindingError() noexcept { assign("Zero finding error"); }
         constexpr BCLIBC_SolverZeroFindingError(
             const char *message,
             double zero_finding_error,
             int iterations_count,
             double last_barrel_elevation_rad) noexcept
-            : message(message != nullptr ? message : "Zero finding error"),
-              zero_finding_error(zero_finding_error),
+            : zero_finding_error(zero_finding_error),
               iterations_count(iterations_count),
-              last_barrel_elevation_rad(last_barrel_elevation_rad) {}
+              last_barrel_elevation_rad(last_barrel_elevation_rad)
+        {
+            assign(message != nullptr ? message : "Zero finding error");
+        }
 
-        constexpr const char *what() const noexcept { return message; }
+        constexpr const char *what() const noexcept { return message_text; }
+
+    private:
+        constexpr void assign(const char *text) noexcept
+        {
+            std::size_t i = 0;
+            for (; i + 1 < kMessageCapacity && text[i] != '\0'; ++i)
+                message_text[i] = text[i];
+            message_text[i] = '\0';
+        }
     };
 
     /** Requested distance is beyond the trajectory's reachable range. */

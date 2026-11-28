@@ -4,6 +4,14 @@
 #include <math.h>
 #include <stdint.h>
 
+/* -ffast-math / -Ofast / -ffinite-math-only is not supported: it lets the compiler assume no NaN or Inf, which removes the
+ * NaN-as-"not set" checks (latitude/azimuth defaults, gravity and state finite checks); sane shots may then fail with a
+ * zero-finding error. Only a compile-time warning (no behaviour change); _Pragma("GCC warning") works in GCC and Clang, C and C++,
+ * and is not a pedantic extension warning. MSVC /fp:fast has no such macro. */
+#if defined(__FINITE_MATH_ONLY__) && __FINITE_MATH_ONLY__
+_Pragma("GCC warning \"tiny_bclibc: -ffast-math / -Ofast / -ffinite-math-only lets the compiler assume no NaN or Inf and removes the NaN checks (latitude/azimuth defaults, gravity, state), so sane shots may fail with zero-finding errors; this configuration is unsupported and untested, and its results and any breakage are the responsibility of whoever chose the flags\"")
+#endif
+
 /* ── Numeric type ───────────────────────────────────────────────────── */
 #if defined(TINY_BCLIBC_SINGLE_PRECISION)
 typedef float real_t;
@@ -13,6 +21,9 @@ typedef float real_t;
 #define TINY_BCLIBC_COS cosf
 #define TINY_BCLIBC_SIN sinf
 #define TINY_BCLIBC_POW powf
+#define TINY_BCLIBC_ASIN asinf
+#define TINY_BCLIBC_HYPOT hypotf
+#define TINY_BCLIBC_COPYSIGN copysignf
 #define TINY_BCLIBC_EXP expf
 #define REAL_C(x) x##f
 #else
@@ -23,6 +34,9 @@ typedef double real_t;
 #define TINY_BCLIBC_COS cos
 #define TINY_BCLIBC_SIN sin
 #define TINY_BCLIBC_POW pow
+#define TINY_BCLIBC_ASIN asin
+#define TINY_BCLIBC_HYPOT hypot
+#define TINY_BCLIBC_COPYSIGN copysign
 #define TINY_BCLIBC_EXP exp
 #define REAL_C(x) x
 #endif

@@ -29,6 +29,18 @@ jobs:
           - os: windows-latest
             arch: x86_64
             build_type: Release
+          - os: ubuntu-24.04-arm
+            arch: arm64
+            build_type: Debug
+          - os: ubuntu-24.04-arm
+            arch: arm64
+            build_type: Release
+          - os: windows-11-arm
+            arch: arm64
+            build_type: Debug
+          - os: windows-11-arm
+            arch: arm64
+            build_type: Release
     uses: ./.github/workflows/build-lib.yml
     with:
       os: ${{ matrix.os }}
@@ -37,12 +49,20 @@ jobs:
       retention_days: 1
 
   tests:
-    name: Tests (${{ matrix.build_type }})
-    runs-on: ubuntu-latest
+    name: Tests (${{ matrix.os }}, ${{ matrix.build_type }})
+    runs-on: ${{ matrix.os }}
+    # A hung test must fail in minutes with its name, not occupy a runner for the 6 hours of the default job limit.
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
-        # Debug keeps assert() alive (the tests are assert-based); Release is what ships.
+        # Debug keeps assert() alive (the tests are assert-based); Release is what ships. The ARM runners (and MSVC on
+        # Windows) catch what x86-64 glibc hides: FMA contraction and libm differences in the recorded-value guards,
+        # <cmath> constants, the C ABI on another compiler.
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, windows-11-arm]
         build_type: [Debug, Release]
     steps:
       - name: Checkout code
@@ -51,14 +71,16 @@ jobs:
       - name: Build and run the C++ tests
         run: |
           cmake -S . -B build/tests -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DBCLIBC_BUILD_TESTS=ON
-          cmake --build build/tests -j"$(nproc)"
-          ctest --test-dir build/tests --output-on-failure
+          cmake --build build/tests --config ${{ matrix.build_type }} --parallel
+          ctest --test-dir build/tests -C ${{ matrix.build_type }} --output-on-failure --timeout 1800
 
       - name: tiny_bclibc identity test (same results as bclibc)
         run: |
           cmake -S tiny_bclibc -B build/identity -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DTINY_BCLIBC_BUILD_IDENTITY_TEST=ON
-          cmake --build build/identity -j"$(nproc)"
-          build/identity/tests/test_identity
+          cmake --build build/identity --config ${{ matrix.build_type }} --parallel
+          exe=$(find build/identity -type f \( -name test_identity -o -name test_identity.exe \) | head -n 1)
+          test -n "$exe"
+          "$exe"
 
   sanitizers:
     name: ASan + UBSan

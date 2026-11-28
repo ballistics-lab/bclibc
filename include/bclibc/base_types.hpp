@@ -7,6 +7,14 @@
 #include "error.hpp"
 #include "v3d.hpp"
 
+/* -ffast-math / -Ofast / -ffinite-math-only is not supported: it lets the compiler assume no NaN or Inf, which removes the
+ * NaN-as-"not set" checks (latitude/azimuth defaults, gravity and state finite checks); sane shots may then fail with a
+ * zero-finding error. Only a compile-time warning (no behaviour change); _Pragma("GCC warning") works in GCC and Clang, C and C++,
+ * and is not a pedantic extension warning. MSVC /fp:fast has no such macro. */
+#if defined(__FINITE_MATH_ONLY__) && __FINITE_MATH_ONLY__
+_Pragma("GCC warning \"bclibc: -ffast-math / -Ofast / -ffinite-math-only lets the compiler assume no NaN or Inf and removes the NaN checks (latitude/azimuth defaults, gravity, state), so sane shots may fail with zero-finding errors; this configuration is unsupported and untested, and its results and any breakage are the responsibility of whoever chose the flags\"")
+#endif
+
 namespace bclibc
 {
     // Constants for unit conversions and atmospheric calculations
@@ -315,6 +323,14 @@ namespace bclibc
          * If `ws->current` is out of bounds, the cache is set to a zero vector and the next range to `BCLIBC_cMaxWindDistanceFeet`.
          */
         void update_cache();
+
+        /**
+         * @brief Rewinds the sock to the first wind segment.
+         *
+         * Every integration walks the sock down the list of segments as the projectile passes their ends, so each one
+         * must start from the first segment again (Python builds a fresh sock per integration).
+         */
+        void reset();
 
         /**
          * @brief Returns the wind vector for the currently active wind segment.

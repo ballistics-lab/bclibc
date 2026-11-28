@@ -637,11 +637,20 @@ namespace bclibc
     {
         const double alt_diff = altitude - this->_a0;
 
+        // A vacuum (base pressure 0, or less) has no air at any altitude: the density ratio is 0 (drag-free flight).
+        // The ratio below divides by the base pressure, 0 / 0 = NaN for a vacuum, and the integrators would carry
+        // that NaN for ever. (A NaN pressure is not a vacuum: it falls through and is stopped by the finite-state check
+        // of the integration.) The speed of sound stays what the temperature gives, finite and positive.
+        // The raw atmosphere of the C ABI (BCLIBCFFI_ShotProps::atmo) takes p0 and density_ratio separately, so p0 <= 0
+        // with a non-zero density ratio is constructible: the pressure decides, as in Python (pressure <= 0 -> density 0),
+        // also within 30 ft of the base altitude.
+        const bool vacuum = this->_p0 <= 0.0;
+
         // Fast check: if altitude is close to base altitude, use stored values
         if (std::fabs(alt_diff) < 30.0)
         {
             // Close enough to base altitude, use stored values
-            density_ratio_out = this->density_ratio;
+            density_ratio_out = vacuum ? 0.0 : this->density_ratio;
             mach_out = this->_mach;
             return;
         }
@@ -677,9 +686,7 @@ namespace bclibc
                                                 BCLIBC_cPressureExponent);
 
         // Density ratio calculation: $\frac{\rho}{\rho_{\text{std}}} = \frac{\rho_0}{\rho_{\text{std}}} \cdot \frac{P \cdot T_0}{P_0 \cdot T}$
-        const double density_delta = (base_kelvin * pressure) / (this->_p0 * kelvin);
-
-        density_ratio_out = this->density_ratio * density_delta;
+        density_ratio_out = vacuum ? 0.0 : this->density_ratio * ((base_kelvin * pressure) / (this->_p0 * kelvin));
 
         // Mach 1 speed at altitude (fps): $a = \sqrt{\gamma R T}$
         mach_out = std::sqrt(kelvin) * BCLIBC_cSpeedOfSoundMetric * BCLIBC_mToFeet;
@@ -777,6 +784,12 @@ namespace bclibc
             this->last_vector_cache.z = 0.0;
             this->next_range = BCLIBC_cMaxWindDistanceFeet;
         }
+    }
+
+    void BCLIBC_WindSock::reset()
+    {
+        this->current = 0;
+        this->update_cache();
     }
 
     /**

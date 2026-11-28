@@ -5,6 +5,7 @@
 // Parameters chosen to match test_trajectory.py parametrized G7 case.
 
 #include <cmath>
+#include <limits>
 
 // ── G7 drag table ──────────────────────────────────────────────────────────
 

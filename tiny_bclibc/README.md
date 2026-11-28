@@ -161,7 +161,7 @@ OrdinaryDiffEq.jl/SciML) — not because it measurably speeds up this library's 
 `BCLIBC_integrateTsitouras` (see [the top-level README](../README.md#adaptive-integration) for
 the tableau itself, per-stage drag/atmosphere recompute, and the event/row interpolation fix
 this class of integrator required). Being FSAL, it caches the first stage's derivative across
-accepted steps (invalidated on a wind-zone change or whenever Coriolis is active) and limits
+accepted steps (invalidated on a wind-zone change; Coriolis is evaluated in every stage derivative, so the cached stage carries it at the end velocity) and limits
 `dt` so a step never overshoots the next wind-zone boundary — both needed for the same reason
 they're needed in the C++ core's `ScipyRKController`: a stale cached derivative or a step that
 silently crosses into the wrong wind zone. `find_apex()` (via `integrate_at()`) and
@@ -327,6 +327,18 @@ int32_t tiny_bclibc_find_zero_point(
     real_t                       distance_ft,
     TINY_BCLIBC_ZeroPointResult *out);
 
+// Ridder-only zero (bclibc find_zero_angle_ridder / find_zero_point, Python find_zero_angle / find_zero_point):
+// no Newton step; TINY_BCLIBC_ERR_OUT_OF_RANGE for a target beyond the maximum range or a start below cMinimumAltitude
+int32_t tiny_bclibc_find_zero_angle_ridder(
+    const TINY_BCLIBC_ShotProps *props,
+    real_t                       distance_ft,
+    real_t                      *out_angle_rad);
+
+int32_t tiny_bclibc_find_zero_point_ridder(
+    const TINY_BCLIBC_ShotProps *props,
+    real_t                       distance_ft,
+    TINY_BCLIBC_ZeroPointResult *out);
+
 // Highest point of trajectory
 int32_t tiny_bclibc_find_apex(
     const TINY_BCLIBC_ShotProps *props,
@@ -395,6 +407,29 @@ real_t tiny_bclibc_calculate_ogw(real_t weight_grain, real_t vel_fps);     // �
 | `TINY_BCLIBC_USE_SHARED` | Import symbols (consuming `.so`/`.dll`) |
 | `TINY_BCLIBC_NO_THREAD_LOCAL` | Disable TLS error buffer (bare-metal, RTOS) |
 | `TINY_BCLIBC_NO_ERR_BUF` | No error string at all (natmod / BSS=0 targets) |
+
+## Deliberate differences from bclibc
+
+tiny_bclibc is an embedded subset; it matches bclibc's results (the identity test checks it) but not its configurability:
+
+| Aspect | bclibc | tiny_bclibc |
+|--------|--------|-------------|
+| `cMaxIterations` | Limits the iterations of the zero search (Ridder, Newton) and of the golden-section maximum-range search (which stops at a bracket of 1e-6 rad, as the Python reference) | Stored in the config but **not read**: fixed limits of 50 (Ridder), 40 (Newton) and 100 iterations with a 1e-5 rad bracket (maximum range), so it needs no per-call state |
+| Ridder angle tolerance | 1e-7 rad (as the Python reference) | 1e-5 rad: a 1e-7 bracket cannot be resolved by single-precision floats above 1 rad |
+| Lofted zero search | `lofted` argument, upper bound 89.9 deg | Low (non-lofted) zero only |
+| Zero search entry points | `zero_angle_with_fallback` / `zero_point_with_fallback` (Newton first, Ridder as fallback) and `find_zero_angle_ridder` / `find_zero_point` (Ridder only, maximum-range search first) | `tiny_bclibc_find_zero_angle` / `_point` are the Newton-first pair: as `zero_angle_with_fallback`, they widen cMinimumAltitude and still return an angle for a start below it. `tiny_bclibc_find_zero_angle_ridder` / `_point_ridder` are the Ridder-only pair: as `find_zero_angle_ridder`, they report `TINY_BCLIBC_ERR_OUT_OF_RANGE` for a start below cMinimumAltitude or a target beyond the maximum range |
+| Single precision (float32) time grid | Time-grid rows are exact to double rounding | Time-grid rows are exact to float32 rounding (about 1 ulp, relative 1.2e-7 per row) and the schedule accumulates `time_of_last += time_step` in `real_t`, so on long trajectories with a small `time_step` the error grows (about 1.7e-4 s at dt = 0.01 s over 6000 m); double builds are exact to about 1e-13 |
+| Errors | `BCLIBC_Error` with payload | Integer codes (`TINY_BCLIBC_ERR_*`) and an optional error string |
+
+When the iterations run out, both fail with a zero-finding error (`TINY_BCLIBC_ERR_ZERO_FINDING` here); neither accepts an unconverged bracket.
+
+## Compiler flags
+
+`-ffast-math`, `-Ofast` and `-ffinite-math-only` (MSVC: `/fp:fast`) are not supported or tested. They let the compiler assume that no value is
+NaN or Inf, so the NaN-as-"not set" checks (latitude and azimuth defaults, gravity, non-finite state) can be removed, and sane shots may then
+fail with a zero-finding error; results are not bit-identical to a normal build. The compiler flags are the consumer's choice and
+responsibility: the headers only warn at compile time (GCC/Clang, when `__FINITE_MATH_ONLY__` is set; MSVC has no such macro, so `/fp:fast`
+is not detected) and change nothing else. None of the shipped builds (CMake, MicroPython, WebAssembly) uses the flags.
 
 ## Error handling
 

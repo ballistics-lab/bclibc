@@ -430,7 +430,9 @@ static void test_downhill_out_of_range_is_reported()
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Regression guard: results that did not depend on the defect. Recorded before the fix.
+// Regression guard: results that did not depend on the defect. Recorded before the fix (kind 2, the angle of maximum
+// range, was re-recorded when the golden-section search began to follow the Python reference: cMaxIterations iterations,
+// 1e-6 rad; the angle moved by up to 4e-6 rad, the range by less than the tolerance of kind 3).
 //   kind 0: find_zero_angle_shot (Newton, Ridder fallback), look in {-20, -10, 0, 10}
 //   kind 1: find_zero_angle_lofted_shot(lofted == 0) for look >= 0
 //   kind 2: find_max_range_shot for look >= 0 (angle_at_max_rad)

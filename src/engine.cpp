@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <cmath>
 #include "bclibc/engine.hpp"
 #include "bclibc/scope_guard.hpp"
@@ -95,6 +96,27 @@ namespace bclibc
     };
 
     /**
+     * @brief Rejects a gravity constant the integrators cannot work with.
+     *
+     * The y axis points up, so the gravity constant is negative (-32.17405 ft/s^2 by default). With 0 or a positive
+     * value the projectile never falls and no terminator is ever reached (an integration that never returns); a NaN or
+     * an infinity is no gravity at all. One comparison per engine entry, never per step.
+     *
+     * @return BCLIBC_InvalidArgumentError ("Value error (...)") if cGravityConstant is not a finite negative number.
+     */
+    BCLIBC_Result<std::monostate> BCLIBC_BaseEngine::check_gravity() const
+    {
+        const double g = this->config.cGravityConstant;
+        if (!(std::isfinite(g) && g < 0.0))
+        {
+            return BCLIBC_Error{BCLIBC_InvalidArgumentError{
+                "Value error (gravity_constant must be negative and finite, in ft/s^2 with the y axis up, "
+                "e.g. -32.17405; got zero, a positive value, NaN or infinity)."}};
+        }
+        return std::monostate{};
+    };
+
+    /**
      * @brief Integrates the projectile trajectory using filters and optional dense trajectory storage.
      *
      * @param range_limit_ft Maximum range for integration in feet.
@@ -173,6 +195,8 @@ namespace bclibc
 
         // Block access to engine if it is needed for integration
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
+        const auto gravity_result = this->check_gravity();
+        if (has_error(gravity_result)) return gravity_result.error();
 
         // Essential termination reason control
         BCLIBC_EssentialTerminators terminators(
@@ -242,7 +266,9 @@ namespace bclibc
         BCLIBC_TerminationReason reason;
         BCLIBC_SinglePointHandler handler(key, target_value, &reason);
 
-        this->integrate(this->MAX_INTEGRATION_RANGE, handler, reason);
+        // An integration that failed (a non-finite state, a drag lookup) is reported, not read as a short flight
+        const auto integration_result = this->integrate(this->MAX_INTEGRATION_RANGE, handler, reason);
+        if (has_error(integration_result)) return integration_result.error();
 
         if (!handler.found())
         {
@@ -272,6 +298,51 @@ namespace bclibc
     };
 
     /**
+     * Elevation and azimuth of a barrel pitched by r in a sight plane canted by c about the line of sight at look angle L:
+     * the direction (cos r, sin r cos c, sin r sin c) of the look frame (x along the line of sight, y up, z right) in the
+     * world frame. See BCLIBC_BaseEngine::set_aim.
+     */
+    static inline void canted_direction(
+        double look, double cant_cos, double cant_sin, double r, double &elevation, double &azimuth)
+    {
+        const double cos_r = std::cos(r);
+        const double sin_r = std::sin(r);
+        const double x = std::cos(look) * cos_r - std::sin(look) * sin_r * cant_cos;
+        const double y = std::sin(look) * cos_r + std::cos(look) * sin_r * cant_cos;
+        const double z = sin_r * cant_sin;
+        elevation = std::atan2(y, std::hypot(x, z));
+        azimuth = std::atan2(z, x);
+    }
+
+    void BCLIBC_BaseEngine::set_aim(double elevation_rad)
+    {
+        this->aim_elevation = elevation_rad;
+        if (this->shot.cant_sine == 0.0)
+        {
+            // No cant: the elevation is the unknown itself and the azimuth is the caller's. The same value, bit for bit, as
+            // before the exact canted frame (nothing else is computed).
+            this->shot.barrel_elevation = elevation_rad;
+            return;
+        }
+
+        const double look = this->shot.look_angle;
+
+        // sin(E) = a cos(r) + b sin(r) = R sin(r + phi)
+        const double a = std::sin(look);
+        const double b = std::cos(look) * this->shot.cant_cosine;
+        const double big_r = std::hypot(a, b);
+        double ratio = big_r > 1e-12 ? std::sin(elevation_rad) / big_r : 2.0;
+        if (std::fabs(ratio) > 1.0 + 1e-12)
+        {
+            ratio = std::copysign(1.0, ratio); // not reachable with this cant: the nearest reachable pitch
+        }
+        const double r = std::asin(std::fmax(-1.0, std::fmin(1.0, ratio))) - std::atan2(a, b);
+
+        canted_direction(look, this->shot.cant_cosine, this->shot.cant_sine, r,
+                         this->shot.barrel_elevation, this->shot.barrel_azimuth);
+    }
+
+    /**
      * @brief Finds the apex (highest point) of the trajectory.
      *
      * @param apex_out Output variable to store apex trajectory data.
@@ -285,6 +356,8 @@ namespace bclibc
     {
         // Block access to engine if it is needed for integration
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
+        const auto gravity_result = this->check_gravity();
+        if (has_error(gravity_result)) return gravity_result.error();
 
         if (this->shot.barrel_elevation <= 0)
         {
@@ -307,7 +380,8 @@ namespace bclibc
             0.0,                                  // Apex is where vy = 0
             &reason);
 
-        this->integrate(this->MAX_INTEGRATION_RANGE, apex_handler, reason);
+        const auto integration_result = this->integrate(this->MAX_INTEGRATION_RANGE, apex_handler, reason);
+        if (has_error(integration_result)) return integration_result.error();
 
         if (!apex_handler.found())
         {
@@ -343,8 +417,10 @@ namespace bclibc
     {
         // Block access to engine if it is needed for integration
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
+        const auto gravity_result = this->check_gravity();
+        if (has_error(gravity_result)) return gravity_result.error();
 
-        this->shot.barrel_elevation = angle_rad;
+        this->set_aim(angle_rad);
 
         BCLIBC_TerminationReason reason;
 
@@ -354,7 +430,8 @@ namespace bclibc
             target_x_ft,
             &reason);
 
-        integrate(this->MAX_INTEGRATION_RANGE, handler, reason);
+        const auto integration_result = integrate(this->MAX_INTEGRATION_RANGE, handler, reason);
+        if (has_error(integration_result)) return integration_result.error();
 
         // The trajectory may end before the target (a limit, the minimum velocity): then the miss is measured at its
         // last point. It is still a valid, signed error -- the shot is short, the distance term makes it negative --
@@ -402,6 +479,8 @@ namespace bclibc
     {
         // Block access to engine if it is needed for integration
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
+        const auto gravity_result = this->check_gravity();
+        if (has_error(gravity_result)) return gravity_result.error();
 
         BCLIBC_BaseTrajData apex;
         double apex_slant_ft;
@@ -430,7 +509,26 @@ namespace bclibc
         if (std::fabs(result.slant_range_ft) < 2.0 * std::fmax(std::fabs(result.start_height_ft),
                                                                this->shot.calc_step))
         {
-            result.look_angle_rad = std::atan2(result.target_y_ft - result.start_height_ft, result.target_x_ft);
+            // With a cant the straight line from the bore to the target is not in the vertical plane: the bore is also offset
+            // sideways (the engine starts the shot at z = -cant_sine * sight_height). The shot of the exact canted frame (see
+            // set_aim) that crosses the line of sight at the target, ignoring gravity and drag as here, is pitched by
+            // r = atan2(h cos L, D + h cos c sin L) in its sight plane (h the sight height, D the slant distance; for L = 0
+            // the straight line of the bore to the target), and the angle returned is its elevation. Without a cant this
+            // is the former atan2(dy, dx) (L + r), computed as before.
+            if (this->shot.cant_sine != 0.0)
+            {
+                const double h = this->shot.sight_height;
+                const double look = this->shot.look_angle;
+                const double r = std::atan2(
+                    h * std::cos(look),
+                    result.slant_range_ft + h * this->shot.cant_cosine * std::sin(look));
+                double azimuth;
+                canted_direction(look, this->shot.cant_cosine, this->shot.cant_sine, r, result.look_angle_rad, azimuth);
+            }
+            else
+            {
+                result.look_angle_rad = std::atan2(result.target_y_ft - result.start_height_ft, result.target_x_ft);
+            }
             return std::monostate{};
         }
 
@@ -538,6 +636,8 @@ namespace bclibc
     {
         // Block access to engine if it is needed for integration
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
+        const auto gravity_result = this->check_gravity();
+        if (has_error(gravity_result)) return gravity_result.error();
 
         if (result_out != nullptr)
         {
@@ -597,6 +697,17 @@ namespace bclibc
             &this->config.cMinimumAltitude,
             zero_search_min_altitude(this->config.cMinimumAltitude, this->shot.alt0, required_drop_ft));
 
+        // The unknown is the elevation E of the vertical plane (aim_elevation); with a cant the shot's elevation and azimuth
+        // follow it (see set_aim). The first trial is the shot as given, aimed consistently.
+        if (this->shot.cant_sine != 0.0)
+        {
+            this->set_aim(this->shot.barrel_elevation);
+        }
+        else
+        {
+            this->aim_elevation = this->shot.barrel_elevation;
+        }
+
         // Main iteration loop
         while (iterations_count < _cMaxIterations)
         {
@@ -610,7 +721,8 @@ namespace bclibc
                 &reason // Enable early termination
             );
 
-            this->integrate(target_x_ft, handler, reason);
+            const auto integration_result = this->integrate(target_x_ft, handler, reason);
+            if (has_error(integration_result)) return integration_result.error();
 
             // A trajectory that ends before the target is used at its last point: the distance term then makes the
             // step non-convergent, which is a ZeroFindingError and so lets zero_angle_with_fallback switch to Ridder's
@@ -630,9 +742,9 @@ namespace bclibc
             }
 
             current_distance = hit.px;
-            if (2 * current_distance < target_x_ft && this->shot.barrel_elevation == 0.0 && look_angle_rad < 1.5)
+            if (2 * current_distance < target_x_ft && this->aim_elevation == 0.0 && look_angle_rad < 1.5)
             {
-                this->shot.barrel_elevation = 0.01;
+                this->set_aim(0.01);
                 iterations_count++;
                 continue;
             }
@@ -646,7 +758,7 @@ namespace bclibc
             height_error_ft = std::fabs(height_diff_ft);
             trajectory_angle = std::atan2(hit.vy, hit.vx);
 
-            double sensitivity = (std::tan(this->shot.barrel_elevation - look_angle_rad) * std::tan(trajectory_angle - look_angle_rad));
+            double sensitivity = (std::tan(this->aim_elevation - look_angle_rad) * std::tan(trajectory_angle - look_angle_rad));
             double denominator;
             if (sensitivity < -0.5)
             {
@@ -669,7 +781,7 @@ namespace bclibc
                             "Distance non-convergent",
                             range_error_ft,
                             iterations_count,
-                            this->shot.barrel_elevation}};
+                            this->aim_elevation}};
                     }
                 }
                 else if (height_error_ft > std::fabs(prev_height_error_ft))
@@ -681,10 +793,10 @@ namespace bclibc
                             "Error non-convergent",
                             height_error_ft,
                             iterations_count,
-                            this->shot.barrel_elevation}};
+                            this->aim_elevation}};
                     }
                     // Revert previous adjustment
-                    this->shot.barrel_elevation -= last_correction;
+                    this->set_aim(this->aim_elevation - last_correction);
                     correction = last_correction;
                 }
                 else if (damping_factor < 1.0)
@@ -698,7 +810,7 @@ namespace bclibc
                 if (height_error_ft > _cZeroFindingAccuracy || range_error_ft > ALLOWED_ZERO_ERROR_FEET)
                 {
                     double applied_correction = correction * damping_factor;
-                    this->shot.barrel_elevation += applied_correction;
+                    this->set_aim(this->aim_elevation + applied_correction);
                     last_correction = applied_correction;
                 }
                 else
@@ -713,7 +825,7 @@ namespace bclibc
                     "Correction denominator is zero",
                     height_error_ft,
                     iterations_count,
-                    this->shot.barrel_elevation}};
+                    this->aim_elevation}};
             }
 
             iterations_count++;
@@ -725,12 +837,12 @@ namespace bclibc
                 "Zero finding failed to converge after maximum iterations",
                 height_error_ft,
                 iterations_count,
-                this->shot.barrel_elevation}};
+                this->aim_elevation}};
         }
 
         if (result_out != nullptr)
         {
-            result_out->angle_rad = this->shot.barrel_elevation;
+            result_out->angle_rad = this->aim_elevation;
             auto point_result = BCLIBC_TrajectoryData::from_base(this->shot, hit, BCLIBC_TRAJ_FLAG_RANGE);
             if (has_error(point_result)) return point_result.error();
             result_out->point = point_result.value();
@@ -738,7 +850,7 @@ namespace bclibc
         }
 
         // success
-        return this->shot.barrel_elevation;
+        return this->aim_elevation;
     };
 
     /**
@@ -752,10 +864,21 @@ namespace bclibc
      */
     double BCLIBC_BaseEngine::range_for_angle(double angle_rad)
     {
+        const auto range = this->range_for_angle_checked(angle_rad);
+        return has_error(range) ? 0.0 : range.value();
+    }
+
+    /**
+     * @brief range_for_angle() that reports a failed integration (a non-finite state) instead of answering 0.
+     */
+    BCLIBC_Result<double> BCLIBC_BaseEngine::range_for_angle_checked(double angle_rad)
+    {
         // Block access to engine if it is needed for integration
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
+        const auto gravity_result = this->check_gravity();
+        if (has_error(gravity_result)) return gravity_result.error();
 
-        this->shot.barrel_elevation = angle_rad;
+        this->set_aim(angle_rad);
 
         // A shot that cannot rise above a downhill line of sight has no crossing to find, and with the limits lifted by
         // find_max_range it would be integrated until the range limit: answer "no crossing" without integrating. The
@@ -763,7 +886,7 @@ namespace bclibc
         // line plus (v sin(elevation - look))^2 / (2 g cos(look)); it must reach the line. (Wind is not considered.)
         if (this->shot.look_angle < 0.0)
         {
-            const double v_perp = this->shot.muzzle_velocity * std::sin(angle_rad - this->shot.look_angle);
+            const double v_perp = this->shot.muzzle_velocity * std::sin(this->shot.barrel_elevation - this->shot.look_angle);
             const double h0 = -this->shot.cant_cosine * this->shot.sight_height * std::cos(this->shot.look_angle);
             const double g = std::fabs(this->config.cGravityConstant);
             const double peak = (v_perp > 0.0 && g > 0.0) ? h0 + v_perp * v_perp / (2.0 * g * std::cos(this->shot.look_angle)) : h0;
@@ -781,7 +904,8 @@ namespace bclibc
             &reason,
             this->shot.look_angle < 0.0 ? DOWNHILL_MAX_FLIGHT_TIME_S : 0.0);
 
-        this->integrate(this->MAX_INTEGRATION_RANGE, handler, reason);
+        const auto integration_result = this->integrate(this->MAX_INTEGRATION_RANGE, handler, reason);
+        if (has_error(integration_result)) return integration_result.error();
 
         if (handler.found())
         {
@@ -808,6 +932,8 @@ namespace bclibc
     {
         // Block access to engine if it is needed for integration
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
+        const auto gravity_result = this->check_gravity();
+        if (has_error(gravity_result)) return gravity_result.error();
 
         double look_angle_rad = this->shot.look_angle;
         double max_range_ft;
@@ -857,18 +983,37 @@ namespace bclibc
         double inv_phi_sq = 0.38196601125010515;          // inv_phi^2
         double a = low_angle_deg * 0.017453292519943295;  // Convert to radians
         double b = high_angle_deg * 0.017453292519943295; // Convert to radians
+        if (this->shot.cant_sine != 0.0)
+        {
+            // With a cant the elevation E the search brackets cannot exceed asin(R), R = hypot(sin L, cos L cos cant) (see
+            // set_aim). Probes above that limit would all be clamped to one state (equal ranges, `yc > yd` false) and the
+            // search would walk away from the maximum, towards the upper bound. Without a cant the bounds are untouched.
+            const double reach = std::hypot(std::sin(look_angle_rad), std::cos(look_angle_rad) * this->shot.cant_cosine);
+            if (std::isfinite(reach) && reach < 1.0)
+            {
+                const double limit = std::asin(reach);
+                b = std::fmin(b, limit);
+                a = std::fmax(a, -limit);
+            }
+        }
         double h = b - a;
         double c = a + inv_phi_sq * h;
         double d = a + inv_phi * h;
         double yc, yd;
 
-        yc = this->range_for_angle(c);
-        yd = this->range_for_angle(d);
+        // A range that cannot be computed (a failed integration) ends the search with its error
+        BCLIBC_Result<double> range = this->range_for_angle_checked(c);
+        if (has_error(range)) return range.error();
+        yc = range.value();
+        range = this->range_for_angle_checked(d);
+        if (has_error(range)) return range.error();
+        yd = range.value();
 
-        // Golden-section search
-        for (int i = 0; i < 100; i++)
+        // Golden-section search: cMaxIterations iterations, stopping when the bracket is narrower than 1e-6 rad (angle
+        // tolerance), as the Python reference. With cMaxIterations 0 the angle is the centre of the initial bracket.
+        for (int i = 0; i < this->config.cMaxIterations; i++)
         {
-            if (h < 1e-5)
+            if (h < 1e-6)
             {
                 break;
             }
@@ -879,7 +1024,9 @@ namespace bclibc
                 yd = yc;
                 h = b - a;
                 c = a + inv_phi_sq * h;
-                yc = this->range_for_angle(c);
+                range = this->range_for_angle_checked(c);
+                if (has_error(range)) return range.error();
+                yc = range.value();
             }
             else
             {
@@ -888,15 +1035,55 @@ namespace bclibc
                 yc = yd;
                 h = b - a;
                 d = a + inv_phi * h;
-                yd = this->range_for_angle(d);
+                range = this->range_for_angle_checked(d);
+                if (has_error(range)) return range.error();
+                yd = range.value();
             }
         }
 
         angle_at_max_rad = (a + b) / 2;
-        max_range_ft = this->range_for_angle(angle_at_max_rad);
+        range = this->range_for_angle_checked(angle_at_max_rad);
+        if (has_error(range)) return range.error();
+        max_range_ft = range.value();
 
         return BCLIBC_MaxRangeResult{max_range_ft, angle_at_max_rad};
     };
+
+    /**
+     * @brief A bracketed root that ended on the angle tolerance is a root, not a jump of the error function.
+     *
+     * The miss at the target is not continuous for a lofted shot near the vertical (a shot that falls short and one that
+     * carries past the target differ by thousands of feet) and Ridder's method converges on such a jump all the same. A real
+     * root leaves an error that is tiny against the errors at the ends of the initial search bracket (at most 0.005 of the
+     * smaller one on the measured grid, all six integration methods); a jump leaves one of their order (at least 1.27).
+     * The ratio is the same as the Python reference's CONTINUOUS_ROOT_RATIO. Scale free. Not applied to the exits on the
+     * height accuracy (|f| < cZeroFindingAccuracy), which are roots by construction.
+     */
+    static constexpr double kContinuousRootRatio = 0.45;
+
+    static bool is_continuous_root(double f_root, double f_low0, double f_high0)
+    {
+        return std::fabs(f_root) <= kContinuousRootRatio * std::fmin(std::fabs(f_low0), std::fabs(f_high0));
+    }
+
+    static BCLIBC_Error discontinuity_error(
+        double f_root, double f_low0, double f_high0, int iterations, double angle_rad, int lofted)
+    {
+        // The same text as the Python reference's ZeroFindingError; the error owns a copy of it.
+        char reason[BCLIBC_SolverZeroFindingError::kMessageCapacity];
+        std::snprintf(
+            reason,
+            sizeof reason,
+            "No continuous %s zero: the error at the returned angle (%.4f deg), %.2f ft, is comparable to the "
+            "bracket-end errors f(low)=%.2f, f(high)=%.2f (a discontinuity, not a root)",
+            lofted ? "lofted" : "low",
+            angle_rad * 57.29577951308232,
+            f_root,
+            f_low0,
+            f_high0);
+        BCLIBC_WARN("%s", reason);
+        return BCLIBC_Error{BCLIBC_SolverZeroFindingError{reason, std::fabs(f_root), iterations, angle_rad}};
+    }
 
     /**
      * @brief Finds the zero angle using Ridder's method.
@@ -919,6 +1106,8 @@ namespace bclibc
     {
         // Block access to engine if it is needed for integration
         std::lock_guard<BCLIBC_Mutex> lock(this->engine_mutex);
+        const auto gravity_result = this->check_gravity();
+        if (has_error(gravity_result)) return gravity_result.error();
 
         if (result_out != nullptr)
         {
@@ -1016,7 +1205,10 @@ namespace bclibc
         if (lofted)
         {
             low_angle = angle_at_max_rad;
-            high_angle = 1.5690308719637473; // 89.9 degrees in radians
+            // Upper bound of the lofted search: 89.9 degrees, bit-identical to Python's math.radians(89.9)
+            // (1.5690509975429023). The literal that stood here, 1.5690308719637473, is 89.8988 degrees.
+            constexpr double kLoftedHighAngleRad = 89.9 * 3.14159265358979323846 / 180.0;
+            high_angle = kLoftedHighAngleRad;
         }
         else
         {
@@ -1031,53 +1223,54 @@ namespace bclibc
         // Prepare variables for Ridder's method
         double mid_angle, s, next_angle, f_mid, f_next;
         BCLIBC_BaseTrajData low_hit, high_hit, mid_hit, next_hit;
-        BCLIBC_BaseTrajData *last_hit = nullptr;
-        double last_angle = 0.0;
-        int converged = 0;
 
         {
             const auto f_low_result = this->error_at_distance(low_angle, target_x_ft, target_y_ft, &low_hit);
             if (has_error(f_low_result)) return f_low_result.error();
             f_low = f_low_result.value();
         }
-        last_hit = &low_hit;
-        last_angle = low_angle;
 
         {
             const auto f_high_result = this->error_at_distance(high_angle, target_x_ft, target_y_ft, &high_hit);
             if (has_error(f_high_result)) return f_high_result.error();
             f_high = f_high_result.value();
         }
-        last_hit = &high_hit;
-        last_angle = high_angle;
+
+        // The errors at the ends of the initial bracket: the scale of the error function for the discontinuity check below
+        // (never updated by the loop).
+        const double f_low0 = f_low;
+        const double f_high0 = f_high;
 
         if (f_low * f_high >= 0)
         {
-            const char *lofted_str = lofted ? "lofted" : "low";
-            // The formatted diagnostic (angles/f_low/f_high) can only be logged here: unlike a
-            // thrown exception, a returned BCLIBC_SolverZeroFindingError does not own its message,
-            // so it cannot carry a pointer into this stack-local buffer past the return.
-            BCLIBC_WARN(
+            // The same text as the Python reference's ZeroFindingError; the error owns a copy of it.
+            char reason[BCLIBC_SolverZeroFindingError::kMessageCapacity];
+            std::snprintf(
+                reason,
+                sizeof reason,
                 "No %s zero trajectory in elevation range (%.2f, %.2f deg). "
                 "Errors at bracket: f(low)=%.2f, f(high)=%.2f",
-                lofted_str,
+                lofted ? "lofted" : "low",
                 low_angle * 57.29577951308232,
                 high_angle * 57.29577951308232,
                 f_low,
                 f_high);
+            BCLIBC_WARN("%s", reason);
             return BCLIBC_Error{BCLIBC_SolverZeroFindingError{
-                lofted ? "No lofted zero trajectory in elevation search bracket"
-                       : "No low zero trajectory in elevation search bracket",
+                reason,
                 target_y_ft,
                 0,
-                this->shot.barrel_elevation}};
+                this->aim_elevation}};
         }
 
         // 4. Ridder's method implementation
         // cZeroFindingAccuracy is a height tolerance in feet; use a separate
         // constant for the Ridder's angle-bracket convergence checks so they
-        // are not affected by the height accuracy setting.
-        static const double kRiddersAngleTol = 1e-5;
+        // are not affected by the height accuracy setting. 1e-7 rad is the angle
+        // tolerance of the Python reference (py_ballisticcalc base_engine.py);
+        // a looser one returns a bracket that still misses by feet at a long
+        // flight time (near-vertical lofted zeros).
+        static const double kRiddersAngleTolRad = 1e-7;
         for (int i = 0; i < this->config.cMaxIterations; i++)
         {
             mid_angle = (low_angle + high_angle) / 2.0;
@@ -1087,14 +1280,11 @@ namespace bclibc
                 if (has_error(f_mid_result)) return f_mid_result.error();
                 f_mid = f_mid_result.value();
             }
-            last_hit = &mid_hit;
-            last_angle = mid_angle;
 
             // Check if we found exact solution at midpoint
             if (std::fabs(f_mid) < this->config.cZeroFindingAccuracy)
             {
                 BCLIBC_DEBUG("Ridder: found exact solution at mid_angle=%.6f", mid_angle);
-                converged = 1;
                 return return_with_point(mid_angle, mid_hit);
             }
 
@@ -1130,20 +1320,18 @@ namespace bclibc
                 if (has_error(f_next_result)) return f_next_result.error();
                 f_next = f_next_result.value();
             }
-            last_hit = &next_hit;
-            last_angle = next_angle;
 
             // Check if we found exact solution at next_angle
             if (std::fabs(f_next) < this->config.cZeroFindingAccuracy)
             {
                 BCLIBC_DEBUG("Ridder: found exact solution at next_angle=%.6f", next_angle);
-                converged = 1;
                 return return_with_point(next_angle, next_hit);
             }
 
-            if (std::fabs(next_angle - mid_angle) < kRiddersAngleTol)
+            if (std::fabs(next_angle - mid_angle) < kRiddersAngleTolRad)
             {
-                converged = 1;
+                if (!is_continuous_root(f_next, f_low0, f_high0))
+                    return discontinuity_error(f_next, f_low0, f_high0, i + 1, next_angle, lofted);
                 return return_with_point(next_angle, next_hit);
             }
 
@@ -1152,22 +1340,18 @@ namespace bclibc
             {
                 low_angle = mid_angle;
                 f_low = f_mid;
-                low_hit = mid_hit;
                 high_angle = next_angle;
                 f_high = f_next;
-                high_hit = next_hit;
             }
             else if (f_low * f_next < 0)
             {
                 high_angle = next_angle;
                 f_high = f_next;
-                high_hit = next_hit;
             }
             else if (f_high * f_next < 0)
             {
                 low_angle = next_angle;
                 f_low = f_next;
-                low_hit = next_hit;
             }
             else
             {
@@ -1176,63 +1360,28 @@ namespace bclibc
                 break;
             }
 
-            if (std::fabs(high_angle - low_angle) < kRiddersAngleTol)
+            if (std::fabs(high_angle - low_angle) < kRiddersAngleTolRad)
             {
-                converged = 1;
+                if (!is_continuous_root(f_next, f_low0, f_high0))
+                    return discontinuity_error(f_next, f_low0, f_high0, i + 1, next_angle, lofted);
                 if (result_out != nullptr)
                 {
                     return return_with_point(next_angle, next_hit);
                 }
-                return (low_angle + high_angle) / 2.0;
+                // The same angle as with a point (find_zero_point), not the midpoint of the bracket.
+                return next_angle;
             }
         }
 
-        // If we exited the loop without convergence
-        if (!converged)
-        {
-            // Try fallback strategies before giving up
-
-            // If we have a very small bracket, consider it converged
-            if (std::fabs(high_angle - low_angle) < 10.0 * kRiddersAngleTol)
-            {
-                double result = (low_angle + high_angle) / 2.0;
-                BCLIBC_DEBUG("Ridder: accepting solution from small bracket: %.6f", result);
-                if (result_out != nullptr && last_hit != nullptr)
-                {
-                    return return_with_point(last_angle, *last_hit);
-                }
-                return result;
-            }
-
-            // If we have very small errors, consider it converged
-            if (std::fabs(f_low) < 10.0 * this->config.cZeroFindingAccuracy)
-            {
-                double result = low_angle;
-                BCLIBC_DEBUG("Ridder: accepting low_angle due to small f_low: %.6f", result);
-                return return_with_point(result, low_hit);
-            }
-            if (std::fabs(f_high) < 10.0 * this->config.cZeroFindingAccuracy)
-            {
-                double result = high_angle;
-                BCLIBC_DEBUG("Ridder: accepting high_angle due to small f_high: %.6f", result);
-                return return_with_point(result, high_hit);
-            }
-
-            // All fallback strategies failed
-            return BCLIBC_Error{BCLIBC_SolverZeroFindingError{
-                "Ridder's method failed to converge.",
-                target_y_ft,
-                this->config.cMaxIterations,
-                (low_angle + high_angle) / 2.0}};
-        }
-
-        // converged == true but loop exited without an explicit return
-        // (e.g. via h < 1e-5 in a previous iteration); return best estimate.
-        if (result_out != nullptr && last_hit != nullptr)
-        {
-            return return_with_point(last_angle, *last_hit);
-        }
-        return (low_angle + high_angle) / 2.0;
+        // The loop ran out of iterations (or broke out of an unusable bracket) without a converged exit: every
+        // converging exit returns from inside the loop. Report the failure, as the Python reference does
+        // (ZeroFindingError "Ridder's method failed to converge."), instead of accepting a bracket or an end error that
+        // is merely small: the angle of such a result can miss by feet at a lofted zero.
+        return BCLIBC_Error{BCLIBC_SolverZeroFindingError{
+            "Ridder's method failed to converge.",
+            target_y_ft,
+            this->config.cMaxIterations,
+            (low_angle + high_angle) / 2.0}};
     };
 
     BCLIBC_Result<double> BCLIBC_BaseEngine::zero_angle(

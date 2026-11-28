@@ -3,6 +3,7 @@
 #include <cstring>
 #include <stdexcept>
 #include "bclibc/traj_data.hpp"
+#include "bclibc/hermite_step.hpp"
 #include "bclibc/log.hpp"
 #include "bclibc/exceptions.hpp"
 
@@ -63,10 +64,9 @@ namespace bclibc
     }
 
     /**
-     * @brief Interpolates trajectory data using 3-point PCHIP method.
-     *
-     * Performs monotone-preserving cubic Hermite interpolation on all trajectory
-     * components based on a specified key (independent variable).
+     * @brief Locates the point where a key reaches a value between three consecutive points: the cubic Hermite of the
+     * step (p0, p1) or (p1, p2) that brackets it (the convention of the filter rows); the 3-point PCHIP of the three
+     * points is only the fallback when neither does.
      *
      * ALGORITHM:
      * 1. Extract and cache key values from p0, p1, p2
@@ -107,6 +107,14 @@ namespace bclibc
         {
             return BCLIBC_Error{BCLIBC_DomainError{
                 "Degenerate interpolation segment: duplicate key values", x0, x1}};
+        }
+
+        // The points are consecutive states of the integration, so the segment that holds the value is a step: locate the
+        // value on its Hermite interpolant (the convention of the filter rows). The 3-point PCHIP below is the fallback
+        // when neither step brackets it.
+        if (hermite_step::at_key(p0, p1, key_kind, key_value, out) || hermite_step::at_key(p1, p2, key_kind, key_value, out))
+        {
+            return std::monostate{};
         }
 
         // Interpolate all fields directly without creating intermediate vectors
@@ -417,11 +425,12 @@ namespace bclibc
      *    c. Binary search from start_idx to find target
      * 2. Otherwise: Binary search entire sequence
      * 3. Check for exact match at target (within epsilon=1e-9)
-     * 4. If no exact match: Interpolate using 3-point PCHIP
+     * 4. If no exact match: Hermite interpolant of the step that brackets the value (3-point PCHIP only as the
+     *    fallback when no step does)
      *
      * OPTIMIZATION:
      * - Binary search: O(log n) instead of linear scan
-     * - Exact match avoids expensive PCHIP computation
+     * - Exact match avoids the interpolation
      * - Time filtering reduces search space for time-series queries
      *
      * @param key_kind Type of key to search by (TIME, MACH, POS_X, etc.).
@@ -516,7 +525,8 @@ namespace bclibc
      * 2. Validate center is in safe range [1, n-2]
      * 3. Compute slant values for p0, p1, p2 using precomputed cos/sin
      * 4. Validate non-degenerate (no duplicate slant values)
-     * 5. Perform vectorized 3-point PCHIP interpolation
+     * 5. Hermite interpolant of the step (p0, p1) or (p1, p2) that brackets the slant height; the vectorized 3-point PCHIP
+     *    interpolation only as the fallback
      *
     * @param look_angle_rad Look angle in radians (angle of line of sight from horizontal).
     * @param value Target slant height value.
@@ -572,7 +582,12 @@ namespace bclibc
                 "Degenerate slant values: cannot interpolate", ox0, ox1}};
         }
 
-        // Perform vectorized interpolation
+        // The step that brackets the slant height: Hermite of the step (the convention of the filter rows); the 3-point
+        // PCHIP is the fallback when neither step does.
+        if (hermite_step::at_slant(p0, p1, ca, sa, value, out) || hermite_step::at_slant(p1, p2, ca, sa, value, out))
+        {
+            return std::monostate{};
+        }
         BCLIBC_BaseTrajData::interpolate3pt_vectorized(
             value, ox0, ox1, ox2, p0, p1, p2, out,
             BCLIBC_BaseTrajData_InterpKey::POS_Y); // Dummy skip key
@@ -580,9 +595,10 @@ namespace bclibc
     }
 
     /**
-     * @brief Performs 3-point PCHIP interpolation at specified index.
+     * @brief Interpolates at specified index: Hermite of the step that holds the value, 3-point PCHIP as the fallback.
      *
-     * Uses trajectory points at [idx-1, idx, idx+1] as interpolation bracket.
+     * Uses trajectory points at [idx-1, idx, idx+1] as interpolation bracket: the steps (idx-1, idx) and (idx, idx+1)
+     * are tried in that order, the 3-point PCHIP is used only if neither brackets the value.
      * The "center" point is at idx, which should be close to the target value.
      *
      * VALID RANGE: idx must be in [1, n-2] to ensure all three points exist.
@@ -633,7 +649,11 @@ namespace bclibc
                 "Duplicate key values: cannot interpolate", ox0, ox1}};
         }
 
-        // Perform vectorized interpolation
+        // Hermite of the step that brackets the value, PCHIP over the three points as the fallback (see interpolate()).
+        if (hermite_step::at_key(p0, p1, key_kind, key_value, out) || hermite_step::at_key(p1, p2, key_kind, key_value, out))
+        {
+            return std::monostate{};
+        }
         BCLIBC_BaseTrajData::interpolate3pt_vectorized(
             key_value, ox0, ox1, ox2, p0, p1, p2, out, key_kind);
 
@@ -646,7 +666,7 @@ namespace bclibc
      * Checks if trajectory data at idx has key value matching key_value within
      * tolerance (epsilon = 1e-9). If match found, copies data to out.
      *
-     * OPTIMIZATION: Avoids expensive PCHIP interpolation when exact data exists.
+     * OPTIMIZATION: Avoids the interpolation when exact data exists.
      * This is common when querying at measured data points.
      *
      * @param idx Index to check for exact match.
